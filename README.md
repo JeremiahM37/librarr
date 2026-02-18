@@ -24,6 +24,7 @@ After downloading, books can be auto-imported into Calibre-Web and/or Audiobooks
 - **Audiobook support** — Search and download audiobooks via Prowlarr indexers and AudioBookBay
 - **Library browsing** — Browse your ebook and audiobook libraries with cover art directly in the UI
 - **All integrations optional** — Works with zero config (Anna's Archive + web novel search), add integrations as you need them
+- **Plugin sources** — Add new search sources by dropping a Python file into `sources/` — no core code changes needed
 - **Settings UI** — Configure all integrations from the web interface with connection testing
 - **Persistent downloads** — Download state survives container restarts (SQLite-backed)
 - **Dark UI** — Clean, responsive web interface
@@ -125,8 +126,10 @@ When you download a web novel, Librarr uses a multi-strategy approach:
 | `/api/test/prowlarr` | POST | Test Prowlarr connection |
 | `/api/test/qbittorrent` | POST | Test qBittorrent connection |
 | `/api/test/audiobookshelf` | POST | Test Audiobookshelf connection |
+| `/api/sources` | GET | List all loaded sources with metadata |
 | `/api/search?q=...` | GET | Search all sources |
 | `/api/search/audiobooks?q=...` | GET | Search audiobook sources |
+| `/api/download` | POST | Unified download (auto-dispatches by source) |
 | `/api/download/annas` | POST | Download from Anna's Archive |
 | `/api/download/torrent` | POST | Send torrent to qBittorrent |
 | `/api/download/novel` | POST | Download web novel |
@@ -134,6 +137,71 @@ When you download a web novel, Librarr uses a multi-strategy approach:
 | `/api/downloads` | GET | List active downloads |
 | `/api/library` | GET | Browse ebook library |
 | `/api/library/audiobooks` | GET | Browse audiobook library |
+
+## Adding Custom Sources
+
+You can add new search sources by creating a Python file in the `sources/` directory. The app auto-discovers all `Source` subclasses on startup.
+
+### Direct Download Source
+
+For sources that provide direct file downloads:
+
+```python
+# sources/example.py
+import requests
+from .base import Source
+
+class ExampleSource(Source):
+    name = "example"           # Unique ID
+    label = "Example Site"     # Badge label in UI
+    color = "#2ecc71"          # Badge color (hex)
+    download_type = "direct"   # Framework manages the download job
+
+    def search(self, query):
+        # Return list of result dicts. Each must have "title".
+        # Include any fields your download() method needs.
+        return [{"title": "My Book", "file_url": "https://..."}]
+
+    def download(self, result, job):
+        # Called in a background thread. Update job status as you go:
+        job["detail"] = "Downloading..."
+        # ... download the file ...
+        job["status"] = "completed"
+        job["detail"] = "Done!"
+        return True
+```
+
+### Torrent Source
+
+For sources that return torrent links (downloaded via qBittorrent):
+
+```python
+# sources/mytracker.py
+from .base import Source
+
+class MyTrackerSource(Source):
+    name = "mytracker"
+    label = "My Tracker"
+    color = "#8e44ad"
+    download_type = "torrent"  # Results sent to qBittorrent automatically
+    config_fields = [          # Shows in Settings UI, stored in settings.json
+        {"key": "api_key", "label": "API Key", "type": "text", "required": True},
+    ]
+
+    def search(self, query):
+        api_key = self.get_config("api_key")
+        # Return results with download_url, magnet_url, or info_hash
+        return [{
+            "title": "My Book",
+            "seeders": 10,
+            "size_human": "1.5 GB",
+            "download_url": "https://...",
+        }]
+```
+
+Sources with `config_fields` get a settings section automatically in the UI. Config values can also be set via environment variables: `SOURCE_MYTRACKER_API_KEY`.
+
+See `sources/base.py` for the full API documentation.
 
 ## License
 

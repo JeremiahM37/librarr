@@ -677,6 +677,8 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
       </div>
     </div>
 
+    <div id="plugin-sources-config"></div>
+
     <button class="save-btn" onclick="saveSettings()" id="save-settings-btn">Save Settings</button>
   </div>
 
@@ -697,6 +699,7 @@ let pollInterval = null;
 let activeDownloads = 0;
 let externalUrls = { abs_url: '' };
 let appConfig = {};
+window._sourcesMeta = {};
 
 async function loadConfig() {
   try {
@@ -712,6 +715,11 @@ async function loadConfig() {
     if (!appConfig.prowlarr && !appConfig.qbittorrent && !appConfig.audiobookshelf) {
       document.getElementById('setup-banner').style.display = 'block';
     }
+  } catch (e) {}
+  // Load source metadata for dynamic badge rendering
+  try {
+    const resp = await fetch('/api/sources');
+    window._sourcesMeta = await resp.json();
   } catch (e) {}
 }
 
@@ -773,61 +781,20 @@ async function doSearch() {
       return;
     }
 
-    const sourceOrder = { annas: 0, webnovel: 1, torrent: 2 };
+    // Store source metadata for dynamic rendering
+    window._sourcesMeta = data.sources || {};
+
+    // Sort: direct downloads first, then by seeders for torrents
+    const typeOrder = { direct: 0, custom: 1, torrent: 2 };
     items.sort((a, b) => {
-      const oa = sourceOrder[a.source] ?? 9, ob = sourceOrder[b.source] ?? 9;
+      const sa = window._sourcesMeta[a.source] || {}, sb = window._sourcesMeta[b.source] || {};
+      const oa = typeOrder[sa.download_type] ?? 9, ob = typeOrder[sb.download_type] ?? 9;
       if (oa !== ob) return oa - ob;
-      if (a.source === 'torrent') return (b.seeders || 0) - (a.seeders || 0);
+      if (sa.download_type === 'torrent') return (b.seeders || 0) - (a.seeders || 0);
       return 0;
     });
 
-    const hasQb = appConfig.qbittorrent;
-
-    results.innerHTML = items.map((r, i) => {
-      if (r.source === 'annas') {
-        return `<div class="result">
-          <span class="badge annas">Anna's</span>
-          <div class="result-info">
-            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
-            <div class="result-meta">
-              ${r.author ? `<span>${esc(r.author)}</span>` : ''}
-              ${r.size_human ? `<span>${esc(r.size_human)}</span>` : ''}
-              <span>EPUB</span>
-            </div>
-          </div>
-          <button class="dl-btn" id="dl-${i}" onclick="dlAnnas(${i}, this)">Download</button>
-        </div>`;
-      } else if (r.source === 'torrent') {
-        return `<div class="result">
-          <span class="badge torrent">Torrent</span>
-          <div class="result-info">
-            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
-            <div class="result-meta">
-              <span>${esc(r.indexer)}</span>
-              <span>${r.seeders} seeds</span>
-              <span>${r.size_human}</span>
-            </div>
-          </div>
-          <button class="dl-btn" id="dl-${i}" onclick="dlTorrent(${i}, this)" ${hasQb ? '' : 'disabled title="qBittorrent not configured"'}>Download</button>
-        </div>`;
-      } else {
-        const site = r.site || 'Web Novel';
-        const extra = r.chapters ? ` | ${r.chapters} chapters` : '';
-        return `<div class="result">
-          <span class="badge webnovel">Web Novel</span>
-          <div class="result-info">
-            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
-            <div class="result-meta">
-              <span>${esc(site)}</span>
-              ${r.status ? `<span>${esc(r.status)}</span>` : ''}
-              ${extra ? `<span>${extra}</span>` : ''}
-            </div>
-          </div>
-          <button class="dl-btn" id="dl-${i}" onclick="dlNovel(${i}, this)">Download</button>
-        </div>`;
-      }
-    }).join('');
-
+    results.innerHTML = items.map((r, i) => renderResult(r, i, 'dl')).join('');
     window._results = items;
   } catch (e) {
     meta.textContent = 'Search failed: ' + e.message;
@@ -837,74 +804,50 @@ async function doSearch() {
   }
 }
 
-async function dlTorrent(idx, btn) {
-  const r = window._results[idx];
-  btn.disabled = true;
-  btn.textContent = 'Sending...';
-  try {
-    const resp = await fetch('/api/download/torrent', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        download_url: r.download_url,
-        magnet_url: r.magnet_url,
-        info_hash: r.info_hash,
-        title: r.title,
-      }),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      btn.textContent = 'Sent!';
-      btn.classList.add('sent');
-      showToast('Sent "' + r.title.substring(0, 60) + '" to qBittorrent');
-    } else {
-      btn.textContent = 'Failed';
-      showToast('Failed: ' + (data.error || 'Unknown error'));
-    }
-  } catch (e) {
-    btn.textContent = 'Error';
-    showToast('Error: ' + e.message);
-  }
+function renderResult(r, i, prefix) {
+  const src = window._sourcesMeta[r.source] || {};
+  const badgeColor = src.color || '#888';
+  const badgeLabel = src.label || r.source;
+  const isTorrent = src.download_type === 'torrent';
+  const dlDisabled = isTorrent && !appConfig.qbittorrent;
+
+  // Build metadata spans dynamically from available fields
+  const metaFields = [];
+  if (r.author) metaFields.push(esc(r.author));
+  if (r.indexer) metaFields.push(esc(r.indexer));
+  if (r.site) metaFields.push(esc(r.site));
+  if (r.seeders !== undefined && r.seeders !== null) metaFields.push(r.seeders + ' seeds');
+  if (r.size_human && r.size_human !== '?') metaFields.push(esc(r.size_human));
+  if (r.status) metaFields.push(esc(r.status));
+  if (r.chapters) metaFields.push(r.chapters + ' chapters');
+  const metaHtml = metaFields.map(m => `<span>${m}</span>`).join('');
+
+  return `<div class="result">
+    <span class="badge" style="background:${badgeColor};color:#fff">${esc(badgeLabel)}</span>
+    <div class="result-info">
+      <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+      <div class="result-meta">${metaHtml}</div>
+    </div>
+    <button class="dl-btn" id="${prefix}-${i}" onclick="dlGeneric('${prefix}', ${i}, this)"
+      ${dlDisabled ? 'disabled title="qBittorrent not configured"' : ''}>Download</button>
+  </div>`;
 }
 
-async function dlNovel(idx, btn) {
-  const r = window._results[idx];
+async function dlGeneric(prefix, idx, btn) {
+  const r = prefix === 'ab' ? window._abResults[idx] : window._results[idx];
   btn.disabled = true;
   btn.textContent = 'Starting...';
   try {
-    const resp = await fetch('/api/download/novel', {
+    const resp = await fetch('/api/download', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ url: r.url, title: r.title }),
+      body: JSON.stringify(r),
     });
     const data = await resp.json();
     if (data.success) {
-      btn.textContent = 'Queued!';
+      btn.textContent = data.job_id ? 'Queued!' : 'Sent!';
       btn.classList.add('sent');
-      showToast('Downloading "' + r.title.substring(0, 60) + '" (checks Anna\'s Archive first)');
-    } else {
-      btn.textContent = 'Failed';
-    }
-  } catch (e) {
-    btn.textContent = 'Error';
-  }
-}
-
-async function dlAnnas(idx, btn) {
-  const r = window._results[idx];
-  btn.disabled = true;
-  btn.textContent = 'Starting...';
-  try {
-    const resp = await fetch('/api/download/annas', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({ md5: r.md5, title: r.title }),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      btn.textContent = 'Queued!';
-      btn.classList.add('sent');
-      showToast('Downloading "' + r.title.substring(0, 60) + '" from Anna\'s Archive');
+      showToast('Started download: ' + r.title.substring(0, 60));
     } else {
       btn.textContent = 'Failed';
       showToast('Failed: ' + (data.error || 'Unknown error'));
@@ -942,60 +885,17 @@ async function doAudiobookSearch() {
       return;
     }
 
+    // Store source metadata for audiobook rendering
+    if (data.sources) Object.assign(window._sourcesMeta || {}, data.sources);
+
     items.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
-
-    results.innerHTML = items.map((r, i) => {
-      const meta = [];
-      meta.push(`<span>${esc(r.indexer)}</span>`);
-      if (r.seeders) meta.push(`<span>${r.seeders} seeds</span>`);
-      if (r.size_human && r.size_human !== '?') meta.push(`<span>${r.size_human}</span>`);
-      return `<div class="result">
-        <span class="badge audiobook">Audiobook</span>
-        <div class="result-info">
-          <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
-          <div class="result-meta">${meta.join('')}</div>
-        </div>
-        <button class="dl-btn" id="ab-dl-${i}" onclick="dlAudiobook(${i}, this)">Download</button>
-      </div>`;
-    }).join('');
-
+    results.innerHTML = items.map((r, i) => renderResult(r, i, 'ab')).join('');
     window._abResults = items;
   } catch (e) {
     meta.textContent = 'Search failed: ' + e.message;
   } finally {
     btn.disabled = false;
     btn.textContent = 'Search';
-  }
-}
-
-async function dlAudiobook(idx, btn) {
-  const r = window._abResults[idx];
-  btn.disabled = true;
-  btn.textContent = r.abb_url ? 'Resolving...' : 'Sending...';
-  try {
-    const resp = await fetch('/api/download/audiobook', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({
-        download_url: r.download_url,
-        magnet_url: r.magnet_url,
-        info_hash: r.info_hash,
-        abb_url: r.abb_url || '',
-        title: r.title,
-      }),
-    });
-    const data = await resp.json();
-    if (data.success) {
-      btn.textContent = 'Sent!';
-      btn.classList.add('sent');
-      showToast('Sent "' + r.title.substring(0, 60) + '" to download');
-    } else {
-      btn.textContent = 'Failed';
-      showToast('Failed: ' + (data.error || 'Unknown error'));
-    }
-  } catch (e) {
-    btn.textContent = 'Error';
-    showToast('Error: ' + e.message);
   }
 }
 
@@ -1017,9 +917,9 @@ async function loadDownloads() {
 
     list.innerHTML = items.map(d => {
       let extra = '';
-      if ((d.source === 'torrent' || d.source === 'audiobook') && d.progress !== undefined) {
+      if (d.progress !== undefined && d.progress !== null) {
         extra = `<div class="progress-bar"><div class="progress-fill" style="width:${d.progress}%"></div></div>
-          <div class="download-meta">${d.progress}% | ${d.size} | ${d.speed}</div>`;
+          <div class="download-meta">${d.progress}% | ${d.size || '?'} | ${d.speed || '?'}</div>`;
       }
       if (d.detail) {
         extra += `<div class="download-meta">${esc(d.detail)}</div>`;
@@ -1027,14 +927,15 @@ async function loadDownloads() {
       if (d.error) {
         extra += `<div class="error-msg">${esc(d.error)}</div>`;
       }
-      const delId = (d.source === 'torrent' || d.source === 'audiobook') ? d.hash : d.job_id;
-      const delType = (d.source === 'torrent' || d.source === 'audiobook') ? 'torrent' : 'novel';
+      const delId = d.hash || d.job_id;
+      const delType = d.hash ? 'torrent' : 'novel';
       const delBtn = `<button class="del-btn" onclick="delDownload('${delType}','${delId}')">Remove</button>`;
-      const badgeClass = d.source === 'audiobook' ? 'audiobook' : d.source === 'torrent' ? 'torrent' : d.source === 'annas' ? 'annas' : 'webnovel';
-      const badgeLabel = d.source === 'audiobook' ? 'Audiobook' : d.source === 'torrent' ? 'Torrent' : d.source === 'annas' ? "Anna's" : 'Novel';
+      const src = (window._sourcesMeta || {})[d.source] || {};
+      const badgeColor = src.color || '#888';
+      const badgeLabel = src.label || d.source;
       return `<div class="download-item">
         <div class="download-header">
-          <span class="badge ${badgeClass}">${badgeLabel}</span>
+          <span class="badge" style="background:${badgeColor};color:#fff">${esc(badgeLabel)}</span>
           <span class="download-title">${esc(d.title)}</span>
           <span class="status ${d.status}">${d.status}</span>
           ${delBtn}
@@ -1261,7 +1162,34 @@ async function loadSettings() {
     if (s.abs_ebook_library_id) _addLibOption('set-abs-ebook-library', s.abs_ebook_library_id, s.abs_ebook_library_id);
     // Update status dots
     updateStatusDots();
+    // Render plugin source config fields
+    renderPluginConfig(s);
   } catch (e) {}
+}
+
+function renderPluginConfig(settings) {
+  const container = document.getElementById('plugin-sources-config');
+  if (!container || !window._sourcesMeta) return;
+  let html = '';
+  for (const [name, meta] of Object.entries(window._sourcesMeta)) {
+    if (!meta.config_fields || !meta.config_fields.length) continue;
+    const dotClass = meta.enabled ? 'on' : 'off';
+    html += `<div class="settings-section">
+      <h3><span class="status-dot ${dotClass}"></span> ${esc(meta.label)}</h3>
+      <p class="desc">Plugin source configuration</p>`;
+    for (const field of meta.config_fields) {
+      const settingsKey = 'source_' + name + '_' + field.key;
+      const val = settings[settingsKey] || '';
+      const inputType = field.type === 'password' ? 'password' : 'text';
+      html += `<div class="settings-row">
+        <label>${esc(field.label)}${field.required ? ' *' : ''}</label>
+        <input type="${inputType}" id="plugin-${name}-${field.key}" value="${esc(val)}"
+          placeholder="${esc(field.placeholder || '')}" data-source="${esc(name)}" data-key="${esc(field.key)}">
+      </div>`;
+    }
+    html += '</div>';
+  }
+  container.innerHTML = html;
 }
 
 function updateStatusDots() {
@@ -1391,6 +1319,11 @@ async function saveSettings() {
     incoming_dir: document.getElementById('set-incoming-dir').value.trim(),
     audiobook_dir: document.getElementById('set-audiobook-dir').value.trim(),
   };
+  // Collect plugin source config values
+  document.querySelectorAll('#plugin-sources-config input[data-source]').forEach(input => {
+    const key = 'source_' + input.dataset.source + '_' + input.dataset.key;
+    settings[key] = input.value.trim();
+  });
   try {
     const resp = await fetch('/api/settings', {
       method: 'POST',

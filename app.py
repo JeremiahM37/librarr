@@ -23,6 +23,7 @@ import requests
 from flask import Flask, jsonify, request, send_file
 
 import config
+import sources
 
 app = Flask(__name__)
 logging.basicConfig(
@@ -1448,28 +1449,27 @@ def api_search():
 
     all_results = []
     start = time.time()
+    enabled = sources.get_enabled_sources(tab="main")
 
-    futures_list = []
-    with ThreadPoolExecutor(max_workers=3) as executor:
-        # Anna's Archive and web novels always available
-        annas_future = executor.submit(search_annas_archive, query)
-        novel_future = executor.submit(search_webnovels, query)
-        futures_list = [annas_future, novel_future]
-
-        # Prowlarr only if configured
-        if config.has_prowlarr():
-            torrent_future = executor.submit(search_prowlarr, query)
-            futures_list.append(torrent_future)
-
-        for future in as_completed(futures_list, timeout=35):
+    with ThreadPoolExecutor(max_workers=max(len(enabled), 1)) as executor:
+        futures = {executor.submit(s.search, query): s for s in enabled}
+        for future in as_completed(futures, timeout=35):
+            source = futures[future]
             try:
-                all_results.extend(future.result())
+                results = future.result()
+                for r in results:
+                    r.setdefault("source", source.name)
+                all_results.extend(results)
             except Exception as e:
-                logger.error(f"Search error: {e}")
+                logger.error(f"Search error ({source.name}): {e}")
 
     all_results = filter_results(all_results, query)
     elapsed = int((time.time() - start) * 1000)
-    return jsonify({"results": all_results, "search_time_ms": elapsed})
+    return jsonify({
+        "results": all_results,
+        "search_time_ms": elapsed,
+        "sources": sources.get_source_metadata(),
+    })
 
 
 @app.route("/api/download/torrent", methods=["POST"])
@@ -1498,21 +1498,28 @@ def api_search_audiobooks():
     if not query:
         return jsonify({"results": [], "error": "No query provided"})
     start = time.time()
+    enabled = sources.get_enabled_sources(tab="audiobook")
 
-    with ThreadPoolExecutor(max_workers=2) as executor:
-        futures_list = [executor.submit(search_audiobookbay, query)]
-        if config.has_prowlarr():
-            futures_list.append(executor.submit(search_prowlarr_audiobooks, query))
+    with ThreadPoolExecutor(max_workers=max(len(enabled), 1)) as executor:
+        futures = {executor.submit(s.search, query): s for s in enabled}
         results = []
-        for future in as_completed(futures_list, timeout=35):
+        for future in as_completed(futures, timeout=35):
+            source = futures[future]
             try:
-                results.extend(future.result())
+                batch = future.result()
+                for r in batch:
+                    r.setdefault("source", source.name)
+                results.extend(batch)
             except Exception as e:
-                logger.error(f"Audiobook search error: {e}")
+                logger.error(f"Audiobook search error ({source.name}): {e}")
 
     results = filter_results(results, query)
     elapsed = int((time.time() - start) * 1000)
-    return jsonify({"results": results, "search_time_ms": elapsed})
+    return jsonify({
+        "results": results,
+        "search_time_ms": elapsed,
+        "sources": sources.get_source_metadata(),
+    })
 
 
 @app.route("/api/download/audiobook", methods=["POST"])
@@ -1863,6 +1870,87 @@ def api_audiobook_cover(item_id):
 
 
 # =============================================================================
+# Plugin Source API
+# =============================================================================
+@app.route("/api/sources")
+def api_sources():
+    """Return metadata for all loaded sources (for UI rendering and settings)."""
+    return jsonify(sources.get_source_metadata())
+
+
+@app.route("/api/download", methods=["POST"])
+def api_download():
+    """Unified download endpoint — dispatches to the right source/method."""
+    data = request.json
+    source_name = data.get("source", "")
+    source = sources.get_source(source_name)
+
+    if not source:
+        return jsonify({"success": False, "error": f"Unknown source: {source_name}"}), 400
+
+    if not source.enabled():
+        return jsonify({"success": False, "error": f"Source '{source.label}' is not configured"}), 400
+
+    title = data.get("title", "Unknown")
+
+    # Torrent sources: send to qBittorrent
+    if source.download_type == "torrent":
+        if not config.has_qbittorrent():
+            return jsonify({"success": False, "error": "qBittorrent not configured"}), 400
+
+        url = data.get("download_url") or data.get("magnet_url", "")
+        if not url and data.get("info_hash"):
+            url = f"magnet:?xt=urn:btih:{data['info_hash']}"
+        if not url and data.get("abb_url"):
+            magnet = _resolve_abb_magnet(data["abb_url"])
+            if magnet:
+                url = magnet
+            else:
+                return jsonify({"success": False, "error": "Failed to resolve download link"}), 400
+        if not url:
+            return jsonify({"success": False, "error": "No download URL"}), 400
+
+        if source.search_tab == "audiobook":
+            save_path = config.QB_AUDIOBOOK_SAVE_PATH
+            category = config.QB_AUDIOBOOK_CATEGORY
+            watch_fn = watch_audiobook_torrent
+        else:
+            save_path = config.QB_SAVE_PATH
+            category = config.QB_CATEGORY
+            watch_fn = watch_torrent
+
+        success = qb.add_torrent(url, title, save_path=save_path, category=category)
+        if success:
+            threading.Thread(target=watch_fn, args=(title,), daemon=True).start()
+        return jsonify({"success": success, "title": title})
+
+    # Direct/custom sources: create a job and run in background thread
+    job_id = str(uuid.uuid4())[:8]
+    download_jobs[job_id] = {
+        "status": "queued",
+        "title": title,
+        "source": source_name,
+        "error": None,
+        "detail": None,
+    }
+
+    def _run_download():
+        download_jobs[job_id]["status"] = "downloading"
+        try:
+            success = source.download(data, download_jobs[job_id])
+            if not success and download_jobs[job_id]["status"] != "completed":
+                download_jobs[job_id]["status"] = "error"
+                download_jobs[job_id]["error"] = download_jobs[job_id].get("error") or "Download failed"
+        except Exception as e:
+            logger.error(f"Download error ({source_name}): {e}")
+            download_jobs[job_id]["status"] = "error"
+            download_jobs[job_id]["error"] = str(e)
+
+    threading.Thread(target=_run_download, daemon=True).start()
+    return jsonify({"success": True, "job_id": job_id, "title": title})
+
+
+# =============================================================================
 # Settings API
 # =============================================================================
 @app.route("/api/settings")
@@ -1975,10 +2063,14 @@ def api_test_audiobookshelf():
 # Main
 # =============================================================================
 if __name__ == "__main__":
+    # Load source plugins
+    sources.load_sources()
+    enabled_sources = sources.get_enabled_sources("main") + sources.get_enabled_sources("audiobook")
+    source_names = ", ".join(s.label for s in enabled_sources) or "none"
+    logger.info(f"Librarr starting — {len(enabled_sources)} sources enabled: {source_names}")
+
     # Log enabled integrations
     integrations = []
-    if config.has_prowlarr():
-        integrations.append("Prowlarr")
     if config.has_qbittorrent():
         integrations.append("qBittorrent")
     if config.has_calibre():
@@ -1987,8 +2079,8 @@ if __name__ == "__main__":
         integrations.append("Audiobookshelf")
     if config.has_lncrawl():
         integrations.append("lightnovel-crawler")
-    enabled = ", ".join(integrations) if integrations else "none (Anna's Archive + web novels only)"
-    logger.info(f"Librarr starting — integrations: {enabled}")
+    if integrations:
+        logger.info(f"Integrations: {', '.join(integrations)}")
 
     # Start auto-import background thread if qBittorrent is configured
     if config.has_qbittorrent():
