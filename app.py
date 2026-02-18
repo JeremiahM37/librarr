@@ -6,9 +6,11 @@ Downloads via direct HTTP, qBittorrent, or lightnovel-crawler.
 Auto-imports into Calibre-Web and Audiobookshelf.
 """
 import glob
+import json
 import logging
 import os
 import re
+import sqlite3
 import subprocess
 import sys
 import threading
@@ -30,8 +32,124 @@ logging.basicConfig(
 )
 logger = logging.getLogger("librarr")
 
-# In-memory download job tracker
-download_jobs = {}
+
+# =============================================================================
+# Persistent Download Job Store (SQLite-backed)
+# =============================================================================
+class DownloadStore:
+    """Dict-like download job tracker backed by SQLite for persistence.
+
+    Jobs survive container restarts. Access pattern is the same as a dict:
+        download_jobs[job_id] = {...}
+        download_jobs[job_id]["status"] = "downloading"
+        for job_id, job in download_jobs.items(): ...
+    """
+
+    def __init__(self, db_path):
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        self._cache = {}
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        self._init_db()
+        self._load_all()
+
+    def _connect(self):
+        conn = sqlite3.connect(self._db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        return conn
+
+    def _init_db(self):
+        with self._connect() as conn:
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS download_jobs (
+                    job_id TEXT PRIMARY KEY,
+                    data TEXT NOT NULL,
+                    created_at REAL DEFAULT (strftime('%s', 'now')),
+                    updated_at REAL DEFAULT (strftime('%s', 'now'))
+                )
+            """)
+
+    def _load_all(self):
+        with self._connect() as conn:
+            rows = conn.execute("SELECT job_id, data FROM download_jobs").fetchall()
+        stale = 0
+        for job_id, data_str in rows:
+            try:
+                data = json.loads(data_str)
+            except json.JSONDecodeError:
+                continue
+            # Mark jobs that were in-progress when the app stopped as failed
+            if data.get("status") in ("queued", "downloading", "importing"):
+                data["status"] = "error"
+                data["error"] = "Interrupted by restart"
+                stale += 1
+            self._cache[job_id] = _PersistentJob(self, job_id, data)
+        if self._cache:
+            msg = f"Restored {len(self._cache)} download jobs from database"
+            if stale:
+                msg += f" ({stale} marked as failed due to restart)"
+            logger.info(msg)
+
+    def _persist(self, job_id, data):
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """INSERT OR REPLACE INTO download_jobs (job_id, data, updated_at)
+                       VALUES (?, ?, strftime('%s', 'now'))""",
+                    (job_id, json.dumps(data)),
+                )
+
+    def _delete(self, job_id):
+        with self._lock:
+            self._cache.pop(job_id, None)
+            with self._connect() as conn:
+                conn.execute("DELETE FROM download_jobs WHERE job_id = ?", (job_id,))
+
+    def __setitem__(self, job_id, value):
+        job = _PersistentJob(self, job_id, dict(value))
+        self._cache[job_id] = job
+        self._persist(job_id, job._data)
+
+    def __getitem__(self, job_id):
+        return self._cache[job_id]
+
+    def __contains__(self, job_id):
+        return job_id in self._cache
+
+    def __delitem__(self, job_id):
+        self._delete(job_id)
+
+    def items(self):
+        return list(self._cache.items())
+
+    def get(self, job_id, default=None):
+        return self._cache.get(job_id, default)
+
+
+class _PersistentJob:
+    """Wraps a job dict so that mutations auto-persist to SQLite."""
+
+    def __init__(self, store, job_id, data):
+        self._store = store
+        self._job_id = job_id
+        self._data = data
+
+    def __getitem__(self, key):
+        return self._data[key]
+
+    def __setitem__(self, key, value):
+        self._data[key] = value
+        self._store._persist(self._job_id, self._data)
+
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
+    def __repr__(self):
+        return repr(self._data)
+
+
+_DB_PATH = os.getenv("LIBRARR_DB_PATH", "/data/librarr/downloads.db")
+download_jobs = DownloadStore(_DB_PATH)
 
 
 # =============================================================================
@@ -1742,6 +1860,115 @@ def api_audiobook_cover(item_id):
     except Exception:
         pass
     return "", 404
+
+
+# =============================================================================
+# Settings API
+# =============================================================================
+@app.route("/api/settings")
+def api_get_settings():
+    return jsonify(config.get_all_settings())
+
+
+@app.route("/api/settings", methods=["POST"])
+def api_save_settings():
+    data = request.json
+    if not data:
+        return jsonify({"success": False, "error": "No data provided"}), 400
+    try:
+        config.save_settings(data)
+        # Re-authenticate qBittorrent if credentials changed
+        qb.authenticated = False
+        return jsonify({"success": True})
+    except Exception as e:
+        logger.error(f"Failed to save settings: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@app.route("/api/test/prowlarr", methods=["POST"])
+def api_test_prowlarr():
+    data = request.json
+    url = data.get("url", "").rstrip("/")
+    api_key = data.get("api_key", "")
+    if not url or not api_key:
+        return jsonify({"success": False, "error": "URL and API key required"})
+    try:
+        resp = requests.get(
+            f"{url}/api/v1/indexer",
+            headers={"X-Api-Key": api_key},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            indexers = resp.json()
+            count = len(indexers)
+            return jsonify({"success": True, "message": f"Connected ({count} indexer{'s' if count != 1 else ''})"})
+        elif resp.status_code == 401:
+            return jsonify({"success": False, "error": "Invalid API key"})
+        else:
+            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
+    except requests.ConnectionError:
+        return jsonify({"success": False, "error": "Connection refused — is Prowlarr running?"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/api/test/qbittorrent", methods=["POST"])
+def api_test_qbittorrent():
+    data = request.json
+    url = data.get("url", "").rstrip("/")
+    user = data.get("user", "admin")
+    password = data.get("pass", "")
+    if not url:
+        return jsonify({"success": False, "error": "URL required"})
+    try:
+        session = requests.Session()
+        resp = session.post(
+            f"{url}/api/v2/auth/login",
+            data={"username": user, "password": password},
+            timeout=10,
+        )
+        if resp.text == "Ok.":
+            # Get version
+            ver_resp = session.get(f"{url}/api/v2/app/version", timeout=5)
+            version = ver_resp.text if ver_resp.status_code == 200 else "unknown"
+            return jsonify({"success": True, "message": f"Connected (v{version})"})
+        else:
+            return jsonify({"success": False, "error": "Login failed — check username/password"})
+    except requests.ConnectionError:
+        return jsonify({"success": False, "error": "Connection refused — is qBittorrent running?"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
+@app.route("/api/test/audiobookshelf", methods=["POST"])
+def api_test_audiobookshelf():
+    data = request.json
+    url = data.get("url", "").rstrip("/")
+    token = data.get("token", "")
+    if not url or not token:
+        return jsonify({"success": False, "error": "URL and API token required"})
+    try:
+        resp = requests.get(
+            f"{url}/api/libraries",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            libraries = resp.json().get("libraries", [])
+            lib_info = ", ".join(f"{l['name']} ({l['id'][:8]}...)" for l in libraries[:5])
+            return jsonify({
+                "success": True,
+                "message": f"Connected ({len(libraries)} libraries)",
+                "libraries": [{"id": l["id"], "name": l["name"]} for l in libraries],
+            })
+        elif resp.status_code == 401:
+            return jsonify({"success": False, "error": "Invalid API token"})
+        else:
+            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
+    except requests.ConnectionError:
+        return jsonify({"success": False, "error": "Connection refused — is Audiobookshelf running?"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
 
 
 # =============================================================================

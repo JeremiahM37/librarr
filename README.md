@@ -24,6 +24,8 @@ After downloading, books can be auto-imported into Calibre-Web and/or Audiobooks
 - **Audiobook support** — Search and download audiobooks via Prowlarr indexers and AudioBookBay
 - **Library browsing** — Browse your ebook and audiobook libraries with cover art directly in the UI
 - **All integrations optional** — Works with zero config (Anna's Archive + web novel search), add integrations as you need them
+- **Settings UI** — Configure all integrations from the web interface with connection testing
+- **Persistent downloads** — Download state survives container restarts (SQLite-backed)
 - **Dark UI** — Clean, responsive web interface
 
 ## Quick Start
@@ -57,7 +59,10 @@ See the included `docker-compose.yml` for a ready-to-use setup. Adjust the volum
 
 ## Configuration
 
-All configuration is via environment variables. Copy `.env.example` to `.env` and uncomment what you need.
+Configuration can be done two ways:
+
+1. **Settings UI** — Click the Settings tab in the web interface to configure integrations, test connections, and save settings (persisted to `/data/librarr/settings.json`)
+2. **Environment variables** — Set env vars in `.env` or `docker-compose.yml` (these override UI settings)
 
 ### Integrations
 
@@ -116,6 +121,10 @@ When you download a web novel, Librarr uses a multi-strategy approach:
 |----------|--------|-------------|
 | `/api/health` | GET | Health check |
 | `/api/config` | GET | Which integrations are enabled |
+| `/api/settings` | GET/POST | Read/save integration settings |
+| `/api/test/prowlarr` | POST | Test Prowlarr connection |
+| `/api/test/qbittorrent` | POST | Test qBittorrent connection |
+| `/api/test/audiobookshelf` | POST | Test Audiobookshelf connection |
 | `/api/search?q=...` | GET | Search all sources |
 | `/api/search/audiobooks?q=...` | GET | Search audiobook sources |
 | `/api/download/annas` | POST | Download from Anna's Archive |

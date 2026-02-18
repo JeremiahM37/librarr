@@ -1,49 +1,93 @@
+import json
 import os
+import threading
 
 # =============================================================================
 # Librarr Configuration
-# All settings are configured via environment variables.
+# Priority: environment variables > settings.json > defaults
 # =============================================================================
 
-# --- Prowlarr (optional: enables torrent search) ---
-PROWLARR_URL = os.getenv("PROWLARR_URL", "")
-PROWLARR_API_KEY = os.getenv("PROWLARR_API_KEY", "")
+SETTINGS_FILE = os.getenv("LIBRARR_SETTINGS_FILE", "/data/librarr/settings.json")
 
-# --- qBittorrent (optional: enables torrent downloads) ---
-QB_URL = os.getenv("QB_URL", "")
-QB_USER = os.getenv("QB_USER", "admin")
-QB_PASS = os.getenv("QB_PASS", "")
-QB_SAVE_PATH = os.getenv("QB_SAVE_PATH", "/books-incoming/")
-QB_CATEGORY = os.getenv("QB_CATEGORY", "books")
-
-# --- Audiobookshelf (optional: enables library browsing + audiobook management) ---
-ABS_URL = os.getenv("ABS_URL", "")
-ABS_TOKEN = os.getenv("ABS_TOKEN", "")
-ABS_LIBRARY_ID = os.getenv("ABS_LIBRARY_ID", "")
-ABS_EBOOK_LIBRARY_ID = os.getenv("ABS_EBOOK_LIBRARY_ID", "")
-ABS_PUBLIC_URL = os.getenv("ABS_PUBLIC_URL", "")
-
-# --- Audiobook downloads ---
-AUDIOBOOK_DIR = os.getenv("AUDIOBOOK_DIR", "/data/media/books/audiobooks")
-QB_AUDIOBOOK_SAVE_PATH = os.getenv("QB_AUDIOBOOK_SAVE_PATH", "/audiobooks-incoming/")
-QB_AUDIOBOOK_CATEGORY = os.getenv("QB_AUDIOBOOK_CATEGORY", "audiobooks")
-
-# --- lightnovel-crawler (optional: enables web novel scraping to EPUB) ---
-LNCRAWL_CONTAINER = os.getenv("LNCRAWL_CONTAINER", "")
-
-# --- Calibre-Web (optional: enables ebook import via calibredb) ---
-CALIBRE_CONTAINER = os.getenv("CALIBRE_CONTAINER", "")
-CALIBRE_LIBRARY = os.getenv("CALIBRE_LIBRARY", "/data/media/books/ebooks")
-CALIBRE_LIBRARY_CONTAINER = os.getenv("CALIBRE_LIBRARY_CONTAINER", "/books")
-CALIBRE_DB = os.path.join(CALIBRE_LIBRARY, "metadata.db")
-
-# --- Incoming directory for downloads ---
-INCOMING_DIR = os.getenv("INCOMING_DIR", "/data/media/books/ebooks/incoming")
+_lock = threading.Lock()
+_file_settings = {}
 
 
-# =============================================================================
-# Feature flags (derived from config above)
-# =============================================================================
+def _load_file_settings():
+    global _file_settings
+    try:
+        with open(SETTINGS_FILE, "r") as f:
+            _file_settings = json.load(f)
+    except (FileNotFoundError, json.JSONDecodeError):
+        _file_settings = {}
+
+
+def save_settings(new_settings):
+    global _file_settings
+    with _lock:
+        _load_file_settings()
+        _file_settings.update(new_settings)
+        os.makedirs(os.path.dirname(SETTINGS_FILE), exist_ok=True)
+        with open(SETTINGS_FILE, "w") as f:
+            json.dump(_file_settings, f, indent=2)
+        # Reload module-level vars
+        _apply_settings()
+
+
+def _get(env_key, json_key, default=""):
+    """Get a config value: env var wins, then settings.json, then default."""
+    env_val = os.getenv(env_key, "")
+    if env_val:
+        return env_val
+    return _file_settings.get(json_key, default)
+
+
+def _apply_settings():
+    """Apply settings to module-level variables."""
+    global PROWLARR_URL, PROWLARR_API_KEY
+    global QB_URL, QB_USER, QB_PASS, QB_SAVE_PATH, QB_CATEGORY
+    global ABS_URL, ABS_TOKEN, ABS_LIBRARY_ID, ABS_EBOOK_LIBRARY_ID, ABS_PUBLIC_URL
+    global AUDIOBOOK_DIR, QB_AUDIOBOOK_SAVE_PATH, QB_AUDIOBOOK_CATEGORY
+    global LNCRAWL_CONTAINER, CALIBRE_CONTAINER, CALIBRE_LIBRARY
+    global CALIBRE_LIBRARY_CONTAINER, CALIBRE_DB, INCOMING_DIR
+
+    # Prowlarr
+    PROWLARR_URL = _get("PROWLARR_URL", "prowlarr_url")
+    PROWLARR_API_KEY = _get("PROWLARR_API_KEY", "prowlarr_api_key")
+
+    # qBittorrent
+    QB_URL = _get("QB_URL", "qb_url")
+    QB_USER = _get("QB_USER", "qb_user", "admin")
+    QB_PASS = _get("QB_PASS", "qb_pass")
+    QB_SAVE_PATH = _get("QB_SAVE_PATH", "qb_save_path", "/books-incoming/")
+    QB_CATEGORY = _get("QB_CATEGORY", "qb_category", "books")
+
+    # Audiobookshelf
+    ABS_URL = _get("ABS_URL", "abs_url")
+    ABS_TOKEN = _get("ABS_TOKEN", "abs_token")
+    ABS_LIBRARY_ID = _get("ABS_LIBRARY_ID", "abs_library_id")
+    ABS_EBOOK_LIBRARY_ID = _get("ABS_EBOOK_LIBRARY_ID", "abs_ebook_library_id")
+    ABS_PUBLIC_URL = _get("ABS_PUBLIC_URL", "abs_public_url")
+
+    # Audiobook downloads
+    AUDIOBOOK_DIR = _get("AUDIOBOOK_DIR", "audiobook_dir", "/data/media/books/audiobooks")
+    QB_AUDIOBOOK_SAVE_PATH = _get("QB_AUDIOBOOK_SAVE_PATH", "qb_audiobook_save_path", "/audiobooks-incoming/")
+    QB_AUDIOBOOK_CATEGORY = _get("QB_AUDIOBOOK_CATEGORY", "qb_audiobook_category", "audiobooks")
+
+    # lightnovel-crawler
+    LNCRAWL_CONTAINER = _get("LNCRAWL_CONTAINER", "lncrawl_container")
+
+    # Calibre-Web
+    CALIBRE_CONTAINER = _get("CALIBRE_CONTAINER", "calibre_container")
+    CALIBRE_LIBRARY = _get("CALIBRE_LIBRARY", "calibre_library", "/data/media/books/ebooks")
+    CALIBRE_LIBRARY_CONTAINER = _get("CALIBRE_LIBRARY_CONTAINER", "calibre_library_container", "/books")
+    CALIBRE_DB = os.path.join(CALIBRE_LIBRARY, "metadata.db")
+
+    # Incoming directory
+    INCOMING_DIR = _get("INCOMING_DIR", "incoming_dir", "/data/media/books/ebooks/incoming")
+
+
+# Feature flags
 def has_prowlarr():
     return bool(PROWLARR_URL and PROWLARR_API_KEY)
 
@@ -61,3 +105,33 @@ def has_lncrawl():
 
 def has_audiobooks():
     return bool(QB_URL)
+
+def get_all_settings():
+    """Return current settings (for the settings UI), masking sensitive values."""
+    return {
+        "prowlarr_url": PROWLARR_URL,
+        "prowlarr_api_key": PROWLARR_API_KEY,
+        "qb_url": QB_URL,
+        "qb_user": QB_USER,
+        "qb_pass": QB_PASS,
+        "qb_save_path": QB_SAVE_PATH,
+        "qb_category": QB_CATEGORY,
+        "qb_audiobook_save_path": QB_AUDIOBOOK_SAVE_PATH,
+        "qb_audiobook_category": QB_AUDIOBOOK_CATEGORY,
+        "abs_url": ABS_URL,
+        "abs_token": ABS_TOKEN,
+        "abs_library_id": ABS_LIBRARY_ID,
+        "abs_ebook_library_id": ABS_EBOOK_LIBRARY_ID,
+        "abs_public_url": ABS_PUBLIC_URL,
+        "calibre_container": CALIBRE_CONTAINER,
+        "calibre_library": CALIBRE_LIBRARY,
+        "calibre_library_container": CALIBRE_LIBRARY_CONTAINER,
+        "lncrawl_container": LNCRAWL_CONTAINER,
+        "incoming_dir": INCOMING_DIR,
+        "audiobook_dir": AUDIOBOOK_DIR,
+    }
+
+
+# Initialize on import
+_load_file_settings()
+_apply_settings()

@@ -403,6 +403,93 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
   margin-left: 4px;
 }
 
+/* Settings */
+.settings-section {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  margin-bottom: 16px;
+}
+.settings-section h3 {
+  font-size: 16px;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.settings-section .desc {
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 16px;
+}
+.settings-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 10px;
+  align-items: center;
+}
+.settings-row label {
+  width: 160px;
+  font-size: 13px;
+  color: var(--text2);
+  flex-shrink: 0;
+  text-align: right;
+}
+.settings-row input, .settings-row select {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 12px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+.settings-row input:focus { border-color: var(--accent); }
+.test-btn {
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.test-btn:hover { border-color: var(--accent); color: var(--accent); }
+.test-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.test-result {
+  font-size: 13px;
+  margin-top: 8px;
+  padding: 6px 12px;
+  border-radius: 4px;
+}
+.test-result.ok { background: rgba(0,184,148,0.15); color: var(--success); }
+.test-result.fail { background: rgba(214,48,49,0.15); color: var(--danger); }
+.save-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 32px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.save-btn:hover { background: var(--accent2); }
+.save-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+.status-dot.on { background: var(--success); }
+.status-dot.off { background: var(--text2); }
+
 @media (max-width: 768px) {
   header { padding: 0 12px; }
   .logo { margin-right: 16px; font-size: 17px; }
@@ -423,6 +510,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     <button onclick="switchTab('downloads')" id="dl-tab-btn">Downloads</button>
     <button class="hidden" id="nav-library" onclick="switchTab('library')">Library</button>
     <button class="hidden" id="nav-ab-library" onclick="switchTab('ab-library')">Audiobook Library</button>
+    <button onclick="switchTab('settings')" id="nav-settings" style="margin-left:auto">Settings</button>
   </nav>
 </header>
 
@@ -475,6 +563,121 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
       <button class="clear-btn" onclick="clearFinished()">Clear Finished</button>
     </div>
     <div id="downloads-list"></div>
+  </div>
+
+  <!-- Settings Tab -->
+  <div class="tab" id="tab-settings">
+    <h2 style="font-size:18px;margin-bottom:16px">Settings</h2>
+
+    <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-prowlarr"></span> Prowlarr</h3>
+      <p class="desc">Connect to Prowlarr for torrent search via your indexers. Find your API key in Prowlarr &gt; Settings &gt; General.</p>
+      <div class="settings-row">
+        <label>URL</label>
+        <input type="text" id="set-prowlarr-url" placeholder="http://prowlarr:9696">
+      </div>
+      <div class="settings-row">
+        <label>API Key</label>
+        <input type="text" id="set-prowlarr-key" placeholder="Your Prowlarr API key">
+        <button class="test-btn" onclick="testProwlarr()">Test</button>
+      </div>
+      <div id="test-prowlarr" class="test-result" style="display:none"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-qb"></span> qBittorrent</h3>
+      <p class="desc">Connect to qBittorrent for torrent and audiobook downloads. Enable the Web UI in qBittorrent settings.</p>
+      <div class="settings-row">
+        <label>URL</label>
+        <input type="text" id="set-qb-url" placeholder="http://qbittorrent:8080">
+      </div>
+      <div class="settings-row">
+        <label>Username</label>
+        <input type="text" id="set-qb-user" placeholder="admin">
+      </div>
+      <div class="settings-row">
+        <label>Password</label>
+        <input type="password" id="set-qb-pass" placeholder="Password">
+        <button class="test-btn" onclick="testQbittorrent()">Test</button>
+      </div>
+      <div class="settings-row">
+        <label>Ebook save path</label>
+        <input type="text" id="set-qb-save-path" placeholder="/books-incoming/">
+      </div>
+      <div class="settings-row">
+        <label>Audiobook save path</label>
+        <input type="text" id="set-qb-ab-save-path" placeholder="/audiobooks-incoming/">
+      </div>
+      <div id="test-qb" class="test-result" style="display:none"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-abs"></span> Audiobookshelf</h3>
+      <p class="desc">Connect to Audiobookshelf for library browsing and audiobook management. Get your API token from Audiobookshelf &gt; Settings &gt; Users &gt; your user.</p>
+      <div class="settings-row">
+        <label>URL</label>
+        <input type="text" id="set-abs-url" placeholder="http://audiobookshelf:80">
+      </div>
+      <div class="settings-row">
+        <label>API Token</label>
+        <input type="text" id="set-abs-token" placeholder="Your API token">
+        <button class="test-btn" onclick="testAudiobookshelf()">Test</button>
+      </div>
+      <div class="settings-row">
+        <label>Audiobook Library</label>
+        <select id="set-abs-library"></select>
+      </div>
+      <div class="settings-row">
+        <label>Ebook Library</label>
+        <select id="set-abs-ebook-library"></select>
+      </div>
+      <div class="settings-row">
+        <label>Public URL</label>
+        <input type="text" id="set-abs-public-url" placeholder="https://audiobookshelf.yourdomain.com (for read/listen links)">
+      </div>
+      <div id="test-abs" class="test-result" style="display:none"></div>
+    </div>
+
+    <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-calibre"></span> Calibre-Web</h3>
+      <p class="desc">Auto-import downloaded ebooks into Calibre-Web via calibredb. Requires Docker socket access.</p>
+      <div class="settings-row">
+        <label>Container name</label>
+        <input type="text" id="set-calibre-container" placeholder="calibre-web">
+      </div>
+      <div class="settings-row">
+        <label>Library path (host)</label>
+        <input type="text" id="set-calibre-library" placeholder="/data/media/books/ebooks">
+      </div>
+      <div class="settings-row">
+        <label>Library path (container)</label>
+        <input type="text" id="set-calibre-library-container" placeholder="/books">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-lncrawl"></span> lightnovel-crawler</h3>
+      <p class="desc">Scrape web novels chapter-by-chapter into EPUB format. Requires the lncrawl Docker container.</p>
+      <div class="settings-row">
+        <label>Container name</label>
+        <input type="text" id="set-lncrawl-container" placeholder="lncrawl">
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Download Paths</h3>
+      <p class="desc">Where downloaded files are stored.</p>
+      <div class="settings-row">
+        <label>Incoming directory</label>
+        <input type="text" id="set-incoming-dir" placeholder="/data/media/books/ebooks/incoming">
+      </div>
+      <div class="settings-row">
+        <label>Audiobook directory</label>
+        <input type="text" id="set-audiobook-dir" placeholder="/data/media/books/audiobooks">
+      </div>
+    </div>
+
+    <button class="save-btn" onclick="saveSettings()" id="save-settings-btn">Save Settings</button>
   </div>
 
   <!-- Library Tab -->
@@ -1032,8 +1235,190 @@ function showToast(msg) {
   setTimeout(() => toast.remove(), 4000);
 }
 
+// ---- Settings ----
+async function loadSettings() {
+  try {
+    const resp = await fetch('/api/settings');
+    const s = await resp.json();
+    document.getElementById('set-prowlarr-url').value = s.prowlarr_url || '';
+    document.getElementById('set-prowlarr-key').value = s.prowlarr_api_key || '';
+    document.getElementById('set-qb-url').value = s.qb_url || '';
+    document.getElementById('set-qb-user').value = s.qb_user || '';
+    document.getElementById('set-qb-pass').value = s.qb_pass || '';
+    document.getElementById('set-qb-save-path').value = s.qb_save_path || '';
+    document.getElementById('set-qb-ab-save-path').value = s.qb_audiobook_save_path || '';
+    document.getElementById('set-abs-url').value = s.abs_url || '';
+    document.getElementById('set-abs-token').value = s.abs_token || '';
+    document.getElementById('set-abs-public-url').value = s.abs_public_url || '';
+    document.getElementById('set-calibre-container').value = s.calibre_container || '';
+    document.getElementById('set-calibre-library').value = s.calibre_library || '';
+    document.getElementById('set-calibre-library-container').value = s.calibre_library_container || '';
+    document.getElementById('set-lncrawl-container').value = s.lncrawl_container || '';
+    document.getElementById('set-incoming-dir').value = s.incoming_dir || '';
+    document.getElementById('set-audiobook-dir').value = s.audiobook_dir || '';
+    // Set library dropdowns if we have values
+    if (s.abs_library_id) _addLibOption('set-abs-library', s.abs_library_id, s.abs_library_id);
+    if (s.abs_ebook_library_id) _addLibOption('set-abs-ebook-library', s.abs_ebook_library_id, s.abs_ebook_library_id);
+    // Update status dots
+    updateStatusDots();
+  } catch (e) {}
+}
+
+function updateStatusDots() {
+  const dots = {
+    prowlarr: appConfig.prowlarr,
+    qb: appConfig.qbittorrent,
+    abs: appConfig.audiobookshelf,
+    calibre: appConfig.calibre,
+    lncrawl: appConfig.lncrawl,
+  };
+  for (const [key, val] of Object.entries(dots)) {
+    const dot = document.getElementById('dot-' + key);
+    if (dot) {
+      dot.className = 'status-dot ' + (val ? 'on' : 'off');
+    }
+  }
+}
+
+function _showTestResult(id, ok, msg) {
+  const el = document.getElementById(id);
+  el.style.display = 'block';
+  el.className = 'test-result ' + (ok ? 'ok' : 'fail');
+  el.textContent = msg;
+}
+
+function _addLibOption(selectId, value, label) {
+  const sel = document.getElementById(selectId);
+  // Check if already exists
+  for (const opt of sel.options) {
+    if (opt.value === value) { sel.value = value; return; }
+  }
+  const opt = document.createElement('option');
+  opt.value = value;
+  opt.textContent = label;
+  sel.appendChild(opt);
+  sel.value = value;
+}
+
+async function testProwlarr() {
+  const url = document.getElementById('set-prowlarr-url').value.trim();
+  const key = document.getElementById('set-prowlarr-key').value.trim();
+  _showTestResult('test-prowlarr', false, 'Testing...');
+  try {
+    const resp = await fetch('/api/test/prowlarr', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, api_key: key }),
+    });
+    const data = await resp.json();
+    _showTestResult('test-prowlarr', data.success, data.success ? data.message : data.error);
+  } catch (e) {
+    _showTestResult('test-prowlarr', false, 'Request failed: ' + e.message);
+  }
+}
+
+async function testQbittorrent() {
+  const url = document.getElementById('set-qb-url').value.trim();
+  const user = document.getElementById('set-qb-user').value.trim();
+  const pass = document.getElementById('set-qb-pass').value;
+  _showTestResult('test-qb', false, 'Testing...');
+  try {
+    const resp = await fetch('/api/test/qbittorrent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, user, pass }),
+    });
+    const data = await resp.json();
+    _showTestResult('test-qb', data.success, data.success ? data.message : data.error);
+  } catch (e) {
+    _showTestResult('test-qb', false, 'Request failed: ' + e.message);
+  }
+}
+
+async function testAudiobookshelf() {
+  const url = document.getElementById('set-abs-url').value.trim();
+  const token = document.getElementById('set-abs-token').value.trim();
+  _showTestResult('test-abs', false, 'Testing...');
+  try {
+    const resp = await fetch('/api/test/audiobookshelf', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, token }),
+    });
+    const data = await resp.json();
+    _showTestResult('test-abs', data.success, data.success ? data.message : data.error);
+    if (data.success && data.libraries) {
+      // Populate library dropdowns
+      const abSel = document.getElementById('set-abs-library');
+      const ebSel = document.getElementById('set-abs-ebook-library');
+      const prevAb = abSel.value;
+      const prevEb = ebSel.value;
+      abSel.innerHTML = '<option value="">-- Select audiobook library --</option>';
+      ebSel.innerHTML = '<option value="">-- Select ebook library --</option>';
+      data.libraries.forEach(lib => {
+        abSel.innerHTML += `<option value="${lib.id}">${esc(lib.name)}</option>`;
+        ebSel.innerHTML += `<option value="${lib.id}">${esc(lib.name)}</option>`;
+      });
+      if (prevAb) abSel.value = prevAb;
+      if (prevEb) ebSel.value = prevEb;
+    }
+  } catch (e) {
+    _showTestResult('test-abs', false, 'Request failed: ' + e.message);
+  }
+}
+
+async function saveSettings() {
+  const btn = document.getElementById('save-settings-btn');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+  const settings = {
+    prowlarr_url: document.getElementById('set-prowlarr-url').value.trim(),
+    prowlarr_api_key: document.getElementById('set-prowlarr-key').value.trim(),
+    qb_url: document.getElementById('set-qb-url').value.trim(),
+    qb_user: document.getElementById('set-qb-user').value.trim(),
+    qb_pass: document.getElementById('set-qb-pass').value,
+    qb_save_path: document.getElementById('set-qb-save-path').value.trim(),
+    qb_audiobook_save_path: document.getElementById('set-qb-ab-save-path').value.trim(),
+    abs_url: document.getElementById('set-abs-url').value.trim(),
+    abs_token: document.getElementById('set-abs-token').value.trim(),
+    abs_library_id: document.getElementById('set-abs-library').value,
+    abs_ebook_library_id: document.getElementById('set-abs-ebook-library').value,
+    abs_public_url: document.getElementById('set-abs-public-url').value.trim(),
+    calibre_container: document.getElementById('set-calibre-container').value.trim(),
+    calibre_library: document.getElementById('set-calibre-library').value.trim(),
+    calibre_library_container: document.getElementById('set-calibre-library-container').value.trim(),
+    lncrawl_container: document.getElementById('set-lncrawl-container').value.trim(),
+    incoming_dir: document.getElementById('set-incoming-dir').value.trim(),
+    audiobook_dir: document.getElementById('set-audiobook-dir').value.trim(),
+  };
+  try {
+    const resp = await fetch('/api/settings', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(settings),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('Settings saved! Refreshing...');
+      // Reload config to update tabs
+      await loadConfig();
+      updateStatusDots();
+    } else {
+      showToast('Failed to save: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Settings';
+  }
+}
+
 // Init
-loadConfig();
+loadConfig().then(() => {
+  updateStatusDots();
+  loadSettings();
+});
 loadExternalUrls();
 document.getElementById('search-input').focus();
 </script>
