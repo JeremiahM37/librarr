@@ -9,9 +9,12 @@ Librarr searches for books across multiple sources simultaneously and downloads 
 | Source | Type | Config Required |
 |--------|------|-----------------|
 | Anna's Archive | Direct EPUB download | None |
+| Project Gutenberg | Public domain EPUBs | None |
+| Open Library | Public domain EPUBs via Internet Archive | None |
 | Web Novel Sites (7 sites) | Scrape chapters to EPUB | None (lncrawl for scraping) |
 | Prowlarr Indexers | Torrent search | Prowlarr |
 | AudioBookBay | Audiobook torrents | None (qBittorrent for download) |
+| Librivox | Public domain audiobooks (MP3) | None |
 
 After downloading, books are organized into Author/Title folders and auto-imported into your library apps (Calibre-Web, Kavita, and/or Audiobookshelf).
 
@@ -107,8 +110,15 @@ ENABLED_TARGETS=calibre,audiobookshelf,kavita
 When you search for a book, Librarr queries all configured sources in parallel:
 
 1. **Anna's Archive** — Searches for EPUB files, verifies each result is actually downloadable by checking libgen mirrors, sorts by file size (largest = most complete)
-2. **Prowlarr** — Searches your configured torrent indexers for ebook category results
-3. **Web Novel Sites** — Searches FreeWebNovel, AllNovelFull, NovelFull, NovelBin, LightNovelPub, ReadNovelFull, and BoxNovel in parallel, deduplicates results
+2. **Project Gutenberg** — Searches 70,000+ public domain ebooks via the Gutendex API, returns results with direct EPUB download links
+3. **Open Library** — Searches Internet Archive's public domain collection, downloads EPUBs from archive.org
+4. **Prowlarr** — Searches your configured torrent indexers for ebook category results
+5. **Web Novel Sites** — Searches FreeWebNovel, AllNovelFull, NovelFull, NovelBin, LightNovelPub, ReadNovelFull, and BoxNovel in parallel, deduplicates results
+
+For audiobook searches:
+1. **AudioBookBay** — Scrapes audiobook torrents (requires qBittorrent for download)
+2. **Librivox** — Searches 18,000+ free public domain audiobooks, downloads MP3 chapter files directly
+3. **Prowlarr** — Searches your torrent indexers for audiobook category results (if configured)
 
 Results are filtered to remove junk (suspicious filenames, zero-seeder torrents, irrelevant titles) and sorted with direct downloads first.
 

@@ -103,7 +103,13 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
     original_path = file_path
     file_size = 0
     try:
-        file_size = os.path.getsize(file_path) if os.path.isfile(file_path) else 0
+        if os.path.isfile(file_path):
+            file_size = os.path.getsize(file_path)
+        elif os.path.isdir(file_path):
+            # Sum all files in directory (e.g. audiobook folders)
+            for dirpath, _, filenames in os.walk(file_path):
+                for f in filenames:
+                    file_size += os.path.getsize(os.path.join(dirpath, f))
     except OSError:
         pass
 
