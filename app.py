@@ -861,66 +861,6 @@ def search_annas_archive(query):
     return results
 
 
-# =============================================================================
-# Calibre Import
-# =============================================================================
-def import_to_calibre(host_path, title="", author=""):
-    if not config.has_calibre():
-        logger.info(f"Calibre not configured, skipping import for: {title or host_path}")
-        return False
-
-    container_path = host_path
-    if host_path.startswith("/books-incoming"):
-        container_path = host_path.replace("/books-incoming", "/books/incoming", 1)
-    else:
-        container_path = host_path.replace(config.CALIBRE_LIBRARY, config.CALIBRE_LIBRARY_CONTAINER)
-    try:
-        result = subprocess.run(
-            [
-                "docker", "exec", config.CALIBRE_CONTAINER,
-                "calibredb", "add", container_path,
-                "--library-path", config.CALIBRE_LIBRARY_CONTAINER,
-            ],
-            capture_output=True, text=True, timeout=120,
-        )
-        match = re.search(r"Added book ids: (\d+)", result.stdout)
-        if match:
-            book_id = match.group(1)
-            if author or title:
-                meta_cmd = [
-                    "docker", "exec", config.CALIBRE_CONTAINER,
-                    "calibredb", "set_metadata", book_id,
-                    "--library-path", config.CALIBRE_LIBRARY_CONTAINER,
-                ]
-                if author:
-                    meta_cmd.extend(["--field", f"authors:{author}"])
-                if title:
-                    meta_cmd.extend(["--field", f"title:{title}"])
-                meta_cmd.extend(["--field", "tags:Web Novel"])
-                subprocess.run(meta_cmd, capture_output=True, timeout=30)
-            logger.info(f"Imported to Calibre: {title or host_path} (ID: {book_id})")
-            _scan_abs_ebook_library()
-            return True
-        logger.error(f"Calibre import failed: {result.stderr}")
-        return False
-    except Exception as e:
-        logger.error(f"Calibre import error: {e}")
-        return False
-
-
-def _scan_abs_ebook_library():
-    if not config.has_audiobookshelf() or not config.ABS_EBOOK_LIBRARY_ID:
-        return
-    try:
-        requests.post(
-            f"{config.ABS_URL}/api/libraries/{config.ABS_EBOOK_LIBRARY_ID}/scan",
-            headers={"Authorization": f"Bearer {config.ABS_TOKEN}"},
-            timeout=10,
-        )
-        logger.info("Audiobookshelf ebook library scan triggered")
-    except Exception as e:
-        logger.error(f"ABS ebook library scan failed: {e}")
-
 
 # =============================================================================
 # Background Novel Download

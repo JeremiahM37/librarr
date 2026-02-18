@@ -875,20 +875,20 @@ async function doSearch() {
   }
 }
 
-async function checkDuplicates(items, prefix) {
-  for (let i = 0; i < items.length; i++) {
-    const r = items[i];
+function checkDuplicates(items, prefix) {
+  items.forEach((r, i) => {
     const sourceId = r.md5 || r.info_hash || r.source_id || '';
-    if (!sourceId) continue;
-    try {
-      const resp = await fetch('/api/check-duplicate?source_id=' + encodeURIComponent(sourceId));
-      const data = await resp.json();
-      if (data.duplicate) {
-        const badge = document.getElementById(`dup-${prefix}-${i}`);
-        if (badge) badge.style.display = '';
-      }
-    } catch (e) {}
-  }
+    if (!sourceId) return;
+    fetch('/api/check-duplicate?source_id=' + encodeURIComponent(sourceId))
+      .then(resp => resp.json())
+      .then(data => {
+        if (data.duplicate) {
+          const badge = document.getElementById(`dup-${prefix}-${i}`);
+          if (badge) badge.style.display = '';
+        }
+      })
+      .catch(() => {});
+  });
 }
 
 function renderResult(r, i, prefix) {

@@ -94,10 +94,9 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
     # Duplicate check
     if library_db and source_id and library_db.has_source_id(source_id):
         logger.info(f"Duplicate skipped: {title} (source_id={source_id})")
-        if library_db:
-            library_db.log_event("skip", title=title,
-                                 detail=f"Duplicate (source: {source})",
-                                 job_id=job_id)
+        library_db.log_event("skip", title=title,
+                             detail=f"Duplicate (source: {source})",
+                             job_id=job_id)
         return None
 
     # Organize

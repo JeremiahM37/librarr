@@ -77,8 +77,8 @@ class KavitaTarget:
     def enabled(self):
         return config.has_kavita()
 
-    def _authenticate(self):
-        if self._jwt_token:
+    def _authenticate(self, force=False):
+        if self._jwt_token and not force:
             return self._jwt_token
         try:
             resp = requests.post(
@@ -116,6 +116,15 @@ class KavitaTarget:
                 json={"libraryId": int(lib_id)},
                 timeout=10,
             )
+            if resp.status_code == 401:
+                # Token expired — re-authenticate and retry once
+                self._authenticate(force=True)
+                resp = requests.post(
+                    f"{config.KAVITA_URL}/api/Library/scan",
+                    headers=self._headers(),
+                    json={"libraryId": int(lib_id)},
+                    timeout=10,
+                )
             if resp.status_code == 200:
                 logger.info("Kavita library scan triggered")
             else:
