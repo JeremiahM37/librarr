@@ -1,0 +1,16 @@
+services:
+  librarr:
+    build: .
+    container_name: librarr
+    restart: unless-stopped
+    ports:
+      - "5000:5000"
+    env_file:
+      - .env
+    volumes:
+      # Required: Docker socket for lncrawl/calibre container exec (if using those integrations)
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /usr/bin/docker:/usr/bin/docker:ro
+      # Required: Book storage paths (adjust to match your setup)
+      - /data/media/books/ebooks:/data/media/books/ebooks
+      - /data/media/books/audiobooks:/data/media/books/audiobooks

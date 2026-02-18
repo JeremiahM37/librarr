@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Librarr</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --bg2: #1a1d27;
+  --bg3: #242836;
+  --border: #2e3346;
+  --text: #e1e4ed;
+  --text2: #8b90a0;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --torrent: #e17055;
+  --novel: #00b894;
+  --annas: #6c5ce7;
+  --audiobook: #fd79a8;
+  --danger: #d63031;
+  --success: #00b894;
+  --warning: #fdcb6e;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+}
+header {
+  background: var(--bg2);
+  border-bottom: 1px solid var(--border);
+  padding: 0 24px;
+  display: flex;
+  align-items: center;
+  height: 56px;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.logo {
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--accent2);
+  margin-right: 32px;
+  letter-spacing: -0.5px;
+}
+.logo span { color: var(--text); }
+nav { display: flex; gap: 4px; }
+nav button {
+  background: none;
+  border: none;
+  color: var(--text2);
+  padding: 8px 16px;
+  font-size: 14px;
+  cursor: pointer;
+  border-radius: 6px;
+  transition: all 0.15s;
+}
+nav button:hover { background: var(--bg3); color: var(--text); }
+nav button.active { background: var(--accent); color: #fff; }
+nav button.hidden { display: none; }
+main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+.tab { display: none; }
+.tab.active { display: block; }
+
+/* Setup Banner */
+.setup-banner {
+  background: linear-gradient(135deg, #1e3a5f 0%, #1a1d27 100%);
+  border: 1px solid var(--accent);
+  border-radius: 12px;
+  padding: 24px;
+  margin-bottom: 24px;
+  text-align: center;
+}
+.setup-banner h2 { color: var(--accent2); margin-bottom: 8px; font-size: 18px; }
+.setup-banner p { color: var(--text2); font-size: 14px; line-height: 1.6; }
+.setup-banner code {
+  background: var(--bg);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 13px;
+  color: var(--accent2);
+}
+
+/* Search */
+.search-box {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.search-box input {
+  flex: 1;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 16px;
+  font-size: 16px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.search-box input:focus { border-color: var(--accent); }
+.search-box input::placeholder { color: var(--text2); }
+.search-box button {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 24px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.search-box button:hover { background: var(--accent2); }
+.search-box button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.search-meta {
+  color: var(--text2);
+  font-size: 13px;
+  margin-bottom: 16px;
+}
+
+/* Results */
+.result {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  transition: border-color 0.15s;
+}
+.result:hover { border-color: var(--accent); }
+.badge {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  white-space: nowrap;
+  letter-spacing: 0.5px;
+}
+.badge.torrent { background: var(--torrent); color: #fff; }
+.badge.webnovel { background: var(--novel); color: #fff; }
+.badge.annas { background: var(--annas); color: #fff; }
+.badge.audiobook { background: var(--audiobook); color: #fff; }
+.result-info { flex: 1; min-width: 0; }
+.result-title {
+  font-size: 15px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.result-meta {
+  font-size: 13px;
+  color: var(--text2);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.result-meta span { white-space: nowrap; }
+.dl-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.15s;
+}
+.dl-btn:hover { background: var(--accent2); }
+.dl-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+.dl-btn.sent { background: var(--success); }
+
+/* Downloads */
+.download-item {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 8px;
+}
+.download-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+.download-title { font-weight: 600; flex: 1; }
+.status {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+.status.downloading { background: rgba(59,130,246,0.2); color: var(--accent2); }
+.status.queued { background: rgba(253,203,110,0.2); color: var(--warning); }
+.status.completed { background: rgba(0,184,148,0.2); color: var(--success); }
+.status.importing { background: rgba(0,184,148,0.2); color: var(--success); }
+.status.error { background: rgba(214,48,49,0.2); color: var(--danger); }
+.status.seeding { background: rgba(0,184,148,0.2); color: var(--success); }
+.status.paused { background: rgba(139,144,160,0.2); color: var(--text2); }
+.progress-bar {
+  height: 4px;
+  background: var(--bg3);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-top: 8px;
+}
+.progress-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.5s;
+}
+.download-meta { font-size: 13px; color: var(--text2); margin-top: 4px; }
+.error-msg { color: var(--danger); font-size: 13px; margin-top: 4px; }
+.del-btn {
+  background: none;
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 4px;
+  padding: 3px 10px;
+  font-size: 12px;
+  cursor: pointer;
+  margin-left: auto;
+  transition: all 0.15s;
+}
+.del-btn:hover { background: var(--danger); color: #fff; }
+.clear-btn {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text2);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.clear-btn:hover { border-color: var(--danger); color: var(--danger); }
+
+/* Library */
+.library-search {
+  display: flex;
+  gap: 8px;
+  margin-bottom: 24px;
+}
+.library-search input {
+  flex: 1;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 14px;
+  color: var(--text);
+  outline: none;
+}
+.library-search input:focus { border-color: var(--accent); }
+.library-search input::placeholder { color: var(--text2); }
+.library-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 16px;
+}
+.book-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  transition: border-color 0.15s, transform 0.15s;
+  cursor: pointer;
+  position: relative;
+}
+.book-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+.book-card .read-overlay {
+  position: absolute;
+  inset: 0;
+  background: rgba(59,130,246,0.85);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.2s;
+  z-index: 2;
+}
+.book-card:hover .read-overlay { opacity: 1; }
+.read-overlay span {
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 10px 24px;
+  border: 2px solid #fff;
+  border-radius: 8px;
+}
+.book-cover {
+  width: 100%;
+  aspect-ratio: 2/3;
+  background: var(--bg3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text2);
+  font-size: 48px;
+  overflow: hidden;
+}
+.book-cover img { width: 100%; height: 100%; object-fit: cover; }
+.book-info { padding: 12px; }
+.book-title {
+  font-size: 14px;
+  font-weight: 600;
+  margin-bottom: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.book-author {
+  font-size: 12px;
+  color: var(--text2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pagination {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  margin-top: 24px;
+}
+.pagination button {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  border-radius: 6px;
+  padding: 8px 16px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.pagination button:hover { border-color: var(--accent); }
+.pagination button:disabled { opacity: 0.3; cursor: not-allowed; }
+.pagination span { color: var(--text2); font-size: 13px; }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 20px;
+  height: 20px;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toast */
+.toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 20px;
+  font-size: 14px;
+  z-index: 1000;
+  animation: slideIn 0.2s ease-out;
+  max-width: 400px;
+}
+@keyframes slideIn { from { transform: translateY(20px); opacity: 0; } }
+
+.empty-state {
+  text-align: center;
+  padding: 60px 20px;
+  color: var(--text2);
+}
+.empty-state .icon { font-size: 48px; margin-bottom: 16px; }
+.empty-state p { font-size: 15px; }
+
+/* Downloads badge */
+.dl-count {
+  background: var(--danger);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 10px;
+  margin-left: 4px;
+}
+
+@media (max-width: 768px) {
+  header { padding: 0 12px; }
+  .logo { margin-right: 16px; font-size: 17px; }
+  nav button { padding: 6px 10px; font-size: 13px; }
+  main { padding: 16px; }
+  .library-grid { grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .result { flex-wrap: wrap; }
+  .dl-btn { width: 100%; text-align: center; margin-top: 8px; }
+}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">Lib<span>rarr</span></div>
+  <nav id="main-nav">
+    <button class="active" onclick="switchTab('search')">Search</button>
+    <button class="hidden" id="nav-ab-search" onclick="switchTab('ab-search')">Audiobook Search</button>
+    <button onclick="switchTab('downloads')" id="dl-tab-btn">Downloads</button>
+    <button class="hidden" id="nav-library" onclick="switchTab('library')">Library</button>
+    <button class="hidden" id="nav-ab-library" onclick="switchTab('ab-library')">Audiobook Library</button>
+  </nav>
+</header>
+
+<main>
+  <!-- Search Tab -->
+  <div class="tab active" id="tab-search">
+    <div id="setup-banner" class="setup-banner" style="display:none">
+      <h2>Welcome to Librarr</h2>
+      <p>
+        Anna's Archive and web novel search work out of the box.<br>
+        For full functionality, configure integrations via environment variables:<br>
+        <code>PROWLARR_URL</code> <code>QB_URL</code> <code>ABS_URL</code> <code>LNCRAWL_CONTAINER</code><br>
+        See the <a href="https://github.com/JeremiahM37/librarr" style="color:var(--accent2)">README</a> for setup details.
+      </p>
+    </div>
+    <div class="search-box">
+      <input type="text" id="search-input" placeholder="Search for any book, novel, or web novel..."
+             onkeydown="if(event.key==='Enter')doSearch()">
+      <button onclick="doSearch()" id="search-btn">Search</button>
+    </div>
+    <div id="search-meta" class="search-meta"></div>
+    <div id="search-results"></div>
+  </div>
+
+  <!-- Audiobook Search Tab -->
+  <div class="tab" id="tab-ab-search">
+    <div class="search-box">
+      <input type="text" id="ab-search-input" placeholder="Search for audiobooks..."
+             onkeydown="if(event.key==='Enter')doAudiobookSearch()">
+      <button onclick="doAudiobookSearch()" id="ab-search-btn">Search</button>
+    </div>
+    <div id="ab-search-meta" class="search-meta"></div>
+    <div id="ab-search-results"></div>
+  </div>
+
+  <!-- Audiobook Library Tab -->
+  <div class="tab" id="tab-ab-library">
+    <div class="library-search">
+      <input type="text" id="ab-library-search" placeholder="Filter audiobooks..."
+             onkeydown="if(event.key==='Enter')loadAudiobookLibrary(1)">
+    </div>
+    <div id="ab-library-grid" class="library-grid"></div>
+    <div id="ab-library-pagination" class="pagination"></div>
+  </div>
+
+  <!-- Downloads Tab -->
+  <div class="tab" id="tab-downloads">
+    <div style="display:flex;align-items:center;margin-bottom:16px;gap:12px">
+      <h2 style="font-size: 18px;">Downloads</h2>
+      <button class="clear-btn" onclick="clearFinished()">Clear Finished</button>
+    </div>
+    <div id="downloads-list"></div>
+  </div>
+
+  <!-- Library Tab -->
+  <div class="tab" id="tab-library">
+    <div class="library-search">
+      <input type="text" id="library-search" placeholder="Filter library..."
+             onkeydown="if(event.key==='Enter')loadLibrary(1)">
+    </div>
+    <div id="library-grid" class="library-grid"></div>
+    <div id="library-pagination" class="pagination"></div>
+  </div>
+</main>
+
+<script>
+let currentTab = 'search';
+let pollInterval = null;
+let activeDownloads = 0;
+let externalUrls = { abs_url: '' };
+let appConfig = {};
+
+async function loadConfig() {
+  try {
+    const resp = await fetch('/api/config');
+    appConfig = await resp.json();
+    // Show/hide tabs based on config
+    if (appConfig.audiobooks) document.getElementById('nav-ab-search').classList.remove('hidden');
+    if (appConfig.audiobookshelf) {
+      document.getElementById('nav-library').classList.remove('hidden');
+      document.getElementById('nav-ab-library').classList.remove('hidden');
+    }
+    // Show setup banner if minimal config
+    if (!appConfig.prowlarr && !appConfig.qbittorrent && !appConfig.audiobookshelf) {
+      document.getElementById('setup-banner').style.display = 'block';
+    }
+  } catch (e) {}
+}
+
+async function loadExternalUrls() {
+  try {
+    const resp = await fetch('/api/external-urls');
+    externalUrls = await resp.json();
+  } catch (e) {}
+}
+
+function getAbsUrl() {
+  return externalUrls.abs_url || ('http://' + location.hostname + ':13378');
+}
+
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  const tabMap = { search: 'Search', 'ab-search': 'Audiobook Search', downloads: 'Downloads', library: 'Library', 'ab-library': 'Audiobook Library' };
+  document.querySelectorAll('nav button').forEach(b => {
+    if (b.textContent.replace(/\d+/g, '').trim() === tabMap[tab]) b.classList.add('active');
+  });
+  if (tab === 'downloads') {
+    loadDownloads();
+    startPolling();
+  } else {
+    stopPolling();
+  }
+  if (tab === 'library') loadLibrary(1);
+  if (tab === 'ab-search') document.getElementById('ab-search-input').focus();
+  if (tab === 'ab-library') loadAudiobookLibrary(1);
+}
+
+// ---- Search ----
+async function doSearch() {
+  const q = document.getElementById('search-input').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('search-btn');
+  const results = document.getElementById('search-results');
+  const meta = document.getElementById('search-meta');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  results.innerHTML = '';
+  meta.textContent = 'Searching...';
+
+  try {
+    const resp = await fetch('/api/search?q=' + encodeURIComponent(q));
+    const data = await resp.json();
+    const items = data.results || [];
+
+    meta.textContent = items.length
+      ? `${items.length} results in ${(data.search_time_ms/1000).toFixed(1)}s`
+      : 'No results found';
+
+    if (!items.length) {
+      results.innerHTML = '<div class="empty-state"><div class="icon">&#128214;</div><p>No results found. Try different search terms.</p></div>';
+      return;
+    }
+
+    const sourceOrder = { annas: 0, webnovel: 1, torrent: 2 };
+    items.sort((a, b) => {
+      const oa = sourceOrder[a.source] ?? 9, ob = sourceOrder[b.source] ?? 9;
+      if (oa !== ob) return oa - ob;
+      if (a.source === 'torrent') return (b.seeders || 0) - (a.seeders || 0);
+      return 0;
+    });
+
+    const hasQb = appConfig.qbittorrent;
+
+    results.innerHTML = items.map((r, i) => {
+      if (r.source === 'annas') {
+        return `<div class="result">
+          <span class="badge annas">Anna's</span>
+          <div class="result-info">
+            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+            <div class="result-meta">
+              ${r.author ? `<span>${esc(r.author)}</span>` : ''}
+              ${r.size_human ? `<span>${esc(r.size_human)}</span>` : ''}
+              <span>EPUB</span>
+            </div>
+          </div>
+          <button class="dl-btn" id="dl-${i}" onclick="dlAnnas(${i}, this)">Download</button>
+        </div>`;
+      } else if (r.source === 'torrent') {
+        return `<div class="result">
+          <span class="badge torrent">Torrent</span>
+          <div class="result-info">
+            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+            <div class="result-meta">
+              <span>${esc(r.indexer)}</span>
+              <span>${r.seeders} seeds</span>
+              <span>${r.size_human}</span>
+            </div>
+          </div>
+          <button class="dl-btn" id="dl-${i}" onclick="dlTorrent(${i}, this)" ${hasQb ? '' : 'disabled title="qBittorrent not configured"'}>Download</button>
+        </div>`;
+      } else {
+        const site = r.site || 'Web Novel';
+        const extra = r.chapters ? ` | ${r.chapters} chapters` : '';
+        return `<div class="result">
+          <span class="badge webnovel">Web Novel</span>
+          <div class="result-info">
+            <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+            <div class="result-meta">
+              <span>${esc(site)}</span>
+              ${r.status ? `<span>${esc(r.status)}</span>` : ''}
+              ${extra ? `<span>${extra}</span>` : ''}
+            </div>
+          </div>
+          <button class="dl-btn" id="dl-${i}" onclick="dlNovel(${i}, this)">Download</button>
+        </div>`;
+      }
+    }).join('');
+
+    window._results = items;
+  } catch (e) {
+    meta.textContent = 'Search failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Search';
+  }
+}
+
+async function dlTorrent(idx, btn) {
+  const r = window._results[idx];
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  try {
+    const resp = await fetch('/api/download/torrent', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        download_url: r.download_url,
+        magnet_url: r.magnet_url,
+        info_hash: r.info_hash,
+        title: r.title,
+      }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      btn.textContent = 'Sent!';
+      btn.classList.add('sent');
+      showToast('Sent "' + r.title.substring(0, 60) + '" to qBittorrent');
+    } else {
+      btn.textContent = 'Failed';
+      showToast('Failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    showToast('Error: ' + e.message);
+  }
+}
+
+async function dlNovel(idx, btn) {
+  const r = window._results[idx];
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const resp = await fetch('/api/download/novel', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url: r.url, title: r.title }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      btn.textContent = 'Queued!';
+      btn.classList.add('sent');
+      showToast('Downloading "' + r.title.substring(0, 60) + '" (checks Anna\'s Archive first)');
+    } else {
+      btn.textContent = 'Failed';
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+  }
+}
+
+async function dlAnnas(idx, btn) {
+  const r = window._results[idx];
+  btn.disabled = true;
+  btn.textContent = 'Starting...';
+  try {
+    const resp = await fetch('/api/download/annas', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ md5: r.md5, title: r.title }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      btn.textContent = 'Queued!';
+      btn.classList.add('sent');
+      showToast('Downloading "' + r.title.substring(0, 60) + '" from Anna\'s Archive');
+    } else {
+      btn.textContent = 'Failed';
+      showToast('Failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    showToast('Error: ' + e.message);
+  }
+}
+
+// ---- Audiobook Search ----
+async function doAudiobookSearch() {
+  const q = document.getElementById('ab-search-input').value.trim();
+  if (!q) return;
+  const btn = document.getElementById('ab-search-btn');
+  const results = document.getElementById('ab-search-results');
+  const meta = document.getElementById('ab-search-meta');
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span>';
+  results.innerHTML = '';
+  meta.textContent = 'Searching...';
+
+  try {
+    const resp = await fetch('/api/search/audiobooks?q=' + encodeURIComponent(q));
+    const data = await resp.json();
+    const items = data.results || [];
+
+    meta.textContent = items.length
+      ? `${items.length} results in ${(data.search_time_ms/1000).toFixed(1)}s`
+      : 'No results found';
+
+    if (!items.length) {
+      results.innerHTML = '<div class="empty-state"><div class="icon">&#127911;</div><p>No audiobooks found. Try different search terms.</p></div>';
+      return;
+    }
+
+    items.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
+
+    results.innerHTML = items.map((r, i) => {
+      const meta = [];
+      meta.push(`<span>${esc(r.indexer)}</span>`);
+      if (r.seeders) meta.push(`<span>${r.seeders} seeds</span>`);
+      if (r.size_human && r.size_human !== '?') meta.push(`<span>${r.size_human}</span>`);
+      return `<div class="result">
+        <span class="badge audiobook">Audiobook</span>
+        <div class="result-info">
+          <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
+          <div class="result-meta">${meta.join('')}</div>
+        </div>
+        <button class="dl-btn" id="ab-dl-${i}" onclick="dlAudiobook(${i}, this)">Download</button>
+      </div>`;
+    }).join('');
+
+    window._abResults = items;
+  } catch (e) {
+    meta.textContent = 'Search failed: ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Search';
+  }
+}
+
+async function dlAudiobook(idx, btn) {
+  const r = window._abResults[idx];
+  btn.disabled = true;
+  btn.textContent = r.abb_url ? 'Resolving...' : 'Sending...';
+  try {
+    const resp = await fetch('/api/download/audiobook', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({
+        download_url: r.download_url,
+        magnet_url: r.magnet_url,
+        info_hash: r.info_hash,
+        abb_url: r.abb_url || '',
+        title: r.title,
+      }),
+    });
+    const data = await resp.json();
+    if (data.success) {
+      btn.textContent = 'Sent!';
+      btn.classList.add('sent');
+      showToast('Sent "' + r.title.substring(0, 60) + '" to download');
+    } else {
+      btn.textContent = 'Failed';
+      showToast('Failed: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    btn.textContent = 'Error';
+    showToast('Error: ' + e.message);
+  }
+}
+
+// ---- Downloads ----
+async function loadDownloads() {
+  const list = document.getElementById('downloads-list');
+  try {
+    const resp = await fetch('/api/downloads');
+    const data = await resp.json();
+    const items = data.downloads || [];
+
+    activeDownloads = items.filter(d => !['completed','seeding','error'].includes(d.status)).length;
+    updateDlBadge();
+
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">&#9981;</div><p>No active downloads</p></div>';
+      return;
+    }
+
+    list.innerHTML = items.map(d => {
+      let extra = '';
+      if ((d.source === 'torrent' || d.source === 'audiobook') && d.progress !== undefined) {
+        extra = `<div class="progress-bar"><div class="progress-fill" style="width:${d.progress}%"></div></div>
+          <div class="download-meta">${d.progress}% | ${d.size} | ${d.speed}</div>`;
+      }
+      if (d.detail) {
+        extra += `<div class="download-meta">${esc(d.detail)}</div>`;
+      }
+      if (d.error) {
+        extra += `<div class="error-msg">${esc(d.error)}</div>`;
+      }
+      const delId = (d.source === 'torrent' || d.source === 'audiobook') ? d.hash : d.job_id;
+      const delType = (d.source === 'torrent' || d.source === 'audiobook') ? 'torrent' : 'novel';
+      const delBtn = `<button class="del-btn" onclick="delDownload('${delType}','${delId}')">Remove</button>`;
+      const badgeClass = d.source === 'audiobook' ? 'audiobook' : d.source === 'torrent' ? 'torrent' : d.source === 'annas' ? 'annas' : 'webnovel';
+      const badgeLabel = d.source === 'audiobook' ? 'Audiobook' : d.source === 'torrent' ? 'Torrent' : d.source === 'annas' ? "Anna's" : 'Novel';
+      return `<div class="download-item">
+        <div class="download-header">
+          <span class="badge ${badgeClass}">${badgeLabel}</span>
+          <span class="download-title">${esc(d.title)}</span>
+          <span class="status ${d.status}">${d.status}</span>
+          ${delBtn}
+        </div>
+        ${extra}
+      </div>`;
+    }).join('');
+  } catch (e) {
+    list.innerHTML = '<div class="empty-state"><p>Failed to load downloads</p></div>';
+  }
+}
+
+function startPolling() {
+  stopPolling();
+  pollInterval = setInterval(loadDownloads, 5000);
+}
+function stopPolling() {
+  if (pollInterval) { clearInterval(pollInterval); pollInterval = null; }
+}
+
+function updateDlBadge() {
+  const btn = document.getElementById('dl-tab-btn');
+  const existing = btn.querySelector('.dl-count');
+  if (existing) existing.remove();
+  if (activeDownloads > 0) {
+    btn.innerHTML = 'Downloads<span class="dl-count">' + activeDownloads + '</span>';
+  } else {
+    btn.textContent = 'Downloads';
+  }
+}
+
+// Poll downloads in background
+setInterval(async () => {
+  try {
+    const resp = await fetch('/api/downloads');
+    const data = await resp.json();
+    activeDownloads = (data.downloads || []).filter(d => !['completed','seeding','error'].includes(d.status)).length;
+    updateDlBadge();
+  } catch(e) {}
+}, 15000);
+
+async function delDownload(source, id) {
+  const type = source === 'torrent' ? 'torrent' : 'novel';
+  try {
+    await fetch(`/api/downloads/${type}/${id}`, { method: 'DELETE' });
+    loadDownloads();
+  } catch (e) {
+    showToast('Failed to remove: ' + e.message);
+  }
+}
+
+async function clearFinished() {
+  try {
+    const resp = await fetch('/api/downloads/clear', { method: 'POST' });
+    const data = await resp.json();
+    showToast(`Cleared ${data.cleared_novels + data.cleared_torrents} items`);
+    loadDownloads();
+  } catch (e) {
+    showToast('Failed to clear: ' + e.message);
+  }
+}
+
+// ---- Library ----
+let libPage = 1;
+async function loadLibrary(page) {
+  libPage = page || 1;
+  const q = document.getElementById('library-search').value.trim();
+  const grid = document.getElementById('library-grid');
+  const pag = document.getElementById('library-pagination');
+
+  try {
+    const resp = await fetch(`/api/library?page=${libPage}&q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const books = data.books || [];
+
+    if (!books.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">&#128218;</div><p>No books in library yet. Download some!</p></div>';
+      pag.innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = books.map(b => `
+      <div class="book-card" onclick="window.open(getAbsUrl()+'/item/${b.id}','_blank')">
+        <div class="read-overlay"><span>READ</span></div>
+        <div class="book-cover">
+          ${b.cover_url ? `<img src="${b.cover_url}" loading="lazy" alt="">` : '&#128215;'}
+        </div>
+        <div class="book-info">
+          <div class="book-title" title="${esc(b.title)}">${esc(b.title)}</div>
+          <div class="book-author">${esc(b.authors)}</div>
+          <button class="del-btn" style="margin-top:6px;font-size:11px" onclick="event.stopPropagation();deleteBook('${b.id}')">Delete</button>
+        </div>
+      </div>
+    `).join('');
+
+    pag.innerHTML = `
+      <button onclick="loadLibrary(${libPage - 1})" ${libPage <= 1 ? 'disabled' : ''}>Prev</button>
+      <span>Page ${data.page} of ${data.pages} (${data.total} books)</span>
+      <button onclick="loadLibrary(${libPage + 1})" ${libPage >= data.pages ? 'disabled' : ''}>Next</button>
+    `;
+  } catch (e) {
+    grid.innerHTML = '<div class="empty-state"><p>Failed to load library</p></div>';
+  }
+}
+
+// ---- Audiobook Library ----
+let abLibPage = 1;
+async function loadAudiobookLibrary(page) {
+  abLibPage = page || 1;
+  const q = document.getElementById('ab-library-search').value.trim();
+  const grid = document.getElementById('ab-library-grid');
+  const pag = document.getElementById('ab-library-pagination');
+
+  try {
+    const resp = await fetch(`/api/library/audiobooks?page=${abLibPage}&q=${encodeURIComponent(q)}`);
+    const data = await resp.json();
+    const books = data.audiobooks || [];
+
+    if (!books.length) {
+      grid.innerHTML = '<div class="empty-state" style="grid-column:1/-1"><div class="icon">&#127911;</div><p>No audiobooks yet. Search and download some above!</p></div>';
+      pag.innerHTML = '';
+      return;
+    }
+
+    grid.innerHTML = books.map(b => `
+      <div class="book-card" onclick="window.open(getAbsUrl()+'/item/${b.id}','_blank')">
+        <div class="read-overlay"><span>LISTEN</span></div>
+        <div class="book-cover">
+          ${b.has_cover ? `<img src="${b.cover_url}" loading="lazy" alt="">` : '&#127911;'}
+        </div>
+        <div class="book-info">
+          <div class="book-title" title="${esc(b.title)}">${esc(b.title)}</div>
+          <div class="book-author">${esc(b.authors)}</div>
+          ${b.duration ? `<div class="book-author" style="color:var(--audiobook)">${b.duration}</div>` : ''}
+          <button class="del-btn" style="margin-top:6px;font-size:11px" onclick="event.stopPropagation();deleteAudiobook('${b.id}')">Delete</button>
+        </div>
+      </div>
+    `).join('');
+
+    if (data.pages > 1) {
+      pag.innerHTML = `
+        <button onclick="loadAudiobookLibrary(${abLibPage - 1})" ${abLibPage <= 1 ? 'disabled' : ''}>Prev</button>
+        <span>Page ${data.page} of ${data.pages} (${data.total} audiobooks)</span>
+        <button onclick="loadAudiobookLibrary(${abLibPage + 1})" ${abLibPage >= data.pages ? 'disabled' : ''}>Next</button>
+      `;
+    } else {
+      pag.innerHTML = data.total ? `<span>${data.total} audiobook${data.total === 1 ? '' : 's'}</span>` : '';
+    }
+  } catch (e) {
+    grid.innerHTML = '<div class="empty-state"><p>Failed to load audiobook library</p></div>';
+  }
+}
+
+// ---- Delete from Library ----
+async function deleteBook(bookId) {
+  if (!confirm('Delete this book from the library?')) return;
+  try {
+    const resp = await fetch(`/api/library/book/${bookId}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('Book deleted');
+      loadLibrary(libPage);
+    } else {
+      showToast('Failed to delete: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+async function deleteAudiobook(itemId) {
+  if (!confirm('Delete this audiobook from the library?')) return;
+  try {
+    const resp = await fetch(`/api/library/audiobook/${itemId}`, { method: 'DELETE' });
+    const data = await resp.json();
+    if (data.success) {
+      showToast('Audiobook deleted');
+      loadAudiobookLibrary(abLibPage);
+    } else {
+      showToast('Failed to delete: ' + (data.error || 'Unknown error'));
+    }
+  } catch (e) {
+    showToast('Error: ' + e.message);
+  }
+}
+
+// ---- Utilities ----
+function esc(s) {
+  if (!s) return '';
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function showToast(msg) {
+  const toast = document.createElement('div');
+  toast.className = 'toast';
+  toast.textContent = msg;
+  document.body.appendChild(toast);
+  setTimeout(() => toast.remove(), 4000);
+}
+
+// Init
+loadConfig();
+loadExternalUrls();
+document.getElementById('search-input').focus();
+</script>
+</body>
+</html>
