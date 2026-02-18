@@ -50,6 +50,9 @@ def _apply_settings():
     global AUDIOBOOK_DIR, QB_AUDIOBOOK_SAVE_PATH, QB_AUDIOBOOK_CATEGORY
     global LNCRAWL_CONTAINER, CALIBRE_CONTAINER, CALIBRE_LIBRARY
     global CALIBRE_LIBRARY_CONTAINER, CALIBRE_DB, INCOMING_DIR
+    global KAVITA_URL, KAVITA_API_KEY, KAVITA_LIBRARY_ID, KAVITA_LIBRARY_PATH
+    global FILE_ORG_ENABLED, EBOOK_ORGANIZED_DIR, AUDIOBOOK_ORGANIZED_DIR
+    global ENABLED_TARGETS
 
     # Prowlarr
     PROWLARR_URL = _get("PROWLARR_URL", "prowlarr_url")
@@ -86,6 +89,20 @@ def _apply_settings():
     # Incoming directory
     INCOMING_DIR = _get("INCOMING_DIR", "incoming_dir", "/data/media/books/ebooks/incoming")
 
+    # Kavita
+    KAVITA_URL = _get("KAVITA_URL", "kavita_url")
+    KAVITA_API_KEY = _get("KAVITA_API_KEY", "kavita_api_key")
+    KAVITA_LIBRARY_ID = _get("KAVITA_LIBRARY_ID", "kavita_library_id", "")
+    KAVITA_LIBRARY_PATH = _get("KAVITA_LIBRARY_PATH", "kavita_library_path", "")
+
+    # File organization
+    FILE_ORG_ENABLED = _get("FILE_ORG_ENABLED", "file_org_enabled", "true").lower() in ("true", "1", "yes")
+    EBOOK_ORGANIZED_DIR = _get("EBOOK_ORGANIZED_DIR", "ebook_organized_dir", "/data/media/books/ebooks")
+    AUDIOBOOK_ORGANIZED_DIR = _get("AUDIOBOOK_ORGANIZED_DIR", "audiobook_organized_dir", "/data/media/books/audiobooks")
+
+    # Pipeline targets (comma-separated)
+    ENABLED_TARGETS = _get("ENABLED_TARGETS", "enabled_targets", "calibre,audiobookshelf")
+
 
 # Feature flags
 def has_prowlarr():
@@ -105,6 +122,13 @@ def has_lncrawl():
 
 def has_audiobooks():
     return bool(QB_URL)
+
+def has_kavita():
+    return bool(KAVITA_URL and KAVITA_API_KEY)
+
+def get_enabled_target_names():
+    """Return set of target names the user has enabled."""
+    return set(t.strip() for t in ENABLED_TARGETS.split(",") if t.strip())
 
 def get_all_settings():
     """Return current settings (for the settings UI), masking sensitive values."""
@@ -129,6 +153,14 @@ def get_all_settings():
         "lncrawl_container": LNCRAWL_CONTAINER,
         "incoming_dir": INCOMING_DIR,
         "audiobook_dir": AUDIOBOOK_DIR,
+        "kavita_url": KAVITA_URL,
+        "kavita_api_key": KAVITA_API_KEY,
+        "kavita_library_id": KAVITA_LIBRARY_ID,
+        "kavita_library_path": KAVITA_LIBRARY_PATH,
+        "file_org_enabled": FILE_ORG_ENABLED,
+        "ebook_organized_dir": EBOOK_ORGANIZED_DIR,
+        "audiobook_organized_dir": AUDIOBOOK_ORGANIZED_DIR,
+        "enabled_targets": ENABLED_TARGETS,
     }
 
 

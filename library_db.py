@@ -1,0 +1,149 @@
+"""Library tracking database — records downloaded books and activity log."""
+import json
+import os
+import sqlite3
+import threading
+import logging
+
+logger = logging.getLogger("librarr")
+
+
+class LibraryDB:
+    """SQLite-backed library tracking with activity log.
+
+    Uses the same DB file as DownloadStore (separate tables).
+    Thread-safe via locking.
+    """
+
+    def __init__(self, db_path):
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        os.makedirs(os.path.dirname(db_path), exist_ok=True)
+        self._init_db()
+
+    def _connect(self):
+        conn = sqlite3.connect(self._db_path, timeout=10)
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.row_factory = sqlite3.Row
+        return conn
+
+    def _init_db(self):
+        with self._connect() as conn:
+            conn.executescript("""
+                CREATE TABLE IF NOT EXISTS library_items (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    title       TEXT NOT NULL,
+                    author      TEXT DEFAULT '',
+                    file_path   TEXT DEFAULT '',
+                    original_path TEXT DEFAULT '',
+                    file_size   INTEGER DEFAULT 0,
+                    file_format TEXT DEFAULT '',
+                    media_type  TEXT DEFAULT 'ebook',
+                    source      TEXT DEFAULT '',
+                    source_id   TEXT DEFAULT '',
+                    added_at    REAL DEFAULT (strftime('%s','now')),
+                    metadata    TEXT DEFAULT '{}'
+                );
+                CREATE INDEX IF NOT EXISTS idx_library_source_id
+                    ON library_items(source_id);
+                CREATE INDEX IF NOT EXISTS idx_library_title
+                    ON library_items(title);
+
+                CREATE TABLE IF NOT EXISTS activity_log (
+                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp   REAL DEFAULT (strftime('%s','now')),
+                    event_type  TEXT NOT NULL,
+                    title       TEXT DEFAULT '',
+                    detail      TEXT DEFAULT '',
+                    library_item_id INTEGER DEFAULT NULL,
+                    job_id      TEXT DEFAULT ''
+                );
+                CREATE INDEX IF NOT EXISTS idx_activity_timestamp
+                    ON activity_log(timestamp);
+            """)
+
+    # --- Library Items ---
+
+    def add_item(self, title, author="", file_path="", original_path="",
+                 file_size=0, file_format="", media_type="ebook",
+                 source="", source_id="", metadata=None):
+        """Record a successfully processed book. Returns the new item ID."""
+        with self._lock:
+            with self._connect() as conn:
+                cur = conn.execute(
+                    """INSERT INTO library_items
+                       (title, author, file_path, original_path, file_size,
+                        file_format, media_type, source, source_id, metadata)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (title, author, file_path, original_path, file_size,
+                     file_format, media_type, source, source_id,
+                     json.dumps(metadata or {})),
+                )
+                return cur.lastrowid
+
+    def has_source_id(self, source_id):
+        """Check if we've already downloaded something with this source_id."""
+        if not source_id:
+            return False
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT 1 FROM library_items WHERE source_id = ?", (source_id,)
+            ).fetchone()
+            return row is not None
+
+    def find_by_title(self, title):
+        """Case-insensitive title lookup for duplicate detection."""
+        with self._connect() as conn:
+            return conn.execute(
+                "SELECT * FROM library_items WHERE title = ? COLLATE NOCASE",
+                (title,),
+            ).fetchall()
+
+    def get_items(self, media_type=None, limit=50, offset=0):
+        """Paginated list of library items, newest first."""
+        query = "SELECT * FROM library_items"
+        params = []
+        if media_type:
+            query += " WHERE media_type = ?"
+            params.append(media_type)
+        query += " ORDER BY added_at DESC LIMIT ? OFFSET ?"
+        params.extend([limit, offset])
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(query, params).fetchall()]
+
+    def count_items(self, media_type=None):
+        """Count library items, optionally filtered by media type."""
+        query = "SELECT COUNT(*) FROM library_items"
+        params = []
+        if media_type:
+            query += " WHERE media_type = ?"
+            params.append(media_type)
+        with self._connect() as conn:
+            return conn.execute(query, params).fetchone()[0]
+
+    # --- Activity Log ---
+
+    def log_event(self, event_type, title="", detail="",
+                  library_item_id=None, job_id=""):
+        """Append an event to the activity log."""
+        with self._lock:
+            with self._connect() as conn:
+                conn.execute(
+                    """INSERT INTO activity_log
+                       (event_type, title, detail, library_item_id, job_id)
+                       VALUES (?, ?, ?, ?, ?)""",
+                    (event_type, title, detail, library_item_id, job_id),
+                )
+
+    def get_activity(self, limit=50, offset=0):
+        """Recent activity, newest first."""
+        with self._connect() as conn:
+            return [dict(row) for row in conn.execute(
+                "SELECT * FROM activity_log ORDER BY timestamp DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()]
+
+    def count_activity(self):
+        """Total number of activity events."""
+        with self._connect() as conn:
+            return conn.execute("SELECT COUNT(*) FROM activity_log").fetchone()[0]

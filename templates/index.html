@@ -510,6 +510,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     <button onclick="switchTab('downloads')" id="dl-tab-btn">Downloads</button>
     <button class="hidden" id="nav-library" onclick="switchTab('library')">Library</button>
     <button class="hidden" id="nav-ab-library" onclick="switchTab('ab-library')">Audiobook Library</button>
+    <button onclick="switchTab('activity')">Activity</button>
     <button onclick="switchTab('settings')" id="nav-settings" style="margin-left:auto">Settings</button>
   </nav>
 </header>
@@ -563,6 +564,15 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
       <button class="clear-btn" onclick="clearFinished()">Clear Finished</button>
     </div>
     <div id="downloads-list"></div>
+  </div>
+
+  <!-- Activity Tab -->
+  <div class="tab" id="tab-activity">
+    <h2 style="font-size:18px;margin-bottom:16px">Activity Log</h2>
+    <div id="activity-list" style="display:flex;flex-direction:column;gap:8px"></div>
+    <div id="activity-load-more" style="text-align:center;margin-top:16px;display:none">
+      <button class="btn" onclick="loadActivity(true)" style="background:var(--bg3);border:1px solid var(--border)">Load More</button>
+    </div>
   </div>
 
   <!-- Settings Tab -->
@@ -665,8 +675,67 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     </div>
 
     <div class="settings-section">
+      <h3><span class="status-dot off" id="dot-kavita"></span> Kavita</h3>
+      <p class="desc">Import ebooks into Kavita by triggering a library scan. Requires OPDS API key.</p>
+      <div class="settings-row">
+        <label>URL</label>
+        <input type="text" id="set-kavita-url" placeholder="http://kavita:5000">
+      </div>
+      <div class="settings-row">
+        <label>API Key (OPDS)</label>
+        <input type="text" id="set-kavita-api-key" placeholder="your-opds-api-key">
+      </div>
+      <div class="settings-row">
+        <label>Library ID</label>
+        <input type="text" id="set-kavita-library-id" placeholder="1">
+      </div>
+      <div class="settings-row">
+        <label>Library path (host)</label>
+        <input type="text" id="set-kavita-library-path" placeholder="/data/media/books/kavita">
+      </div>
+      <div class="settings-row">
+        <button class="btn" onclick="testKavita()" id="test-kavita-btn" style="background:var(--accent);color:#fff;border:none;padding:6px 16px;border-radius:4px;cursor:pointer">Test Connection</button>
+        <span id="kavita-test-result" style="margin-left:8px;font-size:13px"></span>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>Import Targets</h3>
+      <p class="desc">Choose which library apps receive imported books. Enabled targets are called after every download.</p>
+      <div class="settings-row" style="flex-direction:row;gap:24px;flex-wrap:wrap">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="set-target-calibre" value="calibre"> Calibre-Web
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="set-target-audiobookshelf" value="audiobookshelf"> Audiobookshelf
+        </label>
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="set-target-kavita" value="kavita"> Kavita
+        </label>
+      </div>
+    </div>
+
+    <div class="settings-section">
+      <h3>File Organization</h3>
+      <p class="desc">Organize downloaded files into Author/Title/ folder structure.</p>
+      <div class="settings-row" style="flex-direction:row;gap:12px;align-items:center">
+        <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+          <input type="checkbox" id="set-file-org-enabled"> Enable file organization
+        </label>
+      </div>
+      <div class="settings-row">
+        <label>Ebook organized directory</label>
+        <input type="text" id="set-ebook-organized-dir" placeholder="/data/media/books/ebooks">
+      </div>
+      <div class="settings-row">
+        <label>Audiobook organized directory</label>
+        <input type="text" id="set-audiobook-organized-dir" placeholder="/data/media/books/audiobooks">
+      </div>
+    </div>
+
+    <div class="settings-section">
       <h3>Download Paths</h3>
-      <p class="desc">Where downloaded files are stored.</p>
+      <p class="desc">Where downloaded files are stored before organization.</p>
       <div class="settings-row">
         <label>Incoming directory</label>
         <input type="text" id="set-incoming-dir" placeholder="/data/media/books/ebooks/incoming">
@@ -739,7 +808,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  const tabMap = { search: 'Search', 'ab-search': 'Audiobook Search', downloads: 'Downloads', library: 'Library', 'ab-library': 'Audiobook Library' };
+  const tabMap = { search: 'Search', 'ab-search': 'Audiobook Search', downloads: 'Downloads', library: 'Library', 'ab-library': 'Audiobook Library', activity: 'Activity', settings: 'Settings' };
   document.querySelectorAll('nav button').forEach(b => {
     if (b.textContent.replace(/\d+/g, '').trim() === tabMap[tab]) b.classList.add('active');
   });
@@ -752,6 +821,7 @@ function switchTab(tab) {
   if (tab === 'library') loadLibrary(1);
   if (tab === 'ab-search') document.getElementById('ab-search-input').focus();
   if (tab === 'ab-library') loadAudiobookLibrary(1);
+  if (tab === 'activity') loadActivity();
 }
 
 // ---- Search ----
@@ -796,11 +866,28 @@ async function doSearch() {
 
     results.innerHTML = items.map((r, i) => renderResult(r, i, 'dl')).join('');
     window._results = items;
+    checkDuplicates(items, 'dl');
   } catch (e) {
     meta.textContent = 'Search failed: ' + e.message;
   } finally {
     btn.disabled = false;
     btn.textContent = 'Search';
+  }
+}
+
+async function checkDuplicates(items, prefix) {
+  for (let i = 0; i < items.length; i++) {
+    const r = items[i];
+    const sourceId = r.md5 || r.info_hash || r.source_id || '';
+    if (!sourceId) continue;
+    try {
+      const resp = await fetch('/api/check-duplicate?source_id=' + encodeURIComponent(sourceId));
+      const data = await resp.json();
+      if (data.duplicate) {
+        const badge = document.getElementById(`dup-${prefix}-${i}`);
+        if (badge) badge.style.display = '';
+      }
+    } catch (e) {}
   }
 }
 
@@ -822,8 +909,12 @@ function renderResult(r, i, prefix) {
   if (r.chapters) metaFields.push(r.chapters + ' chapters');
   const metaHtml = metaFields.map(m => `<span>${m}</span>`).join('');
 
+  const sourceId = r.md5 || r.info_hash || r.source_id || '';
+  const dupId = sourceId ? `dup-${prefix}-${i}` : '';
+
   return `<div class="result">
     <span class="badge" style="background:${badgeColor};color:#fff">${esc(badgeLabel)}</span>
+    ${dupId ? `<span id="${dupId}" class="badge" style="background:var(--success);color:#fff;display:none">In Library</span>` : ''}
     <div class="result-info">
       <div class="result-title" title="${esc(r.title)}">${esc(r.title)}</div>
       <div class="result-meta">${metaHtml}</div>
@@ -891,6 +982,7 @@ async function doAudiobookSearch() {
     items.sort((a, b) => (b.seeders || 0) - (a.seeders || 0));
     results.innerHTML = items.map((r, i) => renderResult(r, i, 'ab')).join('');
     window._abResults = items;
+    checkDuplicates(items, 'ab');
   } catch (e) {
     meta.textContent = 'Search failed: ' + e.message;
   } finally {
@@ -1157,6 +1249,20 @@ async function loadSettings() {
     document.getElementById('set-lncrawl-container').value = s.lncrawl_container || '';
     document.getElementById('set-incoming-dir').value = s.incoming_dir || '';
     document.getElementById('set-audiobook-dir').value = s.audiobook_dir || '';
+    // Kavita
+    document.getElementById('set-kavita-url').value = s.kavita_url || '';
+    document.getElementById('set-kavita-api-key').value = s.kavita_api_key || '';
+    document.getElementById('set-kavita-library-id').value = s.kavita_library_id || '';
+    document.getElementById('set-kavita-library-path').value = s.kavita_library_path || '';
+    // File organization
+    document.getElementById('set-file-org-enabled').checked = s.file_org_enabled === true || s.file_org_enabled === 'true';
+    document.getElementById('set-ebook-organized-dir').value = s.ebook_organized_dir || '';
+    document.getElementById('set-audiobook-organized-dir').value = s.audiobook_organized_dir || '';
+    // Import targets
+    const targets = (s.enabled_targets || '').split(',').map(t => t.trim());
+    document.getElementById('set-target-calibre').checked = targets.includes('calibre');
+    document.getElementById('set-target-audiobookshelf').checked = targets.includes('audiobookshelf');
+    document.getElementById('set-target-kavita').checked = targets.includes('kavita');
     // Set library dropdowns if we have values
     if (s.abs_library_id) _addLibOption('set-abs-library', s.abs_library_id, s.abs_library_id);
     if (s.abs_ebook_library_id) _addLibOption('set-abs-ebook-library', s.abs_ebook_library_id, s.abs_ebook_library_id);
@@ -1199,6 +1305,7 @@ function updateStatusDots() {
     abs: appConfig.audiobookshelf,
     calibre: appConfig.calibre,
     lncrawl: appConfig.lncrawl,
+    kavita: appConfig.kavita,
   };
   for (const [key, val] of Object.entries(dots)) {
     const dot = document.getElementById('dot-' + key);
@@ -1295,6 +1402,66 @@ async function testAudiobookshelf() {
   }
 }
 
+async function testKavita() {
+  const url = document.getElementById('set-kavita-url').value.trim();
+  const apiKey = document.getElementById('set-kavita-api-key').value.trim();
+  const el = document.getElementById('kavita-test-result');
+  el.textContent = 'Testing...';
+  el.style.color = 'var(--text2)';
+  try {
+    const resp = await fetch('/api/test/kavita', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({ url, api_key: apiKey }),
+    });
+    const data = await resp.json();
+    el.textContent = data.success ? data.message : data.error;
+    el.style.color = data.success ? 'var(--success)' : 'var(--danger)';
+    if (data.success && data.libraries) {
+      const libId = document.getElementById('set-kavita-library-id');
+      if (!libId.value && data.libraries.length > 0) {
+        libId.value = data.libraries[0].id;
+      }
+    }
+  } catch (e) {
+    el.textContent = 'Request failed: ' + e.message;
+    el.style.color = 'var(--danger)';
+  }
+}
+
+let _activityOffset = 0;
+async function loadActivity(more) {
+  if (!more) _activityOffset = 0;
+  try {
+    const resp = await fetch(`/api/activity?limit=50&offset=${_activityOffset}`);
+    const data = await resp.json();
+    const container = document.getElementById('activity-list');
+    if (!more) container.innerHTML = '';
+    const icons = {download:'&#x2B07;',organize:'&#x1F4C1;',import:'&#x2705;',scan:'&#x1F50D;',error:'&#x274C;',skip:'&#x23ED;'};
+    const colors = {download:'var(--accent)',organize:'var(--success)',import:'#00cec9',scan:'var(--text2)',error:'var(--danger)',skip:'var(--warning)'};
+    for (const ev of data.events) {
+      const dt = new Date(ev.timestamp * 1000);
+      const time = dt.toLocaleDateString() + ' ' + dt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      const icon = icons[ev.event_type] || '&#x2022;';
+      const color = colors[ev.event_type] || 'var(--text2)';
+      container.innerHTML += `<div style="display:flex;gap:12px;align-items:flex-start;padding:10px 12px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+        <span style="font-size:18px;color:${color};min-width:24px;text-align:center">${icon}</span>
+        <div style="flex:1;min-width:0">
+          <div style="font-size:14px;font-weight:500">${esc(ev.title || ev.event_type)}</div>
+          <div style="font-size:12px;color:var(--text2);margin-top:2px">${esc(ev.detail || '')}</div>
+        </div>
+        <div style="font-size:11px;color:var(--text2);white-space:nowrap">${time}</div>
+      </div>`;
+    }
+    _activityOffset += data.events.length;
+    document.getElementById('activity-load-more').style.display =
+      _activityOffset < data.total ? '' : 'none';
+    if (!data.events.length && !more) {
+      container.innerHTML = '<div style="color:var(--text2);text-align:center;padding:32px">No activity yet. Activity will appear here as books are downloaded and imported.</div>';
+    }
+  } catch (e) {}
+}
+
 async function saveSettings() {
   const btn = document.getElementById('save-settings-btn');
   btn.disabled = true;
@@ -1318,6 +1485,18 @@ async function saveSettings() {
     lncrawl_container: document.getElementById('set-lncrawl-container').value.trim(),
     incoming_dir: document.getElementById('set-incoming-dir').value.trim(),
     audiobook_dir: document.getElementById('set-audiobook-dir').value.trim(),
+    // Kavita
+    kavita_url: document.getElementById('set-kavita-url').value.trim(),
+    kavita_api_key: document.getElementById('set-kavita-api-key').value.trim(),
+    kavita_library_id: document.getElementById('set-kavita-library-id').value.trim(),
+    kavita_library_path: document.getElementById('set-kavita-library-path').value.trim(),
+    // File organization
+    file_org_enabled: document.getElementById('set-file-org-enabled').checked ? 'true' : 'false',
+    ebook_organized_dir: document.getElementById('set-ebook-organized-dir').value.trim(),
+    audiobook_organized_dir: document.getElementById('set-audiobook-organized-dir').value.trim(),
+    // Import targets
+    enabled_targets: ['calibre', 'audiobookshelf', 'kavita']
+      .filter(t => document.getElementById('set-target-' + t).checked).join(','),
   };
   // Collect plugin source config values
   document.querySelectorAll('#plugin-sources-config input[data-source]').forEach(input => {

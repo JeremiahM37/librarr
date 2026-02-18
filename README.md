@@ -13,14 +13,17 @@ Librarr searches for books across multiple sources simultaneously and downloads 
 | Prowlarr Indexers | Torrent search | Prowlarr |
 | AudioBookBay | Audiobook torrents | None (qBittorrent for download) |
 
-After downloading, books can be auto-imported into Calibre-Web and/or Audiobookshelf.
+After downloading, books are organized into Author/Title folders and auto-imported into your library apps (Calibre-Web, Kavita, and/or Audiobookshelf).
 
 ## Features
 
 - **Multi-source search** — Anna's Archive, Prowlarr/torrent indexers, AudioBookBay, and 7 web novel sites searched in parallel
 - **Smart download strategy** — For web novels: checks Anna's Archive for a pre-made EPUB first, falls back to chapter-by-chapter scraping only if needed
 - **Link verification** — Validates that Anna's Archive results are actually downloadable before showing them
-- **Auto-import** — Completed downloads automatically imported into Calibre-Web and trigger Audiobookshelf library scans
+- **Post-processing pipeline** — Organize files into Author/Title folders, import into multiple library apps, track everything
+- **Multi-library import** — Calibre-Web (via calibredb), Kavita (API scan), Audiobookshelf (API scan) — enable any combination
+- **Library tracking** — SQLite-backed history of every book processed, with duplicate detection across searches
+- **Activity log** — Full event feed of downloads, imports, file moves, and errors
 - **Audiobook support** — Search and download audiobooks via Prowlarr indexers and AudioBookBay
 - **Library browsing** — Browse your ebook and audiobook libraries with cover art directly in the UI
 - **All integrations optional** — Works with zero config (Anna's Archive + web novel search), add integrations as you need them
@@ -73,6 +76,7 @@ Configuration can be done two ways:
 | **qBittorrent** | Torrent downloads + audiobook downloads | `QB_URL`, `QB_USER`, `QB_PASS` |
 | **Calibre-Web** | Auto-import ebooks via calibredb | `CALIBRE_CONTAINER` |
 | **Audiobookshelf** | Library browsing, audiobook scan + metadata match | `ABS_URL`, `ABS_TOKEN`, `ABS_LIBRARY_ID` |
+| **Kavita** | Ebook import via library scan | `KAVITA_URL`, `KAVITA_API_KEY` |
 | **lightnovel-crawler** | Web novel chapter scraping to EPUB | `LNCRAWL_CONTAINER` |
 
 ### Minimal Setup (no integrations)
@@ -92,7 +96,10 @@ ABS_TOKEN=your-abs-api-token
 ABS_LIBRARY_ID=your-audiobook-library-id
 ABS_EBOOK_LIBRARY_ID=your-ebook-library-id
 CALIBRE_CONTAINER=calibre-web
+KAVITA_URL=http://kavita:5000
+KAVITA_API_KEY=your-opds-api-key
 LNCRAWL_CONTAINER=lncrawl
+ENABLED_TARGETS=calibre,audiobookshelf,kavita
 ```
 
 ## How Search Works
@@ -126,6 +133,7 @@ When you download a web novel, Librarr uses a multi-strategy approach:
 | `/api/test/prowlarr` | POST | Test Prowlarr connection |
 | `/api/test/qbittorrent` | POST | Test qBittorrent connection |
 | `/api/test/audiobookshelf` | POST | Test Audiobookshelf connection |
+| `/api/test/kavita` | POST | Test Kavita connection |
 | `/api/sources` | GET | List all loaded sources with metadata |
 | `/api/search?q=...` | GET | Search all sources |
 | `/api/search/audiobooks?q=...` | GET | Search audiobook sources |
@@ -137,6 +145,9 @@ When you download a web novel, Librarr uses a multi-strategy approach:
 | `/api/downloads` | GET | List active downloads |
 | `/api/library` | GET | Browse ebook library |
 | `/api/library/audiobooks` | GET | Browse audiobook library |
+| `/api/library/tracked` | GET | Paginated list of tracked downloads |
+| `/api/activity` | GET | Paginated activity log |
+| `/api/check-duplicate` | GET | Check if a source_id is already in library |
 
 ## Adding Custom Sources
 

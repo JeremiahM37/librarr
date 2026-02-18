@@ -23,7 +23,9 @@ import requests
 from flask import Flask, jsonify, request, send_file
 
 import config
+import pipeline
 import sources
+from library_db import LibraryDB
 
 app = Flask(__name__)
 logging.basicConfig(
@@ -151,6 +153,7 @@ class _PersistentJob:
 
 _DB_PATH = os.getenv("LIBRARR_DB_PATH", "/data/librarr/downloads.db")
 download_jobs = DownloadStore(_DB_PATH)
+library = LibraryDB(_DB_PATH)
 
 
 # =============================================================================
@@ -1065,17 +1068,17 @@ def download_novel_worker(job_id, url, title):
                 continue
 
             download_jobs[job_id]["status"] = "importing"
-            download_jobs[job_id]["detail"] = f"Importing to Calibre ({_human_size(epub_size)})..."
+            download_jobs[job_id]["detail"] = f"Processing ({_human_size(epub_size)})..."
 
-            if import_to_calibre(best_epub, title=title):
-                download_jobs[job_id]["status"] = "completed"
-                download_jobs[job_id]["detail"] = f"Done (scraped from {site_name}, {_human_size(epub_size)})"
-                _clean_incoming()
-                return
-            else:
-                logger.warning(f"[{title}] Calibre import failed for {site_name}")
-                _clean_incoming()
-                continue
+            pipeline.run_pipeline(
+                best_epub, title=title, media_type="ebook",
+                source="webnovel", source_id=url,
+                job_id=job_id, library_db=library,
+            )
+            download_jobs[job_id]["status"] = "completed"
+            download_jobs[job_id]["detail"] = f"Done (scraped from {site_name}, {_human_size(epub_size)})"
+            _clean_incoming()
+            return
 
         except subprocess.TimeoutExpired:
             logger.warning(f"[{title}] lncrawl timed out on {src_url}")
@@ -1203,19 +1206,16 @@ def _download_from_annas(job_id, md5, title):
         logger.info(f"[Anna's] Downloaded {title}: {_human_size(file_size)}")
 
         download_jobs[job_id]["status"] = "importing"
-        download_jobs[job_id]["detail"] = "Importing to Calibre..."
+        download_jobs[job_id]["detail"] = "Processing..."
 
-        if import_to_calibre(filepath, title=title):
-            download_jobs[job_id]["status"] = "completed"
-            download_jobs[job_id]["detail"] = f"Done ({_human_size(file_size)})"
-            if os.path.exists(filepath):
-                os.remove(filepath)
-            return True
-        else:
-            # Even if calibre import fails, file was downloaded successfully
-            download_jobs[job_id]["status"] = "completed"
-            download_jobs[job_id]["detail"] = f"Downloaded ({_human_size(file_size)}) — Calibre import skipped"
-            return True
+        pipeline.run_pipeline(
+            filepath, title=title, media_type="ebook",
+            source="annas", source_id=md5,
+            job_id=job_id, library_db=library,
+        )
+        download_jobs[job_id]["status"] = "completed"
+        download_jobs[job_id]["detail"] = f"Done ({_human_size(file_size)})"
+        return True
 
     except Exception as e:
         logger.error(f"[Anna's] Download error for {title}: {e}")
@@ -1256,7 +1256,11 @@ def import_completed_torrents():
                     elif save_path.lower().endswith(ext[1:]):
                         book_files.append(save_path)
                 for bf in book_files:
-                    import_to_calibre(bf)
+                    pipeline.run_pipeline(
+                        bf, title=t.get("name", ""),
+                        media_type="ebook", source="torrent",
+                        source_id=t["hash"], library_db=library,
+                    )
                 qb.delete_torrent(t["hash"], delete_files=True)
                 logger.info(f"Removed completed torrent: {t.get('name', t['hash'])}")
                 imported_hashes.add(t["hash"])
@@ -1438,6 +1442,9 @@ def api_config():
         "audiobookshelf": config.has_audiobookshelf(),
         "lncrawl": config.has_lncrawl(),
         "audiobooks": config.has_audiobooks(),
+        "kavita": config.has_kavita(),
+        "file_org_enabled": config.FILE_ORG_ENABLED,
+        "enabled_targets": list(config.get_enabled_target_names()),
     })
 
 
@@ -1951,6 +1958,36 @@ def api_download():
 
 
 # =============================================================================
+# Activity & Library Tracking API
+# =============================================================================
+@app.route("/api/activity")
+def api_activity():
+    limit = request.args.get("limit", 50, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    events = library.get_activity(limit=limit, offset=offset)
+    total = library.count_activity()
+    return jsonify({"events": events, "total": total})
+
+
+@app.route("/api/library/tracked")
+def api_library_tracked():
+    media_type = request.args.get("type", None)
+    limit = request.args.get("limit", 50, type=int)
+    offset = request.args.get("offset", 0, type=int)
+    items = library.get_items(media_type=media_type, limit=limit, offset=offset)
+    total = library.count_items(media_type=media_type)
+    return jsonify({"items": items, "total": total})
+
+
+@app.route("/api/check-duplicate")
+def api_check_duplicate():
+    source_id = request.args.get("source_id", "")
+    if not source_id:
+        return jsonify({"duplicate": False})
+    return jsonify({"duplicate": library.has_source_id(source_id)})
+
+
+# =============================================================================
 # Settings API
 # =============================================================================
 @app.route("/api/settings")
@@ -2059,6 +2096,47 @@ def api_test_audiobookshelf():
         return jsonify({"success": False, "error": str(e)})
 
 
+@app.route("/api/test/kavita", methods=["POST"])
+def api_test_kavita():
+    data = request.json
+    url = data.get("url", "").rstrip("/")
+    api_key = data.get("api_key", "")
+    if not url or not api_key:
+        return jsonify({"success": False, "error": "URL and API key required"})
+    try:
+        resp = requests.post(
+            f"{url}/api/Plugin/authenticate",
+            params={"apiKey": api_key, "pluginName": "Librarr"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            token = resp.json().get("token", "")
+            if not token:
+                return jsonify({"success": False, "error": "Auth returned no token"})
+            lib_resp = requests.get(
+                f"{url}/api/Library",
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            libraries = []
+            if lib_resp.status_code == 200:
+                libraries = [{"id": l["id"], "name": l["name"]}
+                             for l in lib_resp.json()]
+            return jsonify({
+                "success": True,
+                "message": f"Connected ({len(libraries)} libraries)",
+                "libraries": libraries,
+            })
+        elif resp.status_code == 401:
+            return jsonify({"success": False, "error": "Invalid API key"})
+        else:
+            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
+    except requests.ConnectionError:
+        return jsonify({"success": False, "error": "Connection refused — is Kavita running?"})
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e)})
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -2079,6 +2157,8 @@ if __name__ == "__main__":
         integrations.append("Audiobookshelf")
     if config.has_lncrawl():
         integrations.append("lightnovel-crawler")
+    if config.has_kavita():
+        integrations.append("Kavita")
     if integrations:
         logger.info(f"Integrations: {', '.join(integrations)}")
 
