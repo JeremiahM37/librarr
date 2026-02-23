@@ -21,21 +21,15 @@ def sanitize_filename(name, max_len=80):
 
 
 def organize_file(file_path, title, author, media_type="ebook"):
-    """Move a downloaded file into Author/Title/ structure.
-
-    Returns the new file path, or the original if organization is disabled
-    or fails.
-    """
     if not config.FILE_ORG_ENABLED:
         return file_path
 
-    if not os.path.isfile(file_path):
-        logger.warning(f"organize_file: file not found: {file_path}")
+    if not os.path.exists(file_path):
+        logger.warning(f"organize_file: path not found: {file_path}")
         return file_path
 
     safe_author = sanitize_filename(author or "Unknown")
     safe_title = sanitize_filename(title or "Unknown")
-    ext = os.path.splitext(file_path)[1].lower() or ".epub"
 
     if media_type == "audiobook":
         base_dir = config.AUDIOBOOK_ORGANIZED_DIR
@@ -43,34 +37,43 @@ def organize_file(file_path, title, author, media_type="ebook"):
         base_dir = config.EBOOK_ORGANIZED_DIR
 
     dest_dir = os.path.join(base_dir, safe_author, safe_title)
-    dest_path = os.path.join(dest_dir, f"{safe_title}{ext}")
 
-    if os.path.abspath(file_path) == os.path.abspath(dest_path):
-        return file_path
-
-    try:
-        os.makedirs(dest_dir, exist_ok=True)
-        shutil.move(file_path, dest_path)
-        logger.info(f"Organized: {dest_path}")
-    except Exception as e:
-        logger.error(f"organize_file failed: {e}")
-        return file_path
-
-    # Copy to Kavita library path if configured (separate volume)
-    if config.KAVITA_LIBRARY_PATH and media_type == "ebook":
+    if os.path.isdir(file_path):
+        # Move entire folder (e.g. audiobook with multiple chapter files)
+        if os.path.abspath(file_path) == os.path.abspath(dest_dir):
+            return file_path
         try:
-            kavita_dir = os.path.join(
-                config.KAVITA_LIBRARY_PATH, safe_author, safe_title
-            )
-            kavita_path = os.path.join(kavita_dir, f"{safe_title}{ext}")
-            os.makedirs(kavita_dir, exist_ok=True)
-            shutil.copy2(dest_path, kavita_path)
-            logger.info(f"Copied to Kavita library: {kavita_path}")
+            os.makedirs(os.path.dirname(dest_dir), exist_ok=True)
+            shutil.move(file_path, dest_dir)
+            logger.info(f"Organized folder: {dest_dir}")
+            return dest_dir
         except Exception as e:
-            logger.warning(f"Kavita copy failed: {e}")
+            logger.error(f"organize_file (folder) failed: {e}")
+            return file_path
+    else:
+        ext = os.path.splitext(file_path)[1].lower() or ".epub"
+        dest_path = os.path.join(dest_dir, f"{safe_title}{ext}")
+        if os.path.abspath(file_path) == os.path.abspath(dest_path):
+            return file_path
+        try:
+            os.makedirs(dest_dir, exist_ok=True)
+            shutil.move(file_path, dest_path)
+            logger.info(f"Organized: {dest_path}")
+        except Exception as e:
+            logger.error(f"organize_file failed: {e}")
+            return file_path
 
-    return dest_path
+        if config.KAVITA_LIBRARY_PATH and media_type == "ebook":
+            try:
+                kavita_dir = os.path.join(config.KAVITA_LIBRARY_PATH, safe_author, safe_title)
+                kavita_path = os.path.join(kavita_dir, f"{safe_title}{ext}")
+                os.makedirs(kavita_dir, exist_ok=True)
+                shutil.copy2(dest_path, kavita_path)
+                logger.info(f"Copied to Kavita library: {kavita_path}")
+            except Exception as e:
+                logger.warning(f"Kavita copy failed: {e}")
 
+        return dest_path
 
 def run_pipeline(file_path, title="", author="", media_type="ebook",
                  source="", source_id="", job_id="", library_db=None):
