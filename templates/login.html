@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Librarr — Login</title>
+<style>
+:root {
+  --bg: #0f1117;
+  --bg2: #1a1d27;
+  --bg3: #242836;
+  --border: #2e3346;
+  --text: #e1e4ed;
+  --text2: #8b90a0;
+  --accent: #3b82f6;
+  --accent2: #60a5fa;
+  --danger: #d63031;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.login-card {
+  background: var(--bg2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 40px;
+  width: 100%;
+  max-width: 400px;
+  margin: 24px;
+}
+.logo {
+  font-size: 28px;
+  font-weight: 700;
+  color: var(--accent2);
+  text-align: center;
+  margin-bottom: 8px;
+}
+.logo span { color: var(--text); }
+.subtitle {
+  color: var(--text2);
+  font-size: 14px;
+  text-align: center;
+  margin-bottom: 32px;
+}
+.form-group {
+  margin-bottom: 16px;
+}
+.form-group label {
+  display: block;
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: 6px;
+  font-weight: 500;
+}
+.form-group input {
+  width: 100%;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  font-size: 15px;
+  color: var(--text);
+  outline: none;
+  transition: border-color 0.15s;
+}
+.form-group input:focus { border-color: var(--accent); }
+.error-msg {
+  background: rgba(214, 48, 49, 0.1);
+  border: 1px solid var(--danger);
+  color: var(--danger);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 13px;
+  margin-bottom: 16px;
+  display: none;
+}
+.login-btn {
+  width: 100%;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.login-btn:hover { background: var(--accent2); }
+.login-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+</style>
+</head>
+<body>
+<div class="login-card">
+  <div class="logo">Lib<span>rarr</span></div>
+  <div class="subtitle">Sign in to continue</div>
+  <div class="error-msg" id="error-msg">Invalid username or password</div>
+  <form method="POST" action="/login" id="login-form">
+    <div class="form-group">
+      <label for="username">Username</label>
+      <input type="text" id="username" name="username" autocomplete="username" autofocus required>
+    </div>
+    <div class="form-group">
+      <label for="password">Password</label>
+      <input type="password" id="password" name="password" autocomplete="current-password" required>
+    </div>
+    <button type="submit" class="login-btn" id="login-btn">Sign In</button>
+  </form>
+</div>
+<script>
+// Show error if redirected with error param
+if (new URLSearchParams(window.location.search).has('error')) {
+  document.getElementById('error-msg').style.display = 'block';
+}
+</script>
+</body>
+</html>

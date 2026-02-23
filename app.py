@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 
 import requests
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, redirect, request, send_file, session, url_for
 
 import config
 import pipeline
@@ -28,12 +28,79 @@ import sources
 from library_db import LibraryDB
 
 app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     stream=sys.stderr,
 )
 logger = logging.getLogger("librarr")
+
+
+# =============================================================================
+# Authentication
+# =============================================================================
+PUBLIC_PATHS = {"/login", "/api/health"}
+PUBLIC_PREFIXES = ("/static/",)
+
+
+@app.before_request
+def require_auth():
+    """Protect all routes when auth is configured."""
+    if not config.has_auth():
+        return None
+
+    path = request.path
+
+    # Public paths
+    if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+        return None
+
+    # Check API key (header or query param)
+    api_key = request.headers.get("X-Api-Key") or request.args.get("apikey")
+    if api_key and api_key == config.API_KEY:
+        return None
+
+    # Check session
+    if session.get("authenticated"):
+        return None
+
+    # Not authenticated
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Unauthorized"}), 401
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not config.has_auth():
+        return redirect("/")
+
+    if request.method == "GET":
+        return send_file("templates/login.html")
+
+    # POST — authenticate
+    data = request.form if request.form else (request.json or {})
+    username = data.get("username", "")
+    password = data.get("password", "")
+
+    if username == config.AUTH_USERNAME and config.verify_password(password, config.AUTH_PASSWORD):
+        session["authenticated"] = True
+        if request.is_json:
+            return jsonify({"success": True})
+        return redirect("/")
+
+    error = "Invalid username or password"
+    if request.is_json:
+        return jsonify({"success": False, "error": error}), 401
+    # Re-serve login page with error via query param
+    return redirect(url_for("login", error="1"))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # =============================================================================
@@ -1647,6 +1714,7 @@ def api_config():
         "kavita": config.has_kavita(),
         "file_org_enabled": config.FILE_ORG_ENABLED,
         "enabled_targets": list(config.get_enabled_target_names()),
+        "auth_enabled": config.has_auth(),
     })
 
 
@@ -2211,7 +2279,17 @@ def api_save_settings():
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
     try:
+        # Hash auth password if it's being changed (not the masked placeholder)
+        if "auth_password" in data:
+            pw = data["auth_password"]
+            if pw and pw != "••••••••":
+                data["auth_password"] = config.hash_password(pw)
+            else:
+                # Don't overwrite existing hash with placeholder
+                del data["auth_password"]
         config.save_settings(data)
+        # Update secret key if it changed
+        app.secret_key = config.SECRET_KEY
         # Re-authenticate qBittorrent if credentials changed
         qb.authenticated = False
         return jsonify({"success": True})
