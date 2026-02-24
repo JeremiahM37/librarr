@@ -1,3 +1,8 @@
+# =============================================================================
+# Librarr — Docker Compose
+# Adjust volume paths to match your storage layout.
+# =============================================================================
+
 services:
   librarr:
     build: .
@@ -8,9 +13,14 @@ services:
     env_file:
       - .env
     volumes:
-      # Required: Docker socket for lncrawl/calibre container exec (if using those integrations)
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /usr/bin/docker:/usr/bin/docker:ro
-      # Required: Book storage paths (adjust to match your setup)
-      - /data/media/books/ebooks:/data/media/books/ebooks
-      - /data/media/books/audiobooks:/data/media/books/audiobooks
+      # Book storage — adjust these paths to your setup
+      - /your/books/ebooks:/data/books/ebooks
+      - /your/books/audiobooks:/data/books/audiobooks
+      # Librarr database and settings (persisted across restarts)
+      - librarr_data:/data/librarr
+      # Required only if using Calibre-Web or lightnovel-crawler integration:
+      # - /var/run/docker.sock:/var/run/docker.sock:ro
+      # - /usr/bin/docker:/usr/bin/docker:ro
+
+volumes:
+  librarr_data:

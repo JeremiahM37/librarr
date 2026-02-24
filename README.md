@@ -2,6 +2,15 @@
 
 Self-hosted book search and download manager. Searches multiple sources, downloads via direct HTTP or torrents, and auto-imports into your library.
 
+## Legal & Educational Use
+
+Librarr is intended for personal archival, research, and educational use.
+
+- **Free sources work out of the box** — Project Gutenberg, Open Library, Standard Ebooks, and Librivox provide thousands of legally free books with no configuration needed.
+- **Prowlarr integration** — intended for use with content you have legal access to (e.g. your own rips, public trackers for public domain works, or content you have purchased).
+- **Users are responsible** for complying with copyright law in their jurisdiction. Copyright law varies by country.
+- **The developers do not condone copyright infringement.** Do not use Librarr to download books you do not have the right to access.
+
 ## What It Does
 
 Librarr searches for books across multiple sources simultaneously and downloads them through whatever method is available:
@@ -11,6 +20,7 @@ Librarr searches for books across multiple sources simultaneously and downloads 
 | Anna's Archive | Direct EPUB download | None |
 | Project Gutenberg | Public domain EPUBs | None |
 | Open Library | Public domain EPUBs via Internet Archive | None |
+| Standard Ebooks | High-quality public domain EPUBs | None |
 | Web Novel Sites (7 sites) | Scrape chapters to EPUB | None (lncrawl for scraping) |
 | Prowlarr Indexers | Torrent search | Prowlarr |
 | AudioBookBay | Audiobook torrents | None (qBittorrent for download) |

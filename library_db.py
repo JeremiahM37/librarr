@@ -147,3 +147,16 @@ class LibraryDB:
         """Total number of activity events."""
         with self._connect() as conn:
             return conn.execute("SELECT COUNT(*) FROM activity_log").fetchone()[0]
+
+    def cleanup_activity(self, days: int = 90) -> int:
+        """Delete activity log entries older than `days` days."""
+        import time
+        cutoff = time.time() - days * 86400
+        with self._connect() as conn:
+            deleted = conn.execute(
+                "DELETE FROM activity_log WHERE timestamp < ?",
+                (cutoff,)
+            ).rowcount
+        if deleted:
+            logger.info(f"Pruned {deleted} old activity log entries (>{days}d)")
+        return deleted

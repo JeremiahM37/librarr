@@ -156,6 +156,24 @@ download_jobs = DownloadStore(_DB_PATH)
 library = LibraryDB(_DB_PATH)
 
 
+def _validate_config():
+    """Warn about misconfigured paths at startup."""
+    paths_to_check = []
+    if config.INCOMING_DIR:
+        paths_to_check.append(("INCOMING_DIR", config.INCOMING_DIR))
+    if config.EBOOK_ORGANIZED_DIR and config.FILE_ORG_ENABLED:
+        paths_to_check.append(("EBOOK_ORGANIZED_DIR", config.EBOOK_ORGANIZED_DIR))
+    if config.AUDIOBOOK_DIR:
+        paths_to_check.append(("AUDIOBOOK_DIR", config.AUDIOBOOK_DIR))
+    for name, path in paths_to_check:
+        if not os.path.exists(path):
+            logger.warning(f"Config path {name}={path!r} does not exist — creating it")
+            try:
+                os.makedirs(path, exist_ok=True)
+            except Exception as e:
+                logger.error(f"Cannot create {name}={path!r}: {e}")
+
+
 # =============================================================================
 # qBittorrent Client
 # =============================================================================
@@ -343,7 +361,13 @@ def search_prowlarr_audiobooks(query):
 # =============================================================================
 # AudioBookBay Search
 # =============================================================================
-ABB_URL = "https://audiobookbay.lu"
+# Primary and fallback domains for AudioBookBay
+ABB_DOMAINS = [
+    "https://audiobookbay.lu",
+    "https://audiobookbay.is",
+    "https://audiobookbay.li",
+]
+ABB_URL = ABB_DOMAINS[0]
 ABB_TRACKERS = [
     "udp://tracker.opentrackr.org:1337/announce",
     "udp://open.stealth.si:80/announce",
@@ -355,16 +379,30 @@ ABB_TRACKERS = [
 ]
 
 
+
+def _get_abb_response(path, params=None, **kwargs):
+    """Try ABB domains in order, return first successful response."""
+    for domain in ABB_DOMAINS:
+        try:
+            resp = requests.get(
+                f"{domain}{path}",
+                params=params,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+                timeout=15,
+                **kwargs
+            )
+            if resp.status_code == 200:
+                return resp, domain
+        except Exception:
+            continue
+    return None, None
+
+
 def search_audiobookbay(query):
     results = []
     try:
-        resp = requests.get(
-            f"{ABB_URL}/",
-            params={"s": query, "tt": "1"},
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            timeout=15,
-        )
-        if resp.status_code != 200:
+        resp, _active_domain = _get_abb_response("/", params={"s": query, "tt": "1"})
+        if resp is None:
             return results
 
         content = resp.text[resp.text.find('<div id="content">'):]
@@ -403,11 +441,9 @@ def search_audiobookbay(query):
 
 def _resolve_abb_magnet(abb_path):
     try:
-        resp = requests.get(
-            f"{ABB_URL}{abb_path}",
-            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            timeout=15,
-        )
+        resp, _domain = _get_abb_response(abb_path)
+        if resp is None:
+            return None
         hash_m = re.search(r'Info Hash:.*?<td[^>]*>\s*([0-9a-fA-F]{40})', resp.text, re.DOTALL)
         if not hash_m:
             return None
@@ -1175,6 +1211,7 @@ def download_annas_worker(job_id, md5, title):
 # =============================================================================
 import_event = threading.Event()
 imported_hashes = set()
+_imported_hashes_lock = threading.Lock()
 
 
 def import_completed_torrents():
@@ -1183,27 +1220,39 @@ def import_completed_torrents():
     try:
         torrents = qb.get_torrents(category=config.QB_CATEGORY)
         for t in torrents:
-            if t.get("progress", 0) >= 1.0 and t["hash"] not in imported_hashes:
-                save_path = t.get("content_path", t.get("save_path", ""))
-                if save_path.startswith("/books-incoming"):
-                    save_path = save_path.replace("/books-incoming", config.INCOMING_DIR, 1)
-                book_files = []
-                for ext in ("*.epub", "*.mobi", "*.pdf", "*.azw3"):
-                    if os.path.isdir(save_path):
-                        book_files.extend(
-                            glob.glob(os.path.join(save_path, "**", ext), recursive=True)
-                        )
-                    elif save_path.lower().endswith(ext[1:]):
-                        book_files.append(save_path)
-                for bf in book_files:
-                    pipeline.run_pipeline(
-                        bf, title=t.get("name", ""),
-                        media_type="ebook", source="torrent",
-                        source_id=t["hash"], library_db=library,
-                    )
-                qb.delete_torrent(t["hash"], delete_files=True)
-                logger.info(f"Removed completed torrent: {t.get('name', t['hash'])}")
+            if t.get("progress", 0) < 1.0:
+                continue
+            with _imported_hashes_lock:
+                if t["hash"] in imported_hashes:
+                    continue
                 imported_hashes.add(t["hash"])
+            save_path = t.get("content_path", t.get("save_path", ""))
+            # qBit reports paths as seen inside qBit's container.
+            # If content_path exists on our filesystem, use it.
+            # Otherwise, try replacing qBit's save path with our INCOMING_DIR.
+            if not os.path.exists(save_path):
+                qb_save = config.QB_SAVE_PATH.rstrip("/")
+                local_incoming = config.INCOMING_DIR.rstrip("/")
+                if qb_save and save_path.startswith(qb_save):
+                    save_path = local_incoming + save_path[len(qb_save):]
+                elif save_path.startswith("/books-incoming"):
+                    save_path = save_path.replace("/books-incoming", config.INCOMING_DIR, 1)
+            book_files = []
+            for ext in ("*.epub", "*.mobi", "*.pdf", "*.azw3"):
+                if os.path.isdir(save_path):
+                    book_files.extend(
+                        glob.glob(os.path.join(save_path, "**", ext), recursive=True)
+                    )
+                elif save_path.lower().endswith(ext[1:]):
+                    book_files.append(save_path)
+            for bf in book_files:
+                pipeline.run_pipeline(
+                    bf, title=t.get("name", ""),
+                    media_type="ebook", source="torrent",
+                    source_id=t["hash"], library_db=library,
+                )
+            qb.delete_torrent(t["hash"], delete_files=True)
+            logger.info(f"Removed completed torrent: {t.get('name', t['hash'])}")
     except Exception as e:
         logger.error(f"Auto-import error: {e}")
 
@@ -2081,6 +2130,9 @@ def api_test_kavita():
 # Main
 # =============================================================================
 if __name__ == "__main__":
+    # Validate config paths and prune old activity log entries
+    _validate_config()
+    library.cleanup_activity(days=90)
     # Load source plugins
     sources.load_sources()
     enabled_sources = sources.get_enabled_sources("main") + sources.get_enabled_sources("audiobook")
