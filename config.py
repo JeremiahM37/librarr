@@ -1,6 +1,8 @@
+import hashlib
 import json
 import os
 import threading
+import uuid
 
 # =============================================================================
 # Librarr Configuration
@@ -53,6 +55,7 @@ def _apply_settings():
     global KAVITA_URL, KAVITA_API_KEY, KAVITA_LIBRARY_ID, KAVITA_LIBRARY_PATH
     global FILE_ORG_ENABLED, EBOOK_ORGANIZED_DIR, AUDIOBOOK_ORGANIZED_DIR
     global ENABLED_TARGETS
+    global API_KEY, SECRET_KEY, AUTH_USERNAME, AUTH_PASSWORD
 
     # Prowlarr
     PROWLARR_URL = _get("PROWLARR_URL", "prowlarr_url")
@@ -102,6 +105,51 @@ def _apply_settings():
 
     # Pipeline targets (comma-separated)
     ENABLED_TARGETS = _get("ENABLED_TARGETS", "enabled_targets", "calibre,audiobookshelf")
+
+    # Authentication
+    AUTH_USERNAME = _get("AUTH_USERNAME", "auth_username", "")
+    AUTH_PASSWORD = _get("AUTH_PASSWORD", "auth_password", "")
+    API_KEY = _get("API_KEY", "api_key", "")
+    SECRET_KEY = _get("SECRET_KEY", "secret_key", "")
+
+
+def _ensure_generated_keys():
+    """Auto-generate API_KEY and SECRET_KEY on first run; hash plain-text passwords."""
+    import logging
+    logger = logging.getLogger("librarr")
+    updates = {}
+    if not API_KEY:
+        updates["api_key"] = str(uuid.uuid4())
+        logger.info(f"Generated new API key: {updates['api_key']}")
+    if not SECRET_KEY:
+        updates["secret_key"] = str(uuid.uuid4())
+    # Hash plain-text password if set via env var
+    if AUTH_PASSWORD and not AUTH_PASSWORD.startswith("sha256:"):
+        updates["auth_password"] = hash_password(AUTH_PASSWORD)
+    if updates:
+        save_settings(updates)
+
+
+def hash_password(password):
+    """Hash a password using SHA-256 with a salt prefix for storage."""
+    if not password or password.startswith("sha256:"):
+        return password
+    return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+
+
+def verify_password(password, stored_hash):
+    """Verify a password against a stored hash."""
+    if not stored_hash:
+        return False
+    if stored_hash.startswith("sha256:"):
+        return stored_hash == "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+    # Plain-text fallback (first login before hash is stored)
+    return password == stored_hash
+
+
+def has_auth():
+    """Return True if authentication is configured."""
+    return bool(AUTH_USERNAME and AUTH_PASSWORD)
 
 
 # Feature flags
@@ -161,9 +209,14 @@ def get_all_settings():
         "ebook_organized_dir": EBOOK_ORGANIZED_DIR,
         "audiobook_organized_dir": AUDIOBOOK_ORGANIZED_DIR,
         "enabled_targets": ENABLED_TARGETS,
+        "api_key": API_KEY,
+        "auth_username": AUTH_USERNAME,
+        "auth_password": "••••••••" if AUTH_PASSWORD else "",
+        "auth_enabled": has_auth(),
     }
 
 
 # Initialize on import
 _load_file_settings()
 _apply_settings()
+_ensure_generated_keys()

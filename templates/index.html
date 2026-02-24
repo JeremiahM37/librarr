@@ -512,6 +512,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     <button class="hidden" id="nav-ab-library" onclick="switchTab('ab-library')">Audiobook Library</button>
     <button onclick="switchTab('activity')">Activity</button>
     <button onclick="switchTab('settings')" id="nav-settings" style="margin-left:auto">Settings</button>
+    <button onclick="window.location='/logout'" id="nav-logout" class="hidden" style="color:var(--danger)">Logout</button>
   </nav>
 </header>
 
@@ -748,6 +749,26 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
 
     <div id="plugin-sources-config"></div>
 
+    <div class="settings-section">
+      <h3>Authentication</h3>
+      <p class="desc">Protect Librarr with a username and password. Leave username blank to disable authentication. External tools can use the API key with the <code>X-Api-Key</code> header.</p>
+      <div class="settings-row">
+        <label>Username</label>
+        <input type="text" id="set-auth-username" placeholder="Leave blank to disable auth" autocomplete="off">
+      </div>
+      <div class="settings-row">
+        <label>Password</label>
+        <input type="password" id="set-auth-password" placeholder="Leave blank to disable auth" autocomplete="new-password">
+      </div>
+      <div class="settings-row">
+        <label>API Key</label>
+        <div style="display:flex;gap:8px;flex:1">
+          <input type="text" id="set-api-key" readonly style="font-family:monospace;font-size:13px;cursor:text">
+          <button onclick="copyApiKey()" style="background:var(--bg3);border:1px solid var(--border);color:var(--text);padding:8px 14px;border-radius:6px;cursor:pointer;white-space:nowrap;font-size:13px">Copy</button>
+        </div>
+      </div>
+    </div>
+
     <button class="save-btn" onclick="saveSettings()" id="save-settings-btn">Save Settings</button>
   </div>
 
@@ -783,6 +804,10 @@ async function loadConfig() {
     // Show setup banner if minimal config
     if (!appConfig.prowlarr && !appConfig.qbittorrent && !appConfig.audiobookshelf) {
       document.getElementById('setup-banner').style.display = 'block';
+    }
+    // Show logout button if auth is enabled
+    if (appConfig.auth_enabled) {
+      document.getElementById('nav-logout').classList.remove('hidden');
     }
   } catch (e) {}
   // Load source metadata for dynamic badge rendering
@@ -1266,6 +1291,10 @@ async function loadSettings() {
     // Set library dropdowns if we have values
     if (s.abs_library_id) _addLibOption('set-abs-library', s.abs_library_id, s.abs_library_id);
     if (s.abs_ebook_library_id) _addLibOption('set-abs-ebook-library', s.abs_ebook_library_id, s.abs_ebook_library_id);
+    // Auth
+    document.getElementById('set-auth-username').value = s.auth_username || '';
+    document.getElementById('set-auth-password').value = s.auth_password || '';
+    document.getElementById('set-api-key').value = s.api_key || '';
     // Update status dots
     updateStatusDots();
     // Render plugin source config fields
@@ -1320,6 +1349,13 @@ function _showTestResult(id, ok, msg) {
   el.style.display = 'block';
   el.className = 'test-result ' + (ok ? 'ok' : 'fail');
   el.textContent = msg;
+}
+
+function copyApiKey() {
+  const key = document.getElementById('set-api-key').value;
+  if (key) {
+    navigator.clipboard.writeText(key).then(() => showToast('API key copied'));
+  }
 }
 
 function _addLibOption(selectId, value, label) {
@@ -1497,6 +1533,9 @@ async function saveSettings() {
     // Import targets
     enabled_targets: ['calibre', 'audiobookshelf', 'kavita']
       .filter(t => document.getElementById('set-target-' + t).checked).join(','),
+    // Auth
+    auth_username: document.getElementById('set-auth-username').value.trim(),
+    auth_password: document.getElementById('set-auth-password').value,
   };
   // Collect plugin source config values
   document.querySelectorAll('#plugin-sources-config input[data-source]').forEach(input => {

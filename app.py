@@ -20,7 +20,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 
 import requests
-from flask import Flask, jsonify, request, send_file
+from flask import Flask, jsonify, redirect, request, send_file, session, url_for
 
 import config
 import pipeline
@@ -28,12 +28,79 @@ import sources
 from library_db import LibraryDB
 
 app = Flask(__name__)
+app.secret_key = config.SECRET_KEY
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s %(levelname)s %(message)s",
     stream=sys.stderr,
 )
 logger = logging.getLogger("librarr")
+
+
+# =============================================================================
+# Authentication
+# =============================================================================
+PUBLIC_PATHS = {"/login", "/api/health"}
+PUBLIC_PREFIXES = ("/static/",)
+
+
+@app.before_request
+def require_auth():
+    """Protect all routes when auth is configured."""
+    if not config.has_auth():
+        return None
+
+    path = request.path
+
+    # Public paths
+    if path in PUBLIC_PATHS or any(path.startswith(p) for p in PUBLIC_PREFIXES):
+        return None
+
+    # Check API key (header or query param)
+    api_key = request.headers.get("X-Api-Key") or request.args.get("apikey")
+    if api_key and api_key == config.API_KEY:
+        return None
+
+    # Check session
+    if session.get("authenticated"):
+        return None
+
+    # Not authenticated
+    if request.path.startswith("/api/"):
+        return jsonify({"error": "Unauthorized"}), 401
+    return redirect(url_for("login"))
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if not config.has_auth():
+        return redirect("/")
+
+    if request.method == "GET":
+        return send_file("templates/login.html")
+
+    # POST — authenticate
+    data = request.form if request.form else (request.json or {})
+    username = data.get("username", "")
+    password = data.get("password", "")
+
+    if username == config.AUTH_USERNAME and config.verify_password(password, config.AUTH_PASSWORD):
+        session["authenticated"] = True
+        if request.is_json:
+            return jsonify({"success": True})
+        return redirect("/")
+
+    error = "Invalid username or password"
+    if request.is_json:
+        return jsonify({"success": False, "error": error}), 401
+    # Re-serve login page with error via query param
+    return redirect(url_for("login", error="1"))
+
+
+@app.route("/logout")
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
 
 
 # =============================================================================
@@ -191,7 +258,15 @@ class QBittorrentClient:
                 data={"username": config.QB_USER, "password": config.QB_PASS},
                 timeout=10,
             )
+            if "banned" in resp.text.lower():
+                logger.error("qBittorrent: IP banned, backing off for 60s")
+                self._ban_until = time.time() + 60
+                self.authenticated = False
+                return False
             self.authenticated = resp.text == "Ok."
+            if not self.authenticated:
+                self._ban_until = time.time() + 30
+                logger.error(f"qBittorrent login failed: {resp.text!r}")
             return self.authenticated
         except Exception as e:
             logger.error(f"qBittorrent login failed: {e}")
@@ -199,6 +274,9 @@ class QBittorrentClient:
 
     def _ensure_auth(self):
         if not self.authenticated:
+            if hasattr(self, '_ban_until') and time.time() < self._ban_until:
+                logger.warning("qBittorrent: skipping login attempt, still in cooldown")
+                return
             self.login()
 
     def add_torrent(self, url, title="", save_path=None, category=None):
@@ -785,6 +863,59 @@ def search_webnovels(query):
     return filtered
 
 
+def _read_audio_metadata(path: str):
+    """Try to extract author/title from ID3/vorbis tags in audio files."""
+    try:
+        from mutagen import File as MutagenFile
+    except ImportError:
+        return None, None
+
+    # Audio formats that support metadata tags (based on Mutagen support)
+    extensions = (
+        "*.mp3",  # ID3 tags (v1, v2.2, v2.3, v2.4)
+        "*.m4b",  # MP4 metadata (iTunes-style)
+        "*.m4a",  # MP4 metadata (iTunes-style)
+        "*.flac",  # Vorbis comments
+        "*.ogg",  # Vorbis comments
+        "*.opus",  # Vorbis comments
+        "*.oga",  # Ogg audio with Vorbis comments
+        "*.wma",  # WMA Content Description / Extended Content Description
+        "*.aiff",  # AIFF with ID3 tags
+        "*.ape",  # Monkey's Audio with APEv2 tags
+        "*.wv",  # WavPack with APEv2 tags
+        "*.asf",  # ASF format with metadata
+        "*.tta",  # True Audio with ID3/APEv2
+    )
+
+    if os.path.isfile(path):
+        import fnmatch
+        if any(fnmatch.fnmatch(os.path.basename(path), ext) for ext in extensions):
+            try:
+                audio = MutagenFile(path, easy=True)
+                if audio:
+                    title = (audio.get("album") or audio.get("title") or [None])[0]
+                    author = (audio.get("artist") or audio.get("albumartist") or [None])[0]
+                    if title or author:
+                        return author, title
+            except Exception:
+                pass
+        return None, None
+
+    for ext in extensions:
+        matches = glob.glob(os.path.join(path, "**", ext), recursive=True)
+        if not matches:
+            continue
+        try:
+            audio = MutagenFile(matches[0], easy=True)
+            if not audio:
+                continue
+            title = (audio.get("album") or audio.get("title") or [None])[0]
+            author = (audio.get("artist") or audio.get("albumartist") or [None])[0]
+            if title or author:
+                return author, title
+        except Exception:
+            continue
+    return None, None
 # =============================================================================
 # Anna's Archive Search & Download
 # =============================================================================
@@ -883,7 +1014,7 @@ def search_annas_archive(query):
             to_check = candidates[:20]
             with ThreadPoolExecutor(max_workers=8) as executor:
                 futures = {executor.submit(_check_libgen_available, c["md5"]): c for c in to_check}
-                for future in as_completed(futures, timeout=25):
+                for future in as_completed(futures, timeout=45):
                     try:
                         if future.result():
                             results.append(futures[future])
@@ -1256,6 +1387,162 @@ def import_completed_torrents():
     except Exception as e:
         logger.error(f"Auto-import error: {e}")
 
+    # --- Audiobook torrents ---
+    try:
+        torrents = qb.get_torrents(category=config.QB_AUDIOBOOK_CATEGORY)
+        for t in torrents:
+            if t.get("progress", 0) >= 1.0 and t["hash"] not in imported_hashes:
+                save_path = t.get("content_path", t.get("save_path", ""))
+                qb_ab_path = config.QB_AUDIOBOOK_SAVE_PATH.rstrip("/")
+                if qb_ab_path and save_path.startswith(qb_ab_path):
+                    save_path = config.AUDIOBOOK_DIR + save_path[len(qb_ab_path):]
+
+                already_organised = (
+                    config.FILE_ORG_ENABLED
+                    and config.AUDIOBOOK_ORGANIZED_DIR
+                    and os.path.abspath(save_path).startswith(
+                        os.path.abspath(config.AUDIOBOOK_ORGANIZED_DIR)
+                    )
+                )
+
+                if not already_organised and config.FILE_ORG_ENABLED:
+                    author, resolved_title = "", t.get("name", "")
+
+                    if os.path.isfile(save_path):
+                        resolved_title = os.path.splitext(os.path.basename(save_path))[0]
+
+                    if not author and os.path.exists(save_path):
+                        id3_author, id3_title = _read_audio_metadata(save_path)
+                        if id3_author or id3_title:
+                            author = id3_author or author
+                            resolved_title = id3_title or resolved_title
+
+                    if not author and " - " in resolved_title:
+                        parts = resolved_title.split(" - ", 1)
+                        author, resolved_title = parts[0].strip(), parts[1].strip()
+
+                    if not author:
+                        author = "Unknown"
+
+                    pipeline.run_pipeline(
+                        save_path, title=resolved_title, author=author,
+                        media_type="audiobook", source="torrent",
+                        source_id=t["hash"], library_db=library,
+                    )
+                elif already_organised:
+                    logger.info(f"Audiobook already in organised directory, skipping pipeline: {save_path}")
+
+                if config.has_audiobookshelf() and config.ABS_LIBRARY_ID:
+                    known_ids = set()
+                    try:
+                        resp = requests.get(
+                            f"{config.ABS_URL}/api/libraries/{config.ABS_LIBRARY_ID}/items",
+                            params={"limit": 500},
+                            headers={"Authorization": f"Bearer {config.ABS_TOKEN}"},
+                            timeout=15,
+                        )
+                        known_ids = {i["id"] for i in resp.json().get("results", [])}
+                    except Exception:
+                        pass
+                    try:
+                        requests.post(
+                            f"{config.ABS_URL}/api/libraries/{config.ABS_LIBRARY_ID}/scan",
+                            headers={"Authorization": f"Bearer {config.ABS_TOKEN}"},
+                            timeout=10,
+                        )
+                        logger.info("Audiobookshelf library scan triggered")
+                    except Exception as e:
+                        logger.error(f"Audiobookshelf scan failed: {e}")
+                    time.sleep(20)
+                    _abs_match_new_items(known_ids)
+
+                qb.delete_torrent(t["hash"], delete_files=True)
+                logger.info(f"Removed completed audiobook torrent: {t.get('name', t['hash'])}")
+                imported_hashes.add(t["hash"])
+    except Exception as e:
+        logger.error(f"Audiobook auto-import error: {e}")
+
+    # --- Scan AUDIOBOOK_DIR for non-torrent drops ---
+    if config.AUDIOBOOK_DIR and os.path.isdir(config.AUDIOBOOK_DIR):
+        try:
+            # Collect paths currently managed by qBittorrent so we don't touch them
+            active_paths = set()
+            if config.has_qbittorrent():
+                for cat in (config.QB_CATEGORY, config.QB_AUDIOBOOK_CATEGORY):
+                    try:
+                        for t in qb.get_torrents(category=cat):
+                            cp = t.get("content_path", t.get("save_path", ""))
+                            qb_ab_path = config.QB_AUDIOBOOK_SAVE_PATH.rstrip("/")
+                            if qb_ab_path and cp.startswith(qb_ab_path):
+                                cp = config.AUDIOBOOK_DIR + cp[len(qb_ab_path):]
+                            active_paths.add(os.path.abspath(cp))
+                    except Exception:
+                        pass
+
+            for entry in os.listdir(config.AUDIOBOOK_DIR):
+                entry_path = os.path.join(config.AUDIOBOOK_DIR, entry)
+                abs_entry = os.path.abspath(entry_path)
+
+                if abs_entry in active_paths or abs_entry in imported_hashes:
+                    continue
+
+                # Skip if already in the organised directory
+                if (config.FILE_ORG_ENABLED and config.AUDIOBOOK_ORGANIZED_DIR
+                        and abs_entry.startswith(os.path.abspath(config.AUDIOBOOK_ORGANIZED_DIR))):
+                    continue
+
+                # Must contain audio files
+                audio_exts = (".mp3", ".m4b", ".m4a", ".flac", ".ogg", ".opus")
+                has_audio = False
+                if os.path.isdir(entry_path):
+                    for root, _dirs, files in os.walk(entry_path):
+                        if any(f.lower().endswith(audio_exts) for f in files):
+                            has_audio = True
+                            break
+                elif any(entry.lower().endswith(ext) for ext in audio_exts):
+                    has_audio = True
+
+                if not has_audio:
+                    continue
+
+                author, resolved_title = "", entry
+                if os.path.isfile(entry_path):
+                    resolved_title = os.path.splitext(entry)[0]
+
+                id3_author, id3_title = _read_audio_metadata(entry_path)
+                if id3_author or id3_title:
+                    author = id3_author or author
+                    resolved_title = id3_title or resolved_title
+
+                if not author and " - " in resolved_title:
+                    parts = resolved_title.split(" - ", 1)
+                    author, resolved_title = parts[0].strip(), parts[1].strip()
+
+                if not author:
+                    author = "Unknown"
+
+                logger.info(f"Folder-scan importing audiobook: {entry}")
+                pipeline.run_pipeline(
+                    entry_path, title=resolved_title, author=author,
+                    media_type="audiobook", source="folder-scan",
+                    source_id=abs_entry, library_db=library,
+                )
+                imported_hashes.add(abs_entry)
+
+                if config.has_audiobookshelf() and config.ABS_LIBRARY_ID:
+                    try:
+                        requests.post(
+                            f"{config.ABS_URL}/api/libraries/{config.ABS_LIBRARY_ID}/scan",
+                            headers={"Authorization": f"Bearer {config.ABS_TOKEN}"},
+                            timeout=10,
+                        )
+                    except Exception:
+                        pass
+                    time.sleep(20)
+                    _abs_match_new_items(set())
+        except Exception as e:
+            logger.error(f"Audiobook folder-scan error: {e}")
+
 
 def auto_import_loop():
     while True:
@@ -1320,6 +1607,50 @@ def watch_audiobook_torrent(title):
             for t in torrents:
                 if t.get("name") == title and t.get("progress", 0) >= 1.0:
                     logger.info(f"Audiobook torrent completed: {title}")
+                    save_path = t.get("content_path", t.get("save_path", ""))
+                    qb_ab_path = config.QB_AUDIOBOOK_SAVE_PATH.rstrip("/")
+                    if qb_ab_path and save_path.startswith(qb_ab_path):
+                        save_path = config.AUDIOBOOK_DIR + save_path[len(qb_ab_path):]
+
+                    already_organised = (
+                        config.FILE_ORG_ENABLED
+                        and config.AUDIOBOOK_ORGANIZED_DIR
+                        and os.path.abspath(save_path).startswith(
+                            os.path.abspath(config.AUDIOBOOK_ORGANIZED_DIR)
+                        )
+                    )
+
+                    if not already_organised and config.FILE_ORG_ENABLED:
+                        author, resolved_title = "", t.get("name", "")
+
+                        if os.path.isfile(save_path):
+                            resolved_title = os.path.splitext(os.path.basename(save_path))[0]
+
+                        if not author and os.path.exists(save_path):
+                            id3_author, id3_title = _read_audio_metadata(save_path)
+                            if id3_author or id3_title:
+                                author = id3_author or author
+                                resolved_title = id3_title or resolved_title
+                                logger.info(f"Metadata from ID3 tags: {author} - {resolved_title}")
+
+                        if not author and " - " in resolved_title:
+                            parts = resolved_title.split(" - ", 1)
+                            author, resolved_title = parts[0].strip(), parts[1].strip()
+                            logger.info(f"Metadata from torrent name parse: {author} - {resolved_title}")
+
+                        if not author:
+                            author = "Unknown"
+
+                        pipeline.run_pipeline(
+                            save_path, title=resolved_title, author=author,
+                            media_type="audiobook", source="torrent",
+                            source_id=t["hash"], library_db=library,
+                        )
+                    elif already_organised:
+                        logger.info(f"Audiobook already in organised directory, skipping pipeline: {save_path}")
+                    # if FILE_ORG_ENABLED is False, skip pipeline silently — just do ABS scan below
+
+                    # ABS scan + match
                     if config.has_audiobookshelf() and config.ABS_LIBRARY_ID:
                         known_ids = set()
                         try:
@@ -1347,8 +1678,6 @@ def watch_audiobook_torrent(title):
             time.sleep(5)
         except Exception:
             time.sleep(5)
-
-
 # =============================================================================
 # Result Filtering
 # =============================================================================
@@ -1434,6 +1763,7 @@ def api_config():
         "kavita": config.has_kavita(),
         "file_org_enabled": config.FILE_ORG_ENABLED,
         "enabled_targets": list(config.get_enabled_target_names()),
+        "auth_enabled": config.has_auth(),
     })
 
 
@@ -1474,7 +1804,8 @@ def api_download_torrent():
         return jsonify({"success": False, "error": "qBittorrent not configured. Set QB_URL, QB_USER, QB_PASS."}), 400
 
     data = request.json
-    url = data.get("download_url") or data.get("magnet_url", "")
+    guid = data.get("guid", "")
+    url = data.get("download_url") or (guid if guid.startswith("magnet:") else "") or data.get("magnet_url", "")
     if not url and data.get("info_hash"):
         url = f"magnet:?xt=urn:btih:{data['info_hash']}"
     title = data.get("title", "Unknown")
@@ -1499,15 +1830,27 @@ def api_search_audiobooks():
     with ThreadPoolExecutor(max_workers=max(len(enabled), 1)) as executor:
         futures = {executor.submit(s.search, query): s for s in enabled}
         results = []
-        for future in as_completed(futures, timeout=35):
-            source = futures[future]
-            try:
-                batch = future.result()
-                for r in batch:
-                    r.setdefault("source", source.name)
-                results.extend(batch)
-            except Exception as e:
-                logger.error(f"Audiobook search error ({source.name}): {e}")
+        try:
+            for future in as_completed(futures, timeout=60):
+                source = futures[future]
+                try:
+                    batch = future.result()
+                    for r in batch:
+                        r.setdefault("source", source.name)
+                    results.extend(batch)
+                except Exception as e:
+                    logger.error(f"Audiobook search error ({source.name}): {e}")
+        except TimeoutError:
+            logger.warning("Audiobook search timed out — returning partial results")
+            for future, source in futures.items():
+                if future.done():
+                    try:
+                        batch = future.result()
+                        for r in batch:
+                            r.setdefault("source", source.name)
+                        results.extend(batch)
+                    except Exception:
+                        pass
 
     results = filter_results(results, query)
     elapsed = int((time.time() - start) * 1000)
@@ -1517,14 +1860,14 @@ def api_search_audiobooks():
         "sources": sources.get_source_metadata(),
     })
 
-
 @app.route("/api/download/audiobook", methods=["POST"])
 def api_download_audiobook():
     if not config.has_qbittorrent():
         return jsonify({"success": False, "error": "qBittorrent not configured. Set QB_URL, QB_USER, QB_PASS."}), 400
 
     data = request.json
-    url = data.get("download_url") or data.get("magnet_url", "")
+    guid = data.get("guid", "")
+    url = data.get("download_url") or (guid if guid.startswith("magnet:") else "") or data.get("magnet_url", "")
     if not url and data.get("info_hash"):
         url = f"magnet:?xt=urn:btih:{data['info_hash']}"
 
@@ -1546,8 +1889,6 @@ def api_download_audiobook():
         save_path=config.QB_AUDIOBOOK_SAVE_PATH,
         category=config.QB_AUDIOBOOK_CATEGORY,
     )
-    if success:
-        threading.Thread(target=watch_audiobook_torrent, args=(title,), daemon=True).start()
     return jsonify({"success": success, "title": title})
 
 
@@ -1894,7 +2235,8 @@ def api_download():
         if not config.has_qbittorrent():
             return jsonify({"success": False, "error": "qBittorrent not configured"}), 400
 
-        url = data.get("download_url") or data.get("magnet_url", "")
+        guid = data.get("guid", "")
+        url = data.get("download_url") or (guid if guid.startswith("magnet:") else "") or data.get("magnet_url", "")
         if not url and data.get("info_hash"):
             url = f"magnet:?xt=urn:btih:{data['info_hash']}"
         if not url and data.get("abb_url"):
@@ -1909,15 +2251,11 @@ def api_download():
         if source.search_tab == "audiobook":
             save_path = config.QB_AUDIOBOOK_SAVE_PATH
             category = config.QB_AUDIOBOOK_CATEGORY
-            watch_fn = watch_audiobook_torrent
         else:
             save_path = config.QB_SAVE_PATH
             category = config.QB_CATEGORY
-            watch_fn = watch_torrent
 
         success = qb.add_torrent(url, title, save_path=save_path, category=category)
-        if success:
-            threading.Thread(target=watch_fn, args=(title,), daemon=True).start()
         return jsonify({"success": success, "title": title})
 
     # Direct/custom sources: create a job and run in background thread
@@ -1990,7 +2328,17 @@ def api_save_settings():
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
     try:
+        # Hash auth password if it's being changed (not the masked placeholder)
+        if "auth_password" in data:
+            pw = data["auth_password"]
+            if pw and pw != "••••••••":
+                data["auth_password"] = config.hash_password(pw)
+            else:
+                # Don't overwrite existing hash with placeholder
+                del data["auth_password"]
         config.save_settings(data)
+        # Update secret key if it changed
+        app.secret_key = config.SECRET_KEY
         # Re-authenticate qBittorrent if credentials changed
         qb.authenticated = False
         return jsonify({"success": True})
@@ -2151,6 +2499,7 @@ if __name__ == "__main__":
         integrations.append("lightnovel-crawler")
     if config.has_kavita():
         integrations.append("Kavita")
+
     if integrations:
         logger.info(f"Integrations: {', '.join(integrations)}")
 
