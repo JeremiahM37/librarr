@@ -511,6 +511,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     <button class="hidden" id="nav-library" onclick="switchTab('library')">Library</button>
     <button class="hidden" id="nav-ab-library" onclick="switchTab('ab-library')">Audiobook Library</button>
     <button onclick="switchTab('activity')">Activity</button>
+    <button onclick="switchTab('monitor')" id="nav-monitor">Monitor</button>
     <button onclick="switchTab('settings')" id="nav-settings" style="margin-left:auto">Settings</button>
     <button onclick="window.location='/logout'" id="nav-logout" class="hidden" style="color:var(--danger)">Logout</button>
   </nav>
@@ -772,6 +773,39 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     <button class="save-btn" onclick="saveSettings()" id="save-settings-btn">Save Settings</button>
   </div>
 
+  <!-- Monitor Tab -->
+  <div class="tab" id="tab-monitor">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px">
+      <h2 style="font-size:18px;margin:0">AI Monitor</h2>
+      <button class="btn" id="analyze-now-btn" onclick="triggerAnalysis()">Analyze Now</button>
+    </div>
+
+    <div id="monitor-status-bar" style="display:flex;gap:16px;align-items:center;margin-bottom:18px;padding:12px 16px;background:var(--bg2);border-radius:8px;border:1px solid var(--border)">
+      <span id="monitor-dot" style="width:10px;height:10px;border-radius:50%;background:var(--border);flex-shrink:0"></span>
+      <span id="monitor-status-text" style="color:var(--text2);font-size:13px">Loading...</span>
+    </div>
+
+    <div style="margin-bottom:18px">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:8px">Diagnosis</div>
+      <div id="monitor-diagnosis" style="padding:14px 16px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;font-size:13px;line-height:1.6;min-height:48px;white-space:pre-wrap">—</div>
+    </div>
+
+    <div id="monitor-pending-section" style="margin-bottom:18px;display:none">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:8px">Pending Approvals</div>
+      <div id="monitor-pending-list"></div>
+    </div>
+
+    <div>
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:8px">Recent Events</div>
+      <div id="monitor-errors" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-height:320px;overflow-y:auto;font-family:monospace;font-size:12px"></div>
+    </div>
+
+    <div style="margin-top:18px">
+      <div style="font-size:12px;text-transform:uppercase;letter-spacing:.06em;color:var(--text2);margin-bottom:8px">Action History</div>
+      <div id="monitor-history" style="background:var(--bg2);border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;font-size:12px"></div>
+    </div>
+  </div>
+
   <!-- Library Tab -->
   <div class="tab" id="tab-library">
     <div class="library-search">
@@ -833,7 +867,7 @@ function switchTab(tab) {
   document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
   document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
   document.getElementById('tab-' + tab).classList.add('active');
-  const tabMap = { search: 'Search', 'ab-search': 'Audiobook Search', downloads: 'Downloads', library: 'Library', 'ab-library': 'Audiobook Library', activity: 'Activity', settings: 'Settings' };
+  const tabMap = { search: 'Search', 'ab-search': 'Audiobook Search', downloads: 'Downloads', library: 'Library', 'ab-library': 'Audiobook Library', activity: 'Activity', monitor: 'Monitor', settings: 'Settings' };
   document.querySelectorAll('nav button').forEach(b => {
     if (b.textContent.replace(/\d+/g, '').trim() === tabMap[tab]) b.classList.add('active');
   });
@@ -847,6 +881,7 @@ function switchTab(tab) {
   if (tab === 'ab-search') document.getElementById('ab-search-input').focus();
   if (tab === 'ab-library') loadAudiobookLibrary(1);
   if (tab === 'activity') loadActivity();
+  if (tab === 'monitor') { loadMonitorStatus(); startMonitorPolling(); } else { stopMonitorPolling(); }
 }
 
 // ---- Search ----
@@ -1572,6 +1607,120 @@ loadConfig().then(() => {
 });
 loadExternalUrls();
 document.getElementById('search-input').focus();
+
+// ---- AI Monitor ----
+let _monitorTimer = null;
+
+function startMonitorPolling() {
+  if (_monitorTimer) return;
+  _monitorTimer = setInterval(loadMonitorStatus, 5000);
+}
+
+function stopMonitorPolling() {
+  if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+}
+
+async function loadMonitorStatus() {
+  try {
+    const r = await fetch('/api/monitor/status');
+    const d = await r.json();
+    renderMonitorStatus(d);
+  } catch (e) {
+    document.getElementById('monitor-status-text').textContent = 'Error loading status';
+  }
+}
+
+async function triggerAnalysis() {
+  const btn = document.getElementById('analyze-now-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  try {
+    const r = await fetch('/api/monitor/analyze', { method: 'POST' });
+    const d = await r.json();
+    renderMonitorStatus(d);
+  } catch (e) {}
+  btn.disabled = false;
+  btn.textContent = 'Analyze Now';
+}
+
+function renderMonitorStatus(d) {
+  const dot = document.getElementById('monitor-dot');
+  const statusText = document.getElementById('monitor-status-text');
+  if (d.enabled) {
+    dot.style.background = '#22c55e';
+    const last = d.last_checked ? timeSince(d.last_checked) + ' ago' : 'never';
+    statusText.textContent = `Active  ·  ${d.provider} (${d.model})  ·  Last checked: ${last}`;
+  } else {
+    dot.style.background = '#6b7280';
+    statusText.textContent = 'Disabled — set AI_MONITOR_ENABLED=true to enable';
+  }
+
+  document.getElementById('monitor-diagnosis').textContent = d.diagnosis || '—';
+
+  // Pending actions
+  const pending = d.pending_actions || [];
+  const pSection = document.getElementById('monitor-pending-section');
+  const pList = document.getElementById('monitor-pending-list');
+  if (pending.length > 0) {
+    pSection.style.display = '';
+    pList.innerHTML = pending.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <span style="flex:1;font-size:13px">${esc(a.description)}</span>
+        <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${a.risk==='approval'?'rgba(239,68,68,.15)':'rgba(34,197,94,.15)'};color:${a.risk==='approval'?'#ef4444':'#22c55e'}">${a.risk}</span>
+        <button class="btn" style="padding:4px 12px;font-size:12px" onclick="approveAction('${a.id}')">Approve</button>
+        <button class="btn" style="padding:4px 12px;font-size:12px;background:var(--bg3)" onclick="dismissAction('${a.id}')">Dismiss</button>
+      </div>`).join('');
+  } else {
+    pSection.style.display = 'none';
+  }
+
+  // Recent errors
+  const errors = d.recent_errors || [];
+  const errEl = document.getElementById('monitor-errors');
+  if (errors.length === 0) {
+    errEl.innerHTML = '<div style="padding:12px 16px;color:var(--text2)">No recent warnings or errors.</div>';
+  } else {
+    errEl.innerHTML = [...errors].reverse().map(e => {
+      const col = e.level === 'ERROR' ? '#ef4444' : e.level === 'WARNING' ? '#f59e0b' : 'var(--text2)';
+      return `<div style="padding:5px 14px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:var(--text2)">[${e.ts_str}]</span> <span style="color:${col}">${esc(e.level)}</span> <span style="color:var(--text2)">${esc(e.logger)}</span> ${esc(e.message)}</div>`;
+    }).join('');
+  }
+
+  // History
+  const history = d.action_history || [];
+  const histEl = document.getElementById('monitor-history');
+  if (history.length === 0) {
+    histEl.innerHTML = '<div style="padding:12px 16px;color:var(--text2)">No actions taken yet.</div>';
+  } else {
+    histEl.innerHTML = history.map(a => {
+      const result = a.result || '';
+      const col = result === 'dismissed' ? '#6b7280' : result.startsWith('Error') ? '#ef4444' : '#22c55e';
+      return `<div style="padding:7px 14px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:${col}">●</span> <strong>${esc(a.action)}</strong> — ${esc(result)}</div>`;
+    }).join('');
+  }
+}
+
+async function approveAction(id) {
+  await fetch(`/api/monitor/actions/${id}/approve`, { method: 'POST' });
+  loadMonitorStatus();
+}
+
+async function dismissAction(id) {
+  await fetch(`/api/monitor/actions/${id}/dismiss`, { method: 'POST' });
+  loadMonitorStatus();
+}
+
+function timeSince(ts) {
+  const sec = Math.round(Date.now() / 1000 - ts);
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.round(sec / 60) + 'm';
+  return Math.round(sec / 3600) + 'h';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
 </script>
 </body>
 </html>

@@ -24,6 +24,7 @@ from flask import Flask, jsonify, redirect, request, send_file, session, url_for
 
 import config
 import pipeline
+import monitor
 import sources
 from library_db import LibraryDB
 
@@ -221,6 +222,7 @@ class _PersistentJob:
 _DB_PATH = os.getenv("LIBRARR_DB_PATH", "/data/librarr/downloads.db")
 download_jobs = DownloadStore(_DB_PATH)
 library = LibraryDB(_DB_PATH)
+_monitor = None  # initialized in __main__
 
 
 def _validate_config():
@@ -2474,6 +2476,72 @@ def api_test_kavita():
         return jsonify({"success": False, "error": str(e)})
 
 
+
+# =============================================================================
+# AI Monitor helpers
+# =============================================================================
+
+def _rotate_abb_domain():
+    """Rotate ABB_DOMAINS list so the next domain becomes primary."""
+    global ABB_DOMAINS, ABB_URL
+    if len(ABB_DOMAINS) > 1:
+        ABB_DOMAINS = ABB_DOMAINS[1:] + [ABB_DOMAINS[0]]
+        ABB_URL = ABB_DOMAINS[0]
+    return ABB_URL
+
+
+def _do_abs_scan():
+    """Trigger Audiobookshelf library rescan for all configured libraries."""
+    if not config.has_audiobookshelf():
+        return
+    for lib_id in filter(None, [config.ABS_LIBRARY_ID, config.ABS_EBOOK_LIBRARY_ID]):
+        try:
+            requests.post(
+                f"{config.ABS_URL}/api/libraries/{lib_id}/scan",
+                headers={"Authorization": f"Bearer {config.ABS_TOKEN}"},
+                timeout=10,
+            )
+        except Exception as e:
+            logger.error(f"ABS scan failed ({lib_id}): {e}")
+
+
+# =============================================================================
+# AI Monitor API
+# =============================================================================
+
+@app.route("/api/monitor/status")
+def api_monitor_status():
+    if _monitor is None:
+        return jsonify({"enabled": False, "error": "Monitor not initialized"})
+    return jsonify(_monitor.get_status())
+
+
+@app.route("/api/monitor/analyze", methods=["POST"])
+def api_monitor_analyze():
+    if _monitor is None:
+        return jsonify({"success": False, "error": "Monitor not initialized"})
+    _monitor.trigger_manual()
+    # Give the cycle a moment to complete if running synchronously (disabled mode)
+    import time as _time; _time.sleep(0.1)
+    return jsonify({"success": True, **_monitor.get_status()})
+
+
+@app.route("/api/monitor/actions/<action_id>/approve", methods=["POST"])
+def api_monitor_approve(action_id):
+    if _monitor is None:
+        return jsonify({"success": False, "error": "Monitor not initialized"})
+    success, message = _monitor.execute_approved(action_id)
+    return jsonify({"success": success, "message": message})
+
+
+@app.route("/api/monitor/actions/<action_id>/dismiss", methods=["POST"])
+def api_monitor_dismiss(action_id):
+    if _monitor is None:
+        return jsonify({"success": False, "error": "Monitor not initialized"})
+    dismissed = _monitor.action_queue.dismiss(action_id)
+    return jsonify({"success": dismissed})
+
+
 # =============================================================================
 # Main
 # =============================================================================
@@ -2507,5 +2575,17 @@ if __name__ == "__main__":
     if config.has_qbittorrent():
         import_thread = threading.Thread(target=auto_import_loop, daemon=True)
         import_thread.start()
+
+    # Initialize and start AI monitor
+    global _monitor
+    _monitor = monitor.LibrarrMonitor(
+        get_jobs=lambda: list(download_jobs.items()),
+        qb_reauth=lambda: qb.login(),
+        get_abb_domains=lambda: list(ABB_DOMAINS),
+        rotate_abb_domain=_rotate_abb_domain,
+        trigger_abs_scan=_do_abs_scan,
+        docker_socket=config.DOCKER_SOCKET,
+    )
+    _monitor.start()
 
     app.run(host="0.0.0.0", port=5000, debug=False)

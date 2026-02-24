@@ -220,3 +220,13 @@ def get_all_settings():
 _load_file_settings()
 _apply_settings()
 _ensure_generated_keys()
+
+# ── AI Monitor ─────────────────────────────────────────────────────────────────
+AI_MONITOR_ENABLED = os.getenv("AI_MONITOR_ENABLED", "false").lower() in ("true", "1", "yes")
+AI_PROVIDER = os.getenv("AI_PROVIDER", "ollama")      # ollama | openai | anthropic
+AI_API_URL = os.getenv("AI_API_URL", "http://localhost:11434/v1")
+AI_API_KEY = os.getenv("AI_API_KEY", "")
+AI_MODEL = os.getenv("AI_MODEL", "llama3.2")
+AI_MONITOR_INTERVAL = int(os.getenv("AI_MONITOR_INTERVAL", "300"))
+AI_AUTO_FIX = os.getenv("AI_AUTO_FIX", "true").lower() in ("true", "1", "yes")
+DOCKER_SOCKET = os.getenv("DOCKER_SOCKET", "/var/run/docker.sock")
