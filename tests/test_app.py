@@ -335,8 +335,9 @@ def test_retry_scheduler_metadata_progresses_to_dead_letter(tmp_path):
 
 def test_source_health_circuit_breaker_opens_and_recovers():
     import app as librarr_app
+    import telemetry
 
-    tracker = librarr_app.SourceHealthTracker(threshold=2, open_seconds=1)
+    tracker = librarr_app.SourceHealthTracker(telemetry, threshold=2, open_seconds=1)
     assert tracker.can_search("annas") is True
     tracker.record_failure("annas", "timeout", kind="search")
     assert tracker.can_search("annas") is True
