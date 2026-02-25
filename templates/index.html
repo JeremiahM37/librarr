@@ -534,6 +534,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
              onkeydown="if(event.key==='Enter')doSearch()">
       <button onclick="doSearch()" id="search-btn">Search</button>
     </div>
+    <div style="margin-top:8px;color:var(--text2);font-size:12px">
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="search-dry-run"> Dry-run only (preflight checks, no download)
+      </label>
+    </div>
     <div id="search-meta" class="search-meta"></div>
     <div id="search-results"></div>
   </div>
@@ -544,6 +549,11 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
       <input type="text" id="ab-search-input" placeholder="Search for audiobooks..."
              onkeydown="if(event.key==='Enter')doAudiobookSearch()">
       <button onclick="doAudiobookSearch()" id="ab-search-btn">Search</button>
+    </div>
+    <div style="margin-top:8px;color:var(--text2);font-size:12px">
+      <label style="display:inline-flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="ab-search-dry-run"> Dry-run only (preflight checks, no download)
+      </label>
     </div>
     <div id="ab-search-meta" class="search-meta"></div>
     <div id="ab-search-results"></div>
@@ -563,6 +573,14 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
   <div class="tab" id="tab-downloads">
     <div style="display:flex;align-items:center;margin-bottom:16px;gap:12px">
       <h2 style="font-size: 18px;">Downloads</h2>
+      <select id="downloads-status-filter" onchange="loadDownloads()" style="background:var(--bg2);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:6px 10px;font-size:12px">
+        <option value="all">All statuses</option>
+        <option value="active">Active</option>
+        <option value="retry_wait">Retry waiting</option>
+        <option value="error">Errors</option>
+        <option value="dead_letter">Dead letter</option>
+        <option value="completed">Completed</option>
+      </select>
       <button class="clear-btn" onclick="clearFinished()">Clear Finished</button>
     </div>
     <div id="downloads-list"></div>
@@ -715,6 +733,12 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
           <input type="checkbox" id="set-target-kavita" value="kavita"> Kavita
         </label>
       </div>
+      <div class="settings-row" style="align-items:flex-start">
+        <label>Routing rules (JSON)</label>
+        <textarea id="set-target-routing-rules" rows="4" placeholder='{\"media_type\":{\"ebook\":[\"calibre\",\"kavita\"],\"audiobook\":[\"audiobookshelf\"]}}'
+          style="width:100%;padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;font-family:monospace;resize:vertical"></textarea>
+      </div>
+      <p class="desc" style="margin-top:6px">Optional. Filters enabled targets by media type and/or source (e.g. <code>{\"source\":{\"annas\":[\"calibre\"]}}</code>).</p>
     </div>
 
     <div class="settings-section">
@@ -771,6 +795,35 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
     </div>
 
     <button class="save-btn" onclick="saveSettings()" id="save-settings-btn">Save Settings</button>
+
+    <hr style="border:none;border-top:1px solid var(--border);margin:28px 0">
+
+    <div class="section">
+      <h3 style="font-size:14px;font-weight:600;margin-bottom:6px">Import from Goodreads / StoryGraph</h3>
+      <p class="desc">Export your "To Read" shelf from <strong>Goodreads</strong> (My Books → Export to CSV) or <strong>StoryGraph</strong> (Settings → Export Data), then upload the CSV here to batch-queue downloads.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-top:10px">
+        <div style="flex:1;min-width:200px">
+          <label class="label">CSV File</label>
+          <input type="file" id="import-csv-file" accept=".csv"
+                 style="display:block;width:100%;padding:6px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;cursor:pointer">
+        </div>
+        <div>
+          <label class="label">Shelf / Status</label>
+          <input type="text" id="import-shelf" value="to-read" placeholder="to-read"
+                 style="width:130px;padding:8px 12px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+        </div>
+        <div>
+          <label class="label">Format</label>
+          <select id="import-media-type" style="padding:8px 10px;background:var(--bg2);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px">
+            <option value="ebook">Ebook</option>
+            <option value="audiobook">Audiobook</option>
+          </select>
+        </div>
+        <button class="btn" onclick="runCsvImport()" id="import-btn" style="margin-bottom:0">Import</button>
+      </div>
+      <div id="import-result" style="margin-top:12px;font-size:13px"></div>
+    </div>
+
   </div>
 
   <!-- Monitor Tab -->
@@ -821,6 +874,7 @@ main { max-width: 1100px; margin: 0 auto; padding: 24px; }
 let currentTab = 'search';
 let pollInterval = null;
 let activeDownloads = 0;
+let downloadsStatusFilter = 'all';
 let externalUrls = { abs_url: '' };
 let appConfig = {};
 window._sourcesMeta = {};
@@ -986,27 +1040,69 @@ function renderResult(r, i, prefix) {
 
 async function dlGeneric(prefix, idx, btn) {
   const r = prefix === 'ab' ? window._abResults[idx] : window._results[idx];
+  const dryRun = prefix === 'ab'
+    ? !!document.getElementById('ab-search-dry-run')?.checked
+    : !!document.getElementById('search-dry-run')?.checked;
   btn.disabled = true;
-  btn.textContent = 'Starting...';
+  btn.textContent = dryRun ? 'Checking...' : 'Starting...';
+  let keepDisabled = false;
   try {
-    const resp = await fetch('/api/download', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify(r),
-    });
-    const data = await resp.json();
+    const payload = { ...r, dry_run: dryRun };
+    let { resp, data } = await postDownloadWithDuplicatePrompt(payload, dryRun);
     if (data.success) {
-      btn.textContent = data.job_id ? 'Queued!' : 'Sent!';
-      btn.classList.add('sent');
-      showToast('Started download: ' + r.title.substring(0, 60));
+      if (data.dry_run) {
+        const dup = data.duplicate_check?.duplicate ? 'duplicate' : 'new';
+        btn.textContent = 'Checked';
+        showToast(`Preflight: ${dup} item · targets: ${(data.resolved_target_names || []).join(', ') || 'none'}`);
+      } else {
+        btn.textContent = data.job_id ? 'Queued!' : 'Sent!';
+        btn.classList.add('sent');
+        keepDisabled = true;
+        showToast('Started download: ' + r.title.substring(0, 60));
+      }
     } else {
-      btn.textContent = 'Failed';
+      btn.textContent = resp && resp.status === 409 ? 'Duplicate' : 'Failed';
       showToast('Failed: ' + (data.error || 'Unknown error'));
     }
   } catch (e) {
     btn.textContent = 'Error';
     showToast('Error: ' + e.message);
+  } finally {
+    if (!keepDisabled) {
+      setTimeout(() => {
+        if (!btn.classList.contains('sent')) {
+          btn.disabled = false;
+          btn.textContent = 'Download';
+        }
+      }, dryRun ? 800 : 0);
+    }
   }
+}
+
+async function postDownloadWithDuplicatePrompt(payload, dryRun) {
+  let resp = await fetch('/api/download', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(payload),
+  });
+  let data = await resp.json();
+  if (resp.status === 409 && !dryRun) {
+    const dup = data.duplicate_check || {};
+    const why = [
+      dup.by_source_id ? 'source-id match' : '',
+      dup.by_title ? 'title match' : '',
+    ].filter(Boolean).join(', ') || 'duplicate';
+    if (confirm(`Duplicate detected (${why}). Queue anyway?`)) {
+      payload = { ...payload, force: true };
+      resp = await fetch('/api/download', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(payload),
+      });
+      data = await resp.json();
+    }
+  }
+  return { resp, data };
 }
 
 // ---- Audiobook Search ----
@@ -1057,13 +1153,24 @@ async function loadDownloads() {
   try {
     const resp = await fetch('/api/downloads');
     const data = await resp.json();
-    const items = data.downloads || [];
+    const allItems = data.downloads || [];
 
-    activeDownloads = items.filter(d => !['completed','seeding','error'].includes(d.status)).length;
+    activeDownloads = allItems.filter(d => !['completed','seeding','error','dead_letter'].includes(d.status)).length;
     updateDlBadge();
 
-    if (!items.length) {
+    downloadsStatusFilter = document.getElementById('downloads-status-filter')?.value || 'all';
+    const items = allItems.filter(d => {
+      if (downloadsStatusFilter === 'all') return true;
+      if (downloadsStatusFilter === 'active') return !['completed','seeding','error','dead_letter'].includes(d.status);
+      return d.status === downloadsStatusFilter;
+    });
+
+    if (!allItems.length) {
       list.innerHTML = '<div class="empty-state"><div class="icon">&#9981;</div><p>No active downloads</p></div>';
+      return;
+    }
+    if (!items.length) {
+      list.innerHTML = '<div class="empty-state"><div class="icon">&#128269;</div><p>No downloads match the current filter.</p></div>';
       return;
     }
 
@@ -1079,9 +1186,18 @@ async function loadDownloads() {
       if (d.error) {
         extra += `<div class="error-msg">${esc(d.error)}</div>`;
       }
+      if (d.retry_count !== undefined) {
+        const retryMeta = d.status === 'retry_wait' && d.next_retry_at
+          ? `Retry ${d.retry_count}/${d.max_retries} in ${Math.max(0, Math.ceil(d.next_retry_at - Date.now()/1000))}s`
+          : (d.retry_count > 0 ? `Retries: ${d.retry_count}/${d.max_retries}` : '');
+        if (retryMeta) extra += `<div class="download-meta">${retryMeta}</div>`;
+      }
       const delId = d.hash || d.job_id;
       const delType = d.hash ? 'torrent' : 'novel';
       const delBtn = `<button class="del-btn" onclick="delDownload('${delType}','${delId}')">Remove</button>`;
+      const retryBtn = d.job_id && ['error','dead_letter','retry_wait'].includes(d.status)
+        ? `<button class="del-btn" style="margin-right:6px;background:var(--bg3);border-color:var(--accent);color:var(--accent)" onclick="retryDownloadJob('${d.job_id}')">${d.status === 'retry_wait' ? 'Retry Now' : 'Retry'}</button>`
+        : '';
       const src = (window._sourcesMeta || {})[d.source] || {};
       const badgeColor = src.color || '#888';
       const badgeLabel = src.label || d.source;
@@ -1090,6 +1206,7 @@ async function loadDownloads() {
           <span class="badge" style="background:${badgeColor};color:#fff">${esc(badgeLabel)}</span>
           <span class="download-title">${esc(d.title)}</span>
           <span class="status ${d.status}">${d.status}</span>
+          ${retryBtn}
           ${delBtn}
         </div>
         ${extra}
@@ -1124,7 +1241,7 @@ setInterval(async () => {
   try {
     const resp = await fetch('/api/downloads');
     const data = await resp.json();
-    activeDownloads = (data.downloads || []).filter(d => !['completed','seeding','error'].includes(d.status)).length;
+    activeDownloads = (data.downloads || []).filter(d => !['completed','seeding','error','dead_letter'].includes(d.status)).length;
     updateDlBadge();
   } catch(e) {}
 }, 15000);
@@ -1136,6 +1253,18 @@ async function delDownload(source, id) {
     loadDownloads();
   } catch (e) {
     showToast('Failed to remove: ' + e.message);
+  }
+}
+
+async function retryDownloadJob(jobId) {
+  try {
+    const resp = await fetch(`/api/downloads/jobs/${jobId}/retry`, { method: 'POST' });
+    const data = await resp.json();
+    if (!data.success) throw new Error(data.error || 'Retry failed');
+    showToast('Retry queued');
+    loadDownloads();
+  } catch (e) {
+    showToast('Retry failed: ' + e.message);
   }
 }
 
@@ -1323,6 +1452,7 @@ async function loadSettings() {
     document.getElementById('set-target-calibre').checked = targets.includes('calibre');
     document.getElementById('set-target-audiobookshelf').checked = targets.includes('audiobookshelf');
     document.getElementById('set-target-kavita').checked = targets.includes('kavita');
+    document.getElementById('set-target-routing-rules').value = s.target_routing_rules || '{}';
     // Set library dropdowns if we have values
     if (s.abs_library_id) _addLibOption('set-abs-library', s.abs_library_id, s.abs_library_id);
     if (s.abs_ebook_library_id) _addLibOption('set-abs-ebook-library', s.abs_ebook_library_id, s.abs_ebook_library_id);
@@ -1568,6 +1698,7 @@ async function saveSettings() {
     // Import targets
     enabled_targets: ['calibre', 'audiobookshelf', 'kavita']
       .filter(t => document.getElementById('set-target-' + t).checked).join(','),
+    target_routing_rules: document.getElementById('set-target-routing-rules').value.trim() || '{}',
     // Auth
     auth_username: document.getElementById('set-auth-username').value.trim(),
     auth_password: document.getElementById('set-auth-password').value,
@@ -1719,6 +1850,215 @@ function timeSince(ts) {
 
 function esc(s) {
   return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+
+// ---- AI Monitor ----
+let _monitorTimer = null;
+
+function startMonitorPolling() {
+  if (_monitorTimer) return;
+  _monitorTimer = setInterval(loadMonitorStatus, 5000);
+}
+
+function stopMonitorPolling() {
+  if (_monitorTimer) { clearInterval(_monitorTimer); _monitorTimer = null; }
+}
+
+async function loadMonitorStatus() {
+  try {
+    const r = await fetch('/api/monitor/status');
+    const d = await r.json();
+    renderMonitorStatus(d);
+  } catch (e) {
+    document.getElementById('monitor-status-text').textContent = 'Error loading status';
+  }
+}
+
+async function triggerAnalysis() {
+  const btn = document.getElementById('analyze-now-btn');
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  try {
+    const r = await fetch('/api/monitor/analyze', { method: 'POST' });
+    const d = await r.json();
+    renderMonitorStatus(d);
+  } catch (e) {}
+  btn.disabled = false;
+  btn.textContent = 'Analyze Now';
+}
+
+function renderMonitorStatus(d) {
+  const dot = document.getElementById('monitor-dot');
+  const statusText = document.getElementById('monitor-status-text');
+  if (d.enabled) {
+    dot.style.background = '#22c55e';
+    const last = d.last_checked ? timeSince(d.last_checked) + ' ago' : 'never';
+    statusText.textContent = `Active  ·  ${d.provider} (${d.model})  ·  Last checked: ${last}`;
+  } else {
+    dot.style.background = '#6b7280';
+    statusText.textContent = 'Disabled — set AI_MONITOR_ENABLED=true to enable';
+  }
+
+  document.getElementById('monitor-diagnosis').textContent = d.diagnosis || '—';
+
+  // Pending actions
+  const pending = d.pending_actions || [];
+  const pSection = document.getElementById('monitor-pending-section');
+  const pList = document.getElementById('monitor-pending-list');
+  if (pending.length > 0) {
+    pSection.style.display = '';
+    pList.innerHTML = pending.map(a => `
+      <div style="display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:6px">
+        <span style="flex:1;font-size:13px">${esc(a.description)}</span>
+        <span style="font-size:11px;padding:2px 7px;border-radius:4px;background:${a.risk==='approval'?'rgba(239,68,68,.15)':'rgba(34,197,94,.15)'};color:${a.risk==='approval'?'#ef4444':'#22c55e'}">${a.risk}</span>
+        <button class="btn" style="padding:4px 12px;font-size:12px" onclick="approveAction('${a.id}')">Approve</button>
+        <button class="btn" style="padding:4px 12px;font-size:12px;background:var(--bg3)" onclick="dismissAction('${a.id}')">Dismiss</button>
+      </div>`).join('');
+  } else {
+    pSection.style.display = 'none';
+  }
+
+  // Recent errors
+  const errors = d.recent_errors || [];
+  const errEl = document.getElementById('monitor-errors');
+  if (errors.length === 0) {
+    errEl.innerHTML = '<div style="padding:12px 16px;color:var(--text2)">No recent warnings or errors.</div>';
+  } else {
+    errEl.innerHTML = [...errors].reverse().map(e => {
+      const col = e.level === 'ERROR' ? '#ef4444' : e.level === 'WARNING' ? '#f59e0b' : 'var(--text2)';
+      return `<div style="padding:5px 14px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:var(--text2)">[${e.ts_str}]</span> <span style="color:${col}">${esc(e.level)}</span> <span style="color:var(--text2)">${esc(e.logger)}</span> ${esc(e.message)}</div>`;
+    }).join('');
+  }
+
+  // History
+  const history = d.action_history || [];
+  const histEl = document.getElementById('monitor-history');
+  if (history.length === 0) {
+    histEl.innerHTML = '<div style="padding:12px 16px;color:var(--text2)">No actions taken yet.</div>';
+  } else {
+    histEl.innerHTML = history.map(a => {
+      const result = a.result || '';
+      const col = result === 'dismissed' ? '#6b7280' : result.startsWith('Error') ? '#ef4444' : '#22c55e';
+      return `<div style="padding:7px 14px;border-bottom:1px solid var(--border);line-height:1.4"><span style="color:${col}">●</span> <strong>${esc(a.action)}</strong> — ${esc(result)}</div>`;
+    }).join('');
+  }
+}
+
+async function approveAction(id) {
+  await fetch(`/api/monitor/actions/${id}/approve`, { method: 'POST' });
+  loadMonitorStatus();
+}
+
+async function dismissAction(id) {
+  await fetch(`/api/monitor/actions/${id}/dismiss`, { method: 'POST' });
+  loadMonitorStatus();
+}
+
+function timeSince(ts) {
+  const sec = Math.round(Date.now() / 1000 - ts);
+  if (sec < 60) return sec + 's';
+  if (sec < 3600) return Math.round(sec / 60) + 'm';
+  return Math.round(sec / 3600) + 'h';
+}
+
+function esc(s) {
+  return String(s || '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+
+// ---- Wishlist ----
+async function loadWishlist() {
+  try {
+    const r = await fetch('/api/wishlist');
+    const items = await r.json();
+    renderWishlist(items);
+  } catch (e) {}
+}
+
+async function addWishlistItem() {
+  const query = document.getElementById('wish-query').value.trim();
+  if (!query) return;
+  const mediaType = document.getElementById('wish-type').value;
+  const autoDownload = document.getElementById('wish-auto').checked;
+  await fetch('/api/wishlist', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({ query, media_type: mediaType, auto_download: autoDownload })
+  });
+  document.getElementById('wish-query').value = '';
+  loadWishlist();
+}
+
+async function deleteWishlistItem(id) {
+  await fetch(`/api/wishlist/${id}`, { method: 'DELETE' });
+  loadWishlist();
+}
+
+async function triggerWishlistSearch(id) {
+  const btn = document.querySelector(`[data-wish-search="${id}"]`);
+  if (btn) { btn.disabled = true; btn.textContent = 'Searching…'; }
+  await fetch(`/api/wishlist/${id}/download`, { method: 'POST' });
+  setTimeout(loadWishlist, 2000);
+}
+
+function renderWishlist(items) {
+  const el = document.getElementById('wishlist-items');
+  if (items.length === 0) {
+    el.innerHTML = '<div style="color:var(--text2);padding:24px 0;text-align:center">No items in wishlist. Add books you want to find above.</div>';
+    return;
+  }
+  const statusColor = { pending: '#f59e0b', found: '#22c55e', downloaded: '#6b7280' };
+  el.innerHTML = items.map(w => `
+    <div style="display:flex;align-items:center;gap:12px;padding:12px 14px;background:var(--bg2);border:1px solid var(--border);border-radius:8px;margin-bottom:8px">
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:500;font-size:14px;margin-bottom:2px">${esc(w.title || w.query)}</div>
+        <div style="font-size:12px;color:var(--text2)">${esc(w.media_type)} ${w.author ? '· ' + esc(w.author) : ''} ${w.auto_download ? '· auto-download' : ''}</div>
+      </div>
+      <span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(0,0,0,.2);color:${statusColor[w.status]||'var(--text2)'}">${esc(w.status)}</span>
+      <button class="btn" data-wish-search="${w.id}" style="padding:4px 10px;font-size:12px;background:var(--bg3)" onclick="triggerWishlistSearch('${w.id}')">Search</button>
+      <button class="btn" style="padding:4px 10px;font-size:12px;background:var(--danger);color:#fff" onclick="deleteWishlistItem('${w.id}')">Remove</button>
+    </div>`).join('');
+}
+
+
+// ---- CSV Import (Goodreads / StoryGraph) ----
+async function runCsvImport() {
+  const fileInput = document.getElementById('import-csv-file');
+  const shelf = document.getElementById('import-shelf').value.trim() || 'to-read';
+  const mediaType = document.getElementById('import-media-type').value;
+  const btn = document.getElementById('import-btn');
+  const result = document.getElementById('import-result');
+
+  if (!fileInput.files.length) {
+    result.innerHTML = '<span style="color:var(--danger)">Please select a CSV file first.</span>';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  result.innerHTML = '';
+
+  const fd = new FormData();
+  fd.append('csv_file', fileInput.files[0]);
+  fd.append('shelf', shelf);
+  fd.append('media_type', mediaType);
+
+  try {
+    const r = await fetch('/api/import/csv', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (d.error) {
+      result.innerHTML = `<span style="color:var(--danger)">Error: ${esc(d.error)}</span>`;
+    } else {
+      result.innerHTML = `<span style="color:#22c55e">✓ Queued <strong>${d.queued}</strong> book(s) for download (${d.skipped} skipped, format: ${esc(d.format)}).</span>`;
+      fileInput.value = '';
+    }
+  } catch (e) {
+    result.innerHTML = `<span style="color:var(--danger)">Request failed: ${esc(String(e))}</span>`;
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Import';
 }
 
 </script>

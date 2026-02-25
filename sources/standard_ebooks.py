@@ -131,6 +131,7 @@ class StandardEbooksSource(Source):
                 source="standardebooks",
                 source_id=result.get("source_id", ""),
                 library_db=library,
+                target_names=job.get("target_names"),
             )
 
             job["status"] = "completed"

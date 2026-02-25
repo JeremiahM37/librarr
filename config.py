@@ -1,8 +1,11 @@
 import hashlib
+import hmac
 import json
 import os
 import threading
 import uuid
+
+from werkzeug.security import check_password_hash, generate_password_hash
 
 # =============================================================================
 # Librarr Configuration
@@ -13,6 +16,7 @@ SETTINGS_FILE = os.getenv("LIBRARR_SETTINGS_FILE", "/data/librarr/settings.json"
 
 _lock = threading.Lock()
 _file_settings = {}
+MASKED_SECRET = "••••••••"
 
 
 def _load_file_settings():
@@ -54,7 +58,7 @@ def _apply_settings():
     global CALIBRE_LIBRARY_CONTAINER, CALIBRE_DB, INCOMING_DIR
     global KAVITA_URL, KAVITA_API_KEY, KAVITA_LIBRARY_ID, KAVITA_LIBRARY_PATH
     global FILE_ORG_ENABLED, EBOOK_ORGANIZED_DIR, AUDIOBOOK_ORGANIZED_DIR
-    global ENABLED_TARGETS
+    global ENABLED_TARGETS, TARGET_ROUTING_RULES
     global API_KEY, SECRET_KEY, AUTH_USERNAME, AUTH_PASSWORD
 
     # Prowlarr
@@ -105,6 +109,7 @@ def _apply_settings():
 
     # Pipeline targets (comma-separated)
     ENABLED_TARGETS = _get("ENABLED_TARGETS", "enabled_targets", "calibre,audiobookshelf")
+    TARGET_ROUTING_RULES = _get("TARGET_ROUTING_RULES", "target_routing_rules", "{}")
 
     # Authentication
     AUTH_USERNAME = _get("AUTH_USERNAME", "auth_username", "")
@@ -120,31 +125,34 @@ def _ensure_generated_keys():
     updates = {}
     if not API_KEY:
         updates["api_key"] = str(uuid.uuid4())
-        logger.info(f"Generated new API key: {updates['api_key']}")
+        logger.info("Generated new API key")
     if not SECRET_KEY:
         updates["secret_key"] = str(uuid.uuid4())
     # Hash plain-text password if set via env var
-    if AUTH_PASSWORD and not AUTH_PASSWORD.startswith("sha256:"):
+    if AUTH_PASSWORD and not AUTH_PASSWORD.startswith(("sha256:", "scrypt:", "pbkdf2:", "argon2:")):
         updates["auth_password"] = hash_password(AUTH_PASSWORD)
     if updates:
         save_settings(updates)
 
 
 def hash_password(password):
-    """Hash a password using SHA-256 with a salt prefix for storage."""
-    if not password or password.startswith("sha256:"):
+    """Hash a password for storage, preserving legacy hashed values."""
+    if not password or password.startswith(("sha256:", "scrypt:", "pbkdf2:", "argon2:")):
         return password
-    return "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+    return generate_password_hash(password)
 
 
 def verify_password(password, stored_hash):
-    """Verify a password against a stored hash."""
+    """Verify a password against a stored hash (legacy and modern formats)."""
     if not stored_hash:
         return False
     if stored_hash.startswith("sha256:"):
-        return stored_hash == "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+        legacy = "sha256:" + hashlib.sha256(password.encode()).hexdigest()
+        return hmac.compare_digest(stored_hash, legacy)
+    if stored_hash.startswith(("scrypt:", "pbkdf2:", "argon2:")):
+        return check_password_hash(stored_hash, password)
     # Plain-text fallback (first login before hash is stored)
-    return password == stored_hash
+    return hmac.compare_digest(password, stored_hash)
 
 
 def has_auth():
@@ -178,20 +186,30 @@ def get_enabled_target_names():
     """Return set of target names the user has enabled."""
     return set(t.strip() for t in ENABLED_TARGETS.split(",") if t.strip())
 
+
+def get_target_routing_rules():
+    """Return parsed target routing rules JSON (best effort)."""
+    raw = TARGET_ROUTING_RULES or "{}"
+    try:
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
 def get_all_settings():
     """Return current settings (for the settings UI), masking sensitive values."""
     return {
         "prowlarr_url": PROWLARR_URL,
-        "prowlarr_api_key": PROWLARR_API_KEY,
+        "prowlarr_api_key": MASKED_SECRET if PROWLARR_API_KEY else "",
         "qb_url": QB_URL,
         "qb_user": QB_USER,
-        "qb_pass": QB_PASS,
+        "qb_pass": MASKED_SECRET if QB_PASS else "",
         "qb_save_path": QB_SAVE_PATH,
         "qb_category": QB_CATEGORY,
         "qb_audiobook_save_path": QB_AUDIOBOOK_SAVE_PATH,
         "qb_audiobook_category": QB_AUDIOBOOK_CATEGORY,
         "abs_url": ABS_URL,
-        "abs_token": ABS_TOKEN,
+        "abs_token": MASKED_SECRET if ABS_TOKEN else "",
         "abs_library_id": ABS_LIBRARY_ID,
         "abs_ebook_library_id": ABS_EBOOK_LIBRARY_ID,
         "abs_public_url": ABS_PUBLIC_URL,
@@ -202,16 +220,17 @@ def get_all_settings():
         "incoming_dir": INCOMING_DIR,
         "audiobook_dir": AUDIOBOOK_DIR,
         "kavita_url": KAVITA_URL,
-        "kavita_api_key": KAVITA_API_KEY,
+        "kavita_api_key": MASKED_SECRET if KAVITA_API_KEY else "",
         "kavita_library_id": KAVITA_LIBRARY_ID,
         "kavita_library_path": KAVITA_LIBRARY_PATH,
         "file_org_enabled": FILE_ORG_ENABLED,
         "ebook_organized_dir": EBOOK_ORGANIZED_DIR,
         "audiobook_organized_dir": AUDIOBOOK_ORGANIZED_DIR,
         "enabled_targets": ENABLED_TARGETS,
-        "api_key": API_KEY,
+        "target_routing_rules": TARGET_ROUTING_RULES,
+        "api_key": MASKED_SECRET if API_KEY else "",
         "auth_username": AUTH_USERNAME,
-        "auth_password": "••••••••" if AUTH_PASSWORD else "",
+        "auth_password": MASKED_SECRET if AUTH_PASSWORD else "",
         "auth_enabled": has_auth(),
     }
 

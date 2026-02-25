@@ -20,13 +20,16 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from html.parser import HTMLParser
 
 import requests
-from flask import Flask, jsonify, redirect, request, send_file, session, url_for
+from flask import Flask, Response, jsonify, redirect, request, send_file, session, url_for
 
 import config
 import pipeline
 import monitor
+import opds
 import sources
+import telemetry
 from library_db import LibraryDB
+from db_migrations import apply_migrations, get_migration_status
 
 app = Flask(__name__)
 app.secret_key = config.SECRET_KEY
@@ -37,11 +40,65 @@ logging.basicConfig(
 )
 logger = logging.getLogger("librarr")
 
+JOB_MAX_RETRIES = max(0, int(os.getenv("LIBRARR_JOB_MAX_RETRIES", "2")))
+JOB_RETRY_BACKOFF_SEC = max(1, int(os.getenv("LIBRARR_JOB_RETRY_BACKOFF_SEC", "60")))
+SOURCE_CIRCUIT_FAILURE_THRESHOLD = max(1, int(os.getenv("LIBRARR_SOURCE_CIRCUIT_FAILURE_THRESHOLD", "3")))
+SOURCE_CIRCUIT_OPEN_SEC = max(5, int(os.getenv("LIBRARR_SOURCE_CIRCUIT_OPEN_SEC", "300")))
+JOB_STATE_TRANSITIONS = {
+    None: {"queued", "searching", "downloading", "importing", "retry_wait", "completed", "error", "dead_letter"},
+    "queued": {"searching", "downloading", "importing", "completed", "retry_wait", "error", "dead_letter"},
+    "searching": {"queued", "downloading", "completed", "retry_wait", "error", "dead_letter"},
+    "downloading": {"importing", "completed", "retry_wait", "error", "dead_letter"},
+    "importing": {"completed", "retry_wait", "error", "dead_letter"},
+    "retry_wait": {"queued", "error", "dead_letter"},
+    "error": {"queued", "retry_wait", "dead_letter"},
+    "dead_letter": {"queued"},
+    "completed": set(),
+}
+
+
+def _job_transition_allowed(old_status, new_status):
+    return new_status in JOB_STATE_TRANSITIONS.get(old_status, set())
+
+
+def _record_job_status_transition(job_id, old_status, new_status, job_data):
+    telemetry.metrics.inc(
+        "librarr_job_transitions_total",
+        from_status=old_status or "none",
+        to_status=new_status,
+        source=job_data.get("source", "unknown"),
+    )
+    if new_status in ("completed", "error", "dead_letter"):
+        telemetry.metrics.inc(
+            "librarr_job_terminal_total",
+            status=new_status,
+            source=job_data.get("source", "unknown"),
+        )
+    if new_status == "retry_wait":
+        telemetry.metrics.inc(
+            "librarr_job_retry_scheduled_total",
+            source=job_data.get("source", "unknown"),
+        )
+    if new_status in ("completed", "error", "dead_letter", "retry_wait"):
+        telemetry.emit_event(
+            f"job_{new_status}",
+            {
+                "job_id": job_id,
+                "title": job_data.get("title"),
+                "source": job_data.get("source"),
+                "status": new_status,
+                "retry_count": job_data.get("retry_count", 0),
+                "max_retries": job_data.get("max_retries", JOB_MAX_RETRIES),
+                "error": job_data.get("error"),
+                "detail": job_data.get("detail"),
+            },
+        )
+
 
 # =============================================================================
 # Authentication
 # =============================================================================
-PUBLIC_PATHS = {"/login", "/api/health"}
+PUBLIC_PATHS = {"/login", "/api/health", "/metrics"}
 PUBLIC_PREFIXES = ("/static/",)
 
 
@@ -131,14 +188,7 @@ class DownloadStore:
 
     def _init_db(self):
         with self._connect() as conn:
-            conn.execute("""
-                CREATE TABLE IF NOT EXISTS download_jobs (
-                    job_id TEXT PRIMARY KEY,
-                    data TEXT NOT NULL,
-                    created_at REAL DEFAULT (strftime('%s', 'now')),
-                    updated_at REAL DEFAULT (strftime('%s', 'now'))
-                )
-            """)
+            apply_migrations(conn)
 
     def _load_all(self):
         with self._connect() as conn:
@@ -150,10 +200,16 @@ class DownloadStore:
             except json.JSONDecodeError:
                 continue
             # Mark jobs that were in-progress when the app stopped as failed
-            if data.get("status") in ("queued", "downloading", "importing"):
+            if data.get("status") in ("queued", "searching", "downloading", "importing"):
                 data["status"] = "error"
                 data["error"] = "Interrupted by restart"
+                data["last_error_at"] = time.time()
                 stale += 1
+            data.setdefault("retry_count", 0)
+            data.setdefault("max_retries", JOB_MAX_RETRIES)
+            data.setdefault("next_retry_at", None)
+            data.setdefault("failure_history", [])
+            data.setdefault("status_history", [])
             self._cache[job_id] = _PersistentJob(self, job_id, data)
         if self._cache:
             msg = f"Restored {len(self._cache)} download jobs from database"
@@ -177,9 +233,17 @@ class DownloadStore:
                 conn.execute("DELETE FROM download_jobs WHERE job_id = ?", (job_id,))
 
     def __setitem__(self, job_id, value):
-        job = _PersistentJob(self, job_id, dict(value))
+        data = dict(value)
+        data.setdefault("retry_count", 0)
+        data.setdefault("max_retries", JOB_MAX_RETRIES)
+        data.setdefault("next_retry_at", None)
+        data.setdefault("failure_history", [])
+        data.setdefault("status_history", [])
+        job = _PersistentJob(self, job_id, data)
         self._cache[job_id] = job
         self._persist(job_id, job._data)
+        if data.get("status"):
+            _record_job_status_transition(job_id, None, data["status"], data)
 
     def __getitem__(self, job_id):
         return self._cache[job_id]
@@ -196,6 +260,13 @@ class DownloadStore:
     def get(self, job_id, default=None):
         return self._cache.get(job_id, default)
 
+    def transition(self, job_id, status, **updates):
+        job = self._cache[job_id]
+        job["status"] = status
+        for key, value in updates.items():
+            job[key] = value
+        return job
+
 
 class _PersistentJob:
     """Wraps a job dict so that mutations auto-persist to SQLite."""
@@ -209,8 +280,33 @@ class _PersistentJob:
         return self._data[key]
 
     def __setitem__(self, key, value):
+        if key == "status":
+            old_status = self._data.get("status")
+            new_status = value
+            if old_status != new_status and not _job_transition_allowed(old_status, new_status):
+                telemetry.metrics.inc(
+                    "librarr_job_invalid_transitions_total",
+                    from_status=old_status or "none",
+                    to_status=new_status,
+                    source=self._data.get("source", "unknown"),
+                )
+                logger.warning(
+                    "Rejected invalid job status transition %s -> %s for %s",
+                    old_status, new_status, self._job_id,
+                )
+                return
+            if old_status != new_status:
+                history = list(self._data.get("status_history") or [])
+                history.append({"from": old_status, "to": new_status, "ts": time.time()})
+                self._data["status_history"] = history[-25:]
         self._data[key] = value
+        if key == "error" and value:
+            self._data["last_error_at"] = time.time()
         self._store._persist(self._job_id, self._data)
+        if key == "status":
+            old_status = self._data.get("status_history", [])[-1]["from"] if self._data.get("status_history") else None
+            if old_status != value:
+                _record_job_status_transition(self._job_id, old_status, value, self._data)
 
     def get(self, key, default=None):
         return self._data.get(key, default)
@@ -223,6 +319,342 @@ _DB_PATH = os.getenv("LIBRARR_DB_PATH", "/data/librarr/downloads.db")
 download_jobs = DownloadStore(_DB_PATH)
 library = LibraryDB(_DB_PATH)
 _monitor = None  # initialized in __main__
+_retry_loop_started = False
+_retry_thread_lock = threading.Lock()
+
+
+def _base_job_fields(title, source, **extra):
+    data = {
+        "status": "queued",
+        "title": title,
+        "source": source,
+        "error": None,
+        "detail": None,
+        "retry_count": 0,
+        "max_retries": JOB_MAX_RETRIES,
+        "next_retry_at": None,
+        "failure_history": [],
+        "status_history": [],
+    }
+    data.update(extra)
+    return data
+
+
+def _schedule_or_dead_letter(job_id, error_message, *, retry_kind=None, retry_payload=None):
+    job = download_jobs[job_id]
+    job["error"] = error_message
+    failures = list(job.get("failure_history") or [])
+    failures.append({"ts": time.time(), "error": error_message})
+    job["failure_history"] = failures[-10:]
+    retry_count = int(job.get("retry_count", 0)) + 1
+    job["retry_count"] = retry_count
+    max_retries = int(job.get("max_retries", JOB_MAX_RETRIES))
+    if retry_kind:
+        job["retry_kind"] = retry_kind
+    if retry_payload is not None:
+        job["retry_payload"] = retry_payload
+    if retry_count <= max_retries:
+        delay = JOB_RETRY_BACKOFF_SEC * retry_count
+        job["next_retry_at"] = time.time() + delay
+        job["detail"] = f"Retry {retry_count}/{max_retries} scheduled in {delay}s"
+        job["status"] = "retry_wait"
+    else:
+        job["next_retry_at"] = None
+        job["detail"] = f"Moved to dead-letter after {retry_count - 1} retries"
+        job["status"] = "dead_letter"
+
+
+def _reset_job_for_retry(job_id):
+    job = download_jobs[job_id]
+    job["error"] = None
+    job["detail"] = f"Retrying (attempt {int(job.get('retry_count', 0)) + 1})..."
+    job["next_retry_at"] = None
+    job["status"] = "queued"
+
+
+def _start_job_thread(target, args):
+    t = threading.Thread(target=target, args=args, daemon=True)
+    t.start()
+    return t
+
+
+def _run_source_download_worker(job_id, source_name, data):
+    source = sources.get_source(source_name)
+    if not source:
+        _schedule_or_dead_letter(job_id, f"Unknown source: {source_name}", retry_kind="source", retry_payload={"source_name": source_name, "data": data})
+        return
+    download_jobs[job_id]["status"] = "downloading"
+    try:
+        success = source.download(data, download_jobs[job_id])
+        _record_source_download_result(source_name, bool(success), download_jobs[job_id].get("error", ""))
+        if not success and download_jobs[job_id]["status"] != "completed":
+            msg = download_jobs[job_id].get("error") or "Download failed"
+            _schedule_or_dead_letter(job_id, msg, retry_kind="source", retry_payload={"source_name": source_name, "data": data})
+    except Exception as e:
+        logger.error(f"Download error ({source_name}): {e}")
+        _record_source_download_result(source_name, False, str(e))
+        _schedule_or_dead_letter(job_id, str(e), retry_kind="source", retry_payload={"source_name": source_name, "data": data})
+
+
+def _dispatch_retry(job_id):
+    job = download_jobs.get(job_id)
+    if not job:
+        return False
+    retry_kind = job.get("retry_kind")
+    payload = job.get("retry_payload") or {}
+    _reset_job_for_retry(job_id)
+    if retry_kind == "novel":
+        _start_job_thread(download_novel_worker, (job_id, payload.get("url", job.get("url", "")), payload.get("title", job.get("title", "Unknown"))))
+        return True
+    if retry_kind == "annas":
+        _start_job_thread(download_annas_worker, (job_id, payload.get("md5", ""), payload.get("title", job.get("title", "Unknown"))))
+        return True
+    if retry_kind == "source":
+        _start_job_thread(_run_source_download_worker, (job_id, payload.get("source_name", job.get("source", "")), payload.get("data", payload)))
+        return True
+    logger.warning("No retry handler for job %s (kind=%s)", job_id, retry_kind)
+    download_jobs[job_id]["error"] = f"No retry handler for kind={retry_kind}"
+    download_jobs[job_id]["status"] = "dead_letter"
+    return False
+
+
+def _retry_scheduler_loop():
+    while True:
+        now = time.time()
+        for job_id, job in list(download_jobs.items()):
+            if job.get("status") != "retry_wait":
+                continue
+            next_retry_at = job.get("next_retry_at") or 0
+            if next_retry_at and next_retry_at <= now:
+                try:
+                    _dispatch_retry(job_id)
+                except Exception as e:
+                    logger.error("Retry dispatch failed for %s: %s", job_id, e)
+        time.sleep(2)
+
+
+def _ensure_retry_scheduler():
+    global _retry_loop_started
+    with _retry_thread_lock:
+        if _retry_loop_started:
+            return
+        _retry_loop_started = True
+        threading.Thread(target=_retry_scheduler_loop, daemon=True).start()
+
+
+class SourceHealthTracker:
+    """Tracks source reliability and temporarily opens a circuit on repeated failures."""
+
+    def __init__(self, threshold=SOURCE_CIRCUIT_FAILURE_THRESHOLD, open_seconds=SOURCE_CIRCUIT_OPEN_SEC):
+        self.threshold = max(1, int(threshold))
+        self.open_seconds = max(1, int(open_seconds))
+        self._lock = threading.Lock()
+        self._data = {}
+
+    def _row(self, name):
+        row = self._data.get(name)
+        if row is None:
+            row = {
+                "search_ok": 0,
+                "search_fail": 0,
+                "download_ok": 0,
+                "download_fail": 0,
+                "search_fail_streak": 0,
+                "download_fail_streak": 0,
+                "circuit_open_until": 0.0,
+                "last_error": "",
+                "last_error_kind": "",
+                "last_error_at": 0.0,
+                "last_success_at": 0.0,
+                "score": 100.0,
+            }
+            self._data[name] = row
+        return row
+
+    def _recompute_score(self, row):
+        total = row["search_ok"] + row["search_fail"] + row["download_ok"] + row["download_fail"]
+        if total <= 0:
+            row["score"] = 100.0
+            return
+        ok = row["search_ok"] + row["download_ok"]
+        fail = row["search_fail"] + row["download_fail"]
+        streak_penalty = 5 * max(row["search_fail_streak"], row["download_fail_streak"])
+        row["score"] = max(0.0, round((ok / total) * 100 - (fail / total) * 10 - streak_penalty, 1))
+
+    def can_search(self, name):
+        with self._lock:
+            row = self._row(name)
+            return time.time() >= float(row.get("circuit_open_until", 0) or 0)
+
+    def record_success(self, name, kind="search"):
+        with self._lock:
+            row = self._row(name)
+            key_ok = f"{kind}_ok"
+            key_streak = f"{kind}_fail_streak"
+            if key_ok in row:
+                row[key_ok] += 1
+            if key_streak in row:
+                row[key_streak] = 0
+            row["last_success_at"] = time.time()
+            was_open = time.time() < float(row.get("circuit_open_until", 0) or 0)
+            row["circuit_open_until"] = 0.0
+            self._recompute_score(row)
+        if was_open:
+            telemetry.emit_event("source_recovered", {"source": name, "kind": kind})
+
+    def record_failure(self, name, error, kind="search"):
+        opened = False
+        with self._lock:
+            row = self._row(name)
+            key_fail = f"{kind}_fail"
+            key_streak = f"{kind}_fail_streak"
+            if key_fail in row:
+                row[key_fail] += 1
+            if key_streak in row:
+                row[key_streak] += 1
+            row["last_error"] = str(error)[:400]
+            row["last_error_kind"] = kind
+            row["last_error_at"] = time.time()
+            if kind == "search" and row["search_fail_streak"] >= self.threshold:
+                row["circuit_open_until"] = time.time() + self.open_seconds
+                opened = True
+            self._recompute_score(row)
+            snapshot = dict(row)
+        if opened:
+            telemetry.emit_event("source_degraded", {
+                "source": name,
+                "kind": kind,
+                "search_fail_streak": snapshot.get("search_fail_streak", 0),
+                "circuit_open_until": snapshot.get("circuit_open_until", 0),
+                "last_error": snapshot.get("last_error", ""),
+            })
+        return snapshot
+
+    def snapshot(self):
+        now = time.time()
+        with self._lock:
+            out = {}
+            for name, row in self._data.items():
+                info = dict(row)
+                info["circuit_open"] = now < float(info.get("circuit_open_until", 0) or 0)
+                info["circuit_retry_in_sec"] = max(0, int((info.get("circuit_open_until", 0) or 0) - now))
+                out[name] = info
+            return out
+
+
+_source_health = SourceHealthTracker()
+
+
+def _source_health_metadata():
+    meta = sources.get_source_metadata()
+    health = _source_health.snapshot()
+    for name, source_meta in meta.items():
+        h = health.get(name, {})
+        source_meta["health"] = {
+            "score": h.get("score", 100.0),
+            "circuit_open": h.get("circuit_open", False),
+            "circuit_retry_in_sec": h.get("circuit_retry_in_sec", 0),
+            "search_fail_streak": h.get("search_fail_streak", 0),
+            "last_error": h.get("last_error", ""),
+        }
+    return meta
+
+
+def _search_source_safe(source, query):
+    if not _source_health.can_search(source.name):
+        telemetry.metrics.inc("librarr_source_search_total", source=source.name, result="circuit_open")
+        return []
+    start = time.time()
+    try:
+        results = source.search(query) or []
+        _source_health.record_success(source.name, kind="search")
+        telemetry.metrics.inc("librarr_source_search_total", source=source.name, result="ok")
+        telemetry.metrics.inc(
+            "librarr_source_search_results_total",
+            source=source.name,
+            result_count=str(min(len(results), 1000)),
+        )
+        return results
+    except Exception as e:
+        _source_health.record_failure(source.name, e, kind="search")
+        telemetry.metrics.inc("librarr_source_search_total", source=source.name, result="error")
+        logger.error(f"Search error ({source.name}): {e}")
+        return []
+    finally:
+        _elapsed = int((time.time() - start) * 1000)
+        telemetry.metrics.inc("librarr_source_search_calls_total", source=source.name)
+
+
+def _record_source_download_result(source_name, ok, error=""):
+    if ok:
+        _source_health.record_success(source_name, kind="download")
+        telemetry.metrics.inc("librarr_source_download_total", source=source_name, result="ok")
+        return
+    _source_health.record_failure(source_name, error or "download failed", kind="download")
+    telemetry.metrics.inc("librarr_source_download_total", source=source_name, result="error")
+
+
+def _truthy(v):
+    if isinstance(v, bool):
+        return v
+    return str(v).lower() in ("1", "true", "yes", "on")
+
+
+def _extract_download_source_id(data):
+    if not isinstance(data, dict):
+        return ""
+    return (
+        data.get("source_id")
+        or data.get("md5")
+        or data.get("info_hash")
+        or data.get("hash")
+        or ""
+    )
+
+
+def _duplicate_summary(title="", source_id=""):
+    summary = {"duplicate": False, "by_source_id": False, "by_title": False, "matches": []}
+    if source_id and library.has_source_id(source_id):
+        summary["duplicate"] = True
+        summary["by_source_id"] = True
+        summary["matches"].append({"kind": "source_id", "value": source_id})
+    if title:
+        rows = library.find_by_title(title)
+        if rows:
+            summary["duplicate"] = True
+            summary["by_title"] = True
+            summary["matches"].append({"kind": "title", "count": len(rows)})
+    return summary
+
+
+def _parse_requested_targets(data):
+    raw = (data or {}).get("target_names")
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        raw = [t.strip() for t in raw.split(",") if t.strip()]
+    if not isinstance(raw, list):
+        return None
+    return [str(t).strip() for t in raw if str(t).strip()]
+
+
+def _download_preflight_response(data, source_name="", source_type=""):
+    title = (data or {}).get("title", "Unknown")
+    source_id = _extract_download_source_id(data or {})
+    duplicate = _duplicate_summary(title=title, source_id=source_id)
+    target_names = _parse_requested_targets(data or {})
+    return {
+        "success": True,
+        "dry_run": True,
+        "title": title,
+        "source": source_name or (data or {}).get("source", ""),
+        "source_type": source_type,
+        "source_id": source_id,
+        "duplicate_check": duplicate,
+        "target_names": target_names,
+        "resolved_target_names": sorted(pipeline._resolve_target_names((data or {}).get("media_type", "ebook"), source_name or (data or {}).get("source", ""), target_names)),
+        "qb": qb.diagnose() if source_type == "torrent" else None,
+    }
 
 
 def _validate_config():
@@ -250,9 +682,25 @@ class QBittorrentClient:
     def __init__(self):
         self.session = requests.Session()
         self.authenticated = False
+        self._ban_until = 0
+        self.last_error = None
+
+    def _set_last_error(self, kind, message, **extra):
+        self.last_error = {"kind": kind, "message": message, "ts": time.time(), **extra}
+
+    def _clear_last_error(self):
+        self.last_error = None
+
+    def _classify_exception(self, exc):
+        if isinstance(exc, requests.Timeout):
+            return "timeout", "Timed out connecting to qBittorrent"
+        if isinstance(exc, requests.ConnectionError):
+            return "unreachable", "Connection refused/unreachable — is qBittorrent running?"
+        return "request_error", str(exc)
 
     def login(self):
         if not config.has_qbittorrent():
+            self._set_last_error("not_configured", "qBittorrent not configured")
             return False
         try:
             resp = self.session.post(
@@ -264,20 +712,27 @@ class QBittorrentClient:
                 logger.error("qBittorrent: IP banned, backing off for 60s")
                 self._ban_until = time.time() + 60
                 self.authenticated = False
+                self._set_last_error("ip_banned", "IP banned by qBittorrent", cooldown_sec=60)
                 return False
             self.authenticated = resp.text == "Ok."
             if not self.authenticated:
                 self._ban_until = time.time() + 30
                 logger.error(f"qBittorrent login failed: {resp.text!r}")
+                self._set_last_error("auth_failed", "Login failed — check username/password", response=resp.text[:120])
+            else:
+                self._clear_last_error()
             return self.authenticated
         except Exception as e:
             logger.error(f"qBittorrent login failed: {e}")
+            kind, msg = self._classify_exception(e)
+            self._set_last_error(kind, msg)
             return False
 
     def _ensure_auth(self):
         if not self.authenticated:
             if hasattr(self, '_ban_until') and time.time() < self._ban_until:
                 logger.warning("qBittorrent: skipping login attempt, still in cooldown")
+                self._set_last_error("cooldown", "Skipping login attempt during cooldown", retry_in_sec=int(self._ban_until - time.time()))
                 return
             self.login()
 
@@ -301,9 +756,18 @@ class QBittorrentClient:
                     data=data,
                     timeout=15,
                 )
-            return resp.text == "Ok."
+            ok = resp.text == "Ok."
+            if ok:
+                self._clear_last_error()
+            elif resp.status_code == 403:
+                self._set_last_error("auth_failed", "qBittorrent rejected add_torrent request (403)")
+            else:
+                self._set_last_error(f"http_{resp.status_code}", f"qBittorrent add_torrent returned HTTP {resp.status_code}")
+            return ok
         except Exception as e:
             logger.error(f"qBittorrent add torrent failed: {e}")
+            kind, msg = self._classify_exception(e)
+            self._set_last_error(kind, msg)
             return False
 
     def get_torrents(self, category=None):
@@ -324,8 +788,17 @@ class QBittorrentClient:
                     params=params,
                     timeout=10,
                 )
-            return resp.json()
-        except Exception:
+            if resp.status_code == 200:
+                self._clear_last_error()
+                return resp.json()
+            if resp.status_code == 403:
+                self._set_last_error("auth_failed", "qBittorrent rejected torrents/info (403)")
+            else:
+                self._set_last_error(f"http_{resp.status_code}", f"qBittorrent torrents/info returned HTTP {resp.status_code}")
+            return []
+        except Exception as e:
+            kind, msg = self._classify_exception(e)
+            self._set_last_error(kind, msg)
             return []
 
     def delete_torrent(self, torrent_hash, delete_files=True):
@@ -349,9 +822,48 @@ class QBittorrentClient:
                     },
                     timeout=10,
                 )
-            return resp.status_code == 200
-        except Exception:
+            ok = resp.status_code == 200
+            if ok:
+                self._clear_last_error()
+            elif resp.status_code == 403:
+                self._set_last_error("auth_failed", "qBittorrent rejected delete_torrent request (403)")
+            else:
+                self._set_last_error(f"http_{resp.status_code}", f"qBittorrent delete_torrent returned HTTP {resp.status_code}")
+            return ok
+        except Exception as e:
+            kind, msg = self._classify_exception(e)
+            self._set_last_error(kind, msg)
             return False
+
+    def diagnose(self):
+        if not config.has_qbittorrent():
+            return {"success": False, "error_class": "not_configured", "error": "qBittorrent not configured"}
+        if self._ban_until and time.time() < self._ban_until:
+            return {
+                "success": False,
+                "error_class": "cooldown",
+                "error": "qBittorrent login cooldown active",
+                "retry_in_sec": int(self._ban_until - time.time()),
+            }
+        try:
+            self._ensure_auth()
+            if not self.authenticated:
+                err = self.last_error or {}
+                return {"success": False, "error_class": err.get("kind", "auth_failed"), "error": err.get("message", "Login failed")}
+            resp = self.session.get(f"{config.QB_URL}/api/v2/app/version", timeout=5)
+            if resp.status_code == 403:
+                self.authenticated = False
+                self._set_last_error("auth_failed", "qBittorrent rejected app/version (403)")
+                return {"success": False, "error_class": "auth_failed", "error": "Session expired or invalid credentials"}
+            if resp.status_code != 200:
+                self._set_last_error(f"http_{resp.status_code}", f"HTTP {resp.status_code}")
+                return {"success": False, "error_class": f"http_{resp.status_code}", "error": f"HTTP {resp.status_code}"}
+            self._clear_last_error()
+            return {"success": True, "version": resp.text.strip() or "unknown"}
+        except Exception as e:
+            kind, msg = self._classify_exception(e)
+            self._set_last_error(kind, msg)
+            return {"success": False, "error_class": kind, "error": msg}
 
 
 qb = QBittorrentClient()
@@ -1101,8 +1613,12 @@ def download_novel_worker(job_id, url, title):
 
     # Step 2: Fall back to lncrawl web scraping
     if not config.has_lncrawl():
-        download_jobs[job_id]["status"] = "error"
-        download_jobs[job_id]["error"] = "No pre-made EPUB found and lightnovel-crawler not configured"
+        _schedule_or_dead_letter(
+            job_id,
+            "No pre-made EPUB found and lightnovel-crawler not configured",
+            retry_kind="novel",
+            retry_payload={"url": url, "title": title},
+        )
         return
 
     source_urls = [url]
@@ -1183,6 +1699,7 @@ def download_novel_worker(job_id, url, title):
                 best_epub, title=title, media_type="ebook",
                 source="webnovel", source_id=url,
                 job_id=job_id, library_db=library,
+                target_names=download_jobs[job_id].get("target_names"),
             )
             download_jobs[job_id]["status"] = "completed"
             download_jobs[job_id]["detail"] = f"Done (scraped from {site_name}, {_human_size(epub_size)})"
@@ -1194,12 +1711,25 @@ def download_novel_worker(job_id, url, title):
             _clean_incoming()
             continue
         except Exception as e:
+            if "Post-import verification failed" in str(e):
+                _schedule_or_dead_letter(
+                    job_id,
+                    str(e),
+                    retry_kind="novel",
+                    retry_payload={"url": url, "title": title},
+                )
+                _clean_incoming()
+                return
             logger.warning(f"[{title}] lncrawl error on {src_url}: {e}")
             _clean_incoming()
             continue
 
-    download_jobs[job_id]["status"] = "error"
-    download_jobs[job_id]["error"] = f"All {min(len(source_urls),4)} sources failed"
+    _schedule_or_dead_letter(
+        job_id,
+        f"All {min(len(source_urls),4)} sources failed",
+        retry_kind="novel",
+        retry_payload={"url": url, "title": title},
+    )
 
 
 # =============================================================================
@@ -1321,6 +1851,7 @@ def _download_from_annas(job_id, md5, title):
             filepath, title=title, media_type="ebook",
             source="annas", source_id=md5,
             job_id=job_id, library_db=library,
+            target_names=download_jobs[job_id].get("target_names"),
         )
         download_jobs[job_id]["status"] = "completed"
         download_jobs[job_id]["detail"] = f"Done ({_human_size(file_size)})"
@@ -1328,6 +1859,10 @@ def _download_from_annas(job_id, md5, title):
 
     except Exception as e:
         logger.error(f"[Anna's] Download error for {title}: {e}")
+        try:
+            download_jobs[job_id]["error"] = str(e)
+        except Exception:
+            pass
         return False
 
 
@@ -1335,8 +1870,12 @@ def download_annas_worker(job_id, md5, title):
     download_jobs[job_id]["status"] = "downloading"
     if not _download_from_annas(job_id, md5, title):
         if download_jobs[job_id]["status"] != "completed":
-            download_jobs[job_id]["status"] = "error"
-            download_jobs[job_id]["error"] = download_jobs[job_id].get("error") or "Download failed"
+            _schedule_or_dead_letter(
+                job_id,
+                download_jobs[job_id].get("error") or "Download failed",
+                retry_kind="annas",
+                retry_payload={"md5": md5, "title": title},
+            )
 
 
 # =============================================================================
@@ -1753,6 +2292,47 @@ def api_health():
     return jsonify({"status": "ok", "version": "1.0.0"})
 
 
+@app.route("/api/schema")
+def api_schema_status():
+    with sqlite3.connect(_DB_PATH, timeout=10) as conn:
+        migrations = get_migration_status(conn)
+    return jsonify({"migrations": migrations, "count": len(migrations)})
+
+
+@app.route("/metrics")
+def metrics_endpoint():
+    status_counts = {}
+    for _job_id, job in list(download_jobs.items()):
+        status = job.get("status", "unknown")
+        status_counts[status] = status_counts.get(status, 0) + 1
+    lines = [
+        "# HELP librarr_jobs_by_status Number of Librarr jobs by current status.",
+        "# TYPE librarr_jobs_by_status gauge",
+    ]
+    for status, count in sorted(status_counts.items()):
+        lines.append(f'librarr_jobs_by_status{{status="{status}"}} {count}')
+    lines.extend([
+        "# HELP librarr_library_items_total Number of tracked library items.",
+        "# TYPE librarr_library_items_total gauge",
+        f"librarr_library_items_total {library.count_items()}",
+        "# HELP librarr_activity_events_total Number of activity log events.",
+        "# TYPE librarr_activity_events_total gauge",
+        f"librarr_activity_events_total {library.count_activity()}",
+    ])
+    lines.extend([
+        "# HELP librarr_source_health_score Source health score (0-100).",
+        "# TYPE librarr_source_health_score gauge",
+        "# HELP librarr_source_circuit_open Whether source search circuit is open (1=open).",
+        "# TYPE librarr_source_circuit_open gauge",
+    ])
+    for name, health in sorted(_source_health.snapshot().items()):
+        score = float(health.get("score", 100.0))
+        is_open = 1 if health.get("circuit_open") else 0
+        lines.append(f'librarr_source_health_score{{source="{name}"}} {score}')
+        lines.append(f'librarr_source_circuit_open{{source="{name}"}} {is_open}')
+    return Response(telemetry.metrics.render(lines), mimetype="text/plain; version=0.0.4")
+
+
 @app.route("/api/config")
 def api_config():
     return jsonify({
@@ -1780,7 +2360,7 @@ def api_search():
     enabled = sources.get_enabled_sources(tab="main")
 
     with ThreadPoolExecutor(max_workers=max(len(enabled), 1)) as executor:
-        futures = {executor.submit(s.search, query): s for s in enabled}
+        futures = {executor.submit(_search_source_safe, s, query): s for s in enabled}
         for future in as_completed(futures, timeout=35):
             source = futures[future]
             try:
@@ -1789,14 +2369,14 @@ def api_search():
                     r.setdefault("source", source.name)
                 all_results.extend(results)
             except Exception as e:
-                logger.error(f"Search error ({source.name}): {e}")
+                logger.error(f"Search wrapper error ({source.name}): {e}")
 
     all_results = filter_results(all_results, query)
     elapsed = int((time.time() - start) * 1000)
     return jsonify({
         "results": all_results,
         "search_time_ms": elapsed,
-        "sources": sources.get_source_metadata(),
+        "sources": _source_health_metadata(),
     })
 
 
@@ -1806,6 +2386,8 @@ def api_download_torrent():
         return jsonify({"success": False, "error": "qBittorrent not configured. Set QB_URL, QB_USER, QB_PASS."}), 400
 
     data = request.json
+    if _truthy((data or {}).get("dry_run")):
+        return jsonify(_download_preflight_response(data or {}, source_name=(data or {}).get("source", "torrent"), source_type="torrent"))
     guid = data.get("guid", "")
     url = data.get("download_url") or (guid if guid.startswith("magnet:") else "") or data.get("magnet_url", "")
     if not url and data.get("info_hash"):
@@ -1814,6 +2396,10 @@ def api_download_torrent():
 
     if not url:
         return jsonify({"success": False, "error": "No download URL"}), 400
+
+    dup = _duplicate_summary(title=title, source_id=_extract_download_source_id(data))
+    if dup["duplicate"] and not _truthy(data.get("force")):
+        return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
 
     success = qb.add_torrent(url, title)
     if success:
@@ -1830,7 +2416,7 @@ def api_search_audiobooks():
     enabled = sources.get_enabled_sources(tab="audiobook")
 
     with ThreadPoolExecutor(max_workers=max(len(enabled), 1)) as executor:
-        futures = {executor.submit(s.search, query): s for s in enabled}
+        futures = {executor.submit(_search_source_safe, s, query): s for s in enabled}
         results = []
         try:
             for future in as_completed(futures, timeout=60):
@@ -1841,7 +2427,7 @@ def api_search_audiobooks():
                         r.setdefault("source", source.name)
                     results.extend(batch)
                 except Exception as e:
-                    logger.error(f"Audiobook search error ({source.name}): {e}")
+                    logger.error(f"Audiobook search wrapper error ({source.name}): {e}")
         except TimeoutError:
             logger.warning("Audiobook search timed out — returning partial results")
             for future, source in futures.items():
@@ -1859,7 +2445,7 @@ def api_search_audiobooks():
     return jsonify({
         "results": results,
         "search_time_ms": elapsed,
-        "sources": sources.get_source_metadata(),
+        "sources": _source_health_metadata(),
     })
 
 @app.route("/api/download/audiobook", methods=["POST"])
@@ -1868,6 +2454,10 @@ def api_download_audiobook():
         return jsonify({"success": False, "error": "qBittorrent not configured. Set QB_URL, QB_USER, QB_PASS."}), 400
 
     data = request.json
+    if _truthy((data or {}).get("dry_run")):
+        payload = dict(data or {})
+        payload.setdefault("media_type", "audiobook")
+        return jsonify(_download_preflight_response(payload, source_name=(data or {}).get("source", "audiobook"), source_type="torrent"))
     guid = data.get("guid", "")
     url = data.get("download_url") or (guid if guid.startswith("magnet:") else "") or data.get("magnet_url", "")
     if not url and data.get("info_hash"):
@@ -1886,6 +2476,10 @@ def api_download_audiobook():
     if not url:
         return jsonify({"success": False, "error": "No download URL"}), 400
 
+    dup = _duplicate_summary(title=title, source_id=_extract_download_source_id(data))
+    if dup["duplicate"] and not _truthy(data.get("force")):
+        return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
+
     success = qb.add_torrent(
         url, title,
         save_path=config.QB_AUDIOBOOK_SAVE_PATH,
@@ -1897,28 +2491,33 @@ def api_download_audiobook():
 @app.route("/api/download/novel", methods=["POST"])
 def api_download_novel():
     data = request.json
+    if _truthy((data or {}).get("dry_run")):
+        payload = dict(data or {})
+        payload.setdefault("media_type", "ebook")
+        payload.setdefault("source", "webnovel")
+        return jsonify(_download_preflight_response(payload, source_name="webnovel", source_type="direct"))
     url = data.get("url", "")
     title = data.get("title", "Unknown")
 
     if not url:
         return jsonify({"success": False, "error": "No URL"}), 400
 
-    job_id = str(uuid.uuid4())[:8]
-    download_jobs[job_id] = {
-        "status": "queued",
-        "title": title,
-        "url": url,
-        "source": "webnovel",
-        "error": None,
-        "detail": None,
-    }
+    dup = _duplicate_summary(title=title, source_id=data.get("url", ""))
+    if dup["duplicate"] and not _truthy(data.get("force")):
+        return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
 
-    thread = threading.Thread(
-        target=download_novel_worker,
-        args=(job_id, url, title),
-        daemon=True,
+    _ensure_retry_scheduler()
+    job_id = str(uuid.uuid4())[:8]
+    download_jobs[job_id] = _base_job_fields(
+        title,
+        "webnovel",
+        url=url,
+        target_names=_parse_requested_targets(data),
+        retry_kind="novel",
+        retry_payload={"url": url, "title": title},
     )
-    thread.start()
+
+    _start_job_thread(download_novel_worker, (job_id, url, title))
 
     return jsonify({"success": True, "job_id": job_id, "title": title})
 
@@ -1926,28 +2525,33 @@ def api_download_novel():
 @app.route("/api/download/annas", methods=["POST"])
 def api_download_annas():
     data = request.json
+    if _truthy((data or {}).get("dry_run")):
+        payload = dict(data or {})
+        payload.setdefault("media_type", "ebook")
+        payload.setdefault("source", "annas")
+        return jsonify(_download_preflight_response(payload, source_name="annas", source_type="direct"))
     md5 = data.get("md5", "")
     title = data.get("title", "Unknown")
 
     if not md5:
         return jsonify({"success": False, "error": "No MD5 hash"}), 400
 
-    job_id = str(uuid.uuid4())[:8]
-    download_jobs[job_id] = {
-        "status": "queued",
-        "title": title,
-        "url": f"https://annas-archive.li/md5/{md5}",
-        "source": "annas",
-        "error": None,
-        "detail": None,
-    }
+    dup = _duplicate_summary(title=title, source_id=md5)
+    if dup["duplicate"] and not _truthy(data.get("force")):
+        return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
 
-    thread = threading.Thread(
-        target=download_annas_worker,
-        args=(job_id, md5, title),
-        daemon=True,
+    _ensure_retry_scheduler()
+    job_id = str(uuid.uuid4())[:8]
+    download_jobs[job_id] = _base_job_fields(
+        title,
+        "annas",
+        url=f"https://annas-archive.li/md5/{md5}",
+        target_names=_parse_requested_targets(data),
+        retry_kind="annas",
+        retry_payload={"md5": md5, "title": title},
     )
-    thread.start()
+
+    _start_job_thread(download_annas_worker, (job_id, md5, title))
 
     return jsonify({"success": True, "job_id": job_id, "title": title})
 
@@ -1992,6 +2596,9 @@ def api_downloads():
             "job_id": job_id,
             "error": job.get("error"),
             "detail": job.get("detail"),
+            "retry_count": job.get("retry_count", 0),
+            "max_retries": job.get("max_retries", JOB_MAX_RETRIES),
+            "next_retry_at": job.get("next_retry_at"),
         })
 
     return jsonify({"downloads": downloads})
@@ -2011,10 +2618,23 @@ def api_delete_novel(job_id):
     return jsonify({"success": False, "error": "Job not found"}), 404
 
 
+@app.route("/api/downloads/jobs/<job_id>/retry", methods=["POST"])
+def api_retry_job(job_id):
+    if job_id not in download_jobs:
+        return jsonify({"success": False, "error": "Job not found"}), 404
+    job = download_jobs[job_id]
+    if job.get("status") not in ("error", "dead_letter", "retry_wait"):
+        return jsonify({"success": False, "error": f"Job status {job.get('status')} not retryable"}), 400
+    _ensure_retry_scheduler()
+    if not _dispatch_retry(job_id):
+        return jsonify({"success": False, "error": "No retry handler for job"}), 400
+    return jsonify({"success": True, "job_id": job_id, "status": download_jobs[job_id].get("status")})
+
+
 @app.route("/api/downloads/clear", methods=["POST"])
 def api_clear_finished():
     to_remove = [jid for jid, j in download_jobs.items()
-                 if j["status"] in ("completed", "error")]
+                 if j["status"] in ("completed", "error", "dead_letter")]
     for jid in to_remove:
         del download_jobs[jid]
     removed_torrents = 0
@@ -2214,7 +2834,7 @@ def api_audiobook_cover(item_id):
 @app.route("/api/sources")
 def api_sources():
     """Return metadata for all loaded sources (for UI rendering and settings)."""
-    return jsonify(sources.get_source_metadata())
+    return jsonify(_source_health_metadata())
 
 
 @app.route("/api/download", methods=["POST"])
@@ -2231,6 +2851,14 @@ def api_download():
         return jsonify({"success": False, "error": f"Source '{source.label}' is not configured"}), 400
 
     title = data.get("title", "Unknown")
+    requested_targets = _parse_requested_targets(data)
+    source_id = _extract_download_source_id(data)
+    media_type_guess = "audiobook" if getattr(source, "search_tab", "main") == "audiobook" else "ebook"
+
+    if _truthy(data.get("dry_run")):
+        dry_payload = dict(data)
+        dry_payload.setdefault("media_type", media_type_guess)
+        return jsonify(_download_preflight_response(dry_payload, source_name=source_name, source_type=source.download_type))
 
     # Torrent sources: send to qBittorrent
     if source.download_type == "torrent":
@@ -2250,6 +2878,10 @@ def api_download():
         if not url:
             return jsonify({"success": False, "error": "No download URL"}), 400
 
+        dup = _duplicate_summary(title=title, source_id=source_id)
+        if dup["duplicate"] and not _truthy(data.get("force")):
+            return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
+
         if source.search_tab == "audiobook":
             save_path = config.QB_AUDIOBOOK_SAVE_PATH
             category = config.QB_AUDIOBOOK_CATEGORY
@@ -2261,28 +2893,20 @@ def api_download():
         return jsonify({"success": success, "title": title})
 
     # Direct/custom sources: create a job and run in background thread
+    dup = _duplicate_summary(title=title, source_id=source_id)
+    if dup["duplicate"] and not _truthy(data.get("force")):
+        return jsonify({"success": False, "error": "Duplicate detected", "duplicate_check": dup}), 409
+
+    _ensure_retry_scheduler()
     job_id = str(uuid.uuid4())[:8]
-    download_jobs[job_id] = {
-        "status": "queued",
-        "title": title,
-        "source": source_name,
-        "error": None,
-        "detail": None,
-    }
-
-    def _run_download():
-        download_jobs[job_id]["status"] = "downloading"
-        try:
-            success = source.download(data, download_jobs[job_id])
-            if not success and download_jobs[job_id]["status"] != "completed":
-                download_jobs[job_id]["status"] = "error"
-                download_jobs[job_id]["error"] = download_jobs[job_id].get("error") or "Download failed"
-        except Exception as e:
-            logger.error(f"Download error ({source_name}): {e}")
-            download_jobs[job_id]["status"] = "error"
-            download_jobs[job_id]["error"] = str(e)
-
-    threading.Thread(target=_run_download, daemon=True).start()
+    download_jobs[job_id] = _base_job_fields(
+        title,
+        source_name,
+        target_names=requested_targets,
+        retry_kind="source",
+        retry_payload={"source_name": source_name, "data": data},
+    )
+    _start_job_thread(_run_source_download_worker, (job_id, source_name, data))
     return jsonify({"success": True, "job_id": job_id, "title": title})
 
 
@@ -2330,10 +2954,24 @@ def api_save_settings():
     if not data:
         return jsonify({"success": False, "error": "No data provided"}), 400
     try:
+        data = dict(data)
+        if "target_routing_rules" in data:
+            raw_rules = (data.get("target_routing_rules") or "").strip() or "{}"
+            try:
+                parsed = json.loads(raw_rules)
+                if not isinstance(parsed, dict):
+                    return jsonify({"success": False, "error": "target_routing_rules must be a JSON object"}), 400
+                data["target_routing_rules"] = json.dumps(parsed)
+            except Exception as e:
+                return jsonify({"success": False, "error": f"Invalid target_routing_rules JSON: {e}"}), 400
+        masked = getattr(config, "MASKED_SECRET", "••••••••")
+        for key in ("prowlarr_api_key", "qb_pass", "abs_token", "kavita_api_key", "api_key"):
+            if data.get(key) == masked:
+                del data[key]
         # Hash auth password if it's being changed (not the masked placeholder)
         if "auth_password" in data:
             pw = data["auth_password"]
-            if pw and pw != "••••••••":
+            if pw and pw != masked:
                 data["auth_password"] = config.hash_password(pw)
             else:
                 # Don't overwrite existing hash with placeholder
@@ -2349,31 +2987,189 @@ def api_save_settings():
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+def _path_check(name, path, create=False):
+    check = {"name": name, "path": path or "", "exists": False, "writable": False, "ok": False}
+    if not path:
+        check["error"] = "not configured"
+        return check
+    if os.path.exists(path):
+        check["exists"] = True
+        check["writable"] = os.access(path, os.W_OK)
+        check["ok"] = check["writable"]
+        if not check["ok"]:
+            check["error"] = "path not writable"
+        return check
+    if create:
+        try:
+            os.makedirs(path, exist_ok=True)
+            check["exists"] = True
+            check["writable"] = os.access(path, os.W_OK)
+            check["ok"] = check["writable"]
+            if not check["ok"]:
+                check["error"] = "created but not writable"
+            return check
+        except Exception as e:
+            check["error"] = str(e)
+            return check
+    check["error"] = "path does not exist"
+    return check
+
+
+def _test_prowlarr_connection(url, api_key):
+    if not url or not api_key:
+        return {"success": False, "error": "URL and API key required", "error_class": "missing_config"}
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/api/v1/indexer", headers={"X-Api-Key": api_key}, timeout=10)
+        if resp.status_code == 200:
+            indexers = resp.json()
+            return {"success": True, "message": f"Connected ({len(indexers)} indexers)", "indexer_count": len(indexers)}
+        if resp.status_code == 401:
+            return {"success": False, "error": "Invalid API key", "error_class": "auth_failed"}
+        return {"success": False, "error": f"HTTP {resp.status_code}", "error_class": f"http_{resp.status_code}"}
+    except requests.Timeout:
+        return {"success": False, "error": "Timed out connecting to Prowlarr", "error_class": "timeout"}
+    except requests.ConnectionError:
+        return {"success": False, "error": "Connection refused — is Prowlarr running?", "error_class": "unreachable"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "error_class": "request_error"}
+
+
+def _test_qbittorrent_connection(url, user, password):
+    if not url:
+        return {"success": False, "error": "URL required", "error_class": "missing_config"}
+    try:
+        session = requests.Session()
+        resp = session.post(f"{url.rstrip('/')}/api/v2/auth/login", data={"username": user, "password": password}, timeout=10)
+        if "banned" in resp.text.lower():
+            return {"success": False, "error": "IP banned by qBittorrent", "error_class": "ip_banned"}
+        if resp.text != "Ok.":
+            return {"success": False, "error": "Login failed — check username/password", "error_class": "auth_failed"}
+        ver_resp = session.get(f"{url.rstrip('/')}/api/v2/app/version", timeout=5)
+        if ver_resp.status_code == 200:
+            return {"success": True, "message": f"Connected (v{ver_resp.text})", "version": ver_resp.text}
+        if ver_resp.status_code == 403:
+            return {"success": False, "error": "Session rejected by qBittorrent", "error_class": "auth_failed"}
+        return {"success": False, "error": f"HTTP {ver_resp.status_code}", "error_class": f"http_{ver_resp.status_code}"}
+    except requests.Timeout:
+        return {"success": False, "error": "Timed out connecting to qBittorrent", "error_class": "timeout"}
+    except requests.ConnectionError:
+        return {"success": False, "error": "Connection refused — is qBittorrent running?", "error_class": "unreachable"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "error_class": "request_error"}
+
+
+def _test_audiobookshelf_connection(url, token):
+    if not url or not token:
+        return {"success": False, "error": "URL and API token required", "error_class": "missing_config"}
+    try:
+        resp = requests.get(f"{url.rstrip('/')}/api/libraries", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+        if resp.status_code == 200:
+            libraries = resp.json().get("libraries", [])
+            return {
+                "success": True,
+                "message": f"Connected ({len(libraries)} libraries)",
+                "libraries": [{"id": l["id"], "name": l["name"]} for l in libraries],
+            }
+        if resp.status_code == 401:
+            return {"success": False, "error": "Invalid API token", "error_class": "auth_failed"}
+        return {"success": False, "error": f"HTTP {resp.status_code}", "error_class": f"http_{resp.status_code}"}
+    except requests.Timeout:
+        return {"success": False, "error": "Timed out connecting to Audiobookshelf", "error_class": "timeout"}
+    except requests.ConnectionError:
+        return {"success": False, "error": "Connection refused — is Audiobookshelf running?", "error_class": "unreachable"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "error_class": "request_error"}
+
+
+def _test_kavita_connection(url, api_key):
+    if not url or not api_key:
+        return {"success": False, "error": "URL and API key required", "error_class": "missing_config"}
+    try:
+        resp = requests.post(
+            f"{url.rstrip('/')}/api/Plugin/authenticate",
+            params={"apiKey": api_key, "pluginName": "Librarr"},
+            timeout=10,
+        )
+        if resp.status_code == 200:
+            token = resp.json().get("token", "")
+            if not token:
+                return {"success": False, "error": "Auth returned no token", "error_class": "protocol_error"}
+            lib_resp = requests.get(f"{url.rstrip('/')}/api/Library", headers={"Authorization": f"Bearer {token}"}, timeout=10)
+            libraries = [{"id": l["id"], "name": l["name"]} for l in lib_resp.json()] if lib_resp.status_code == 200 else []
+            return {"success": True, "message": f"Connected ({len(libraries)} libraries)", "libraries": libraries}
+        if resp.status_code == 401:
+            return {"success": False, "error": "Invalid API key", "error_class": "auth_failed"}
+        return {"success": False, "error": f"HTTP {resp.status_code}", "error_class": f"http_{resp.status_code}"}
+    except requests.Timeout:
+        return {"success": False, "error": "Timed out connecting to Kavita", "error_class": "timeout"}
+    except requests.ConnectionError:
+        return {"success": False, "error": "Connection refused — is Kavita running?", "error_class": "unreachable"}
+    except Exception as e:
+        return {"success": False, "error": str(e), "error_class": "request_error"}
+
+
+def _runtime_config_validation(run_network_tests=False):
+    rules_raw = config.TARGET_ROUTING_RULES or "{}"
+    routing_rule_error = None
+    try:
+        parsed_rules = json.loads(rules_raw)
+        if not isinstance(parsed_rules, dict):
+            routing_rule_error = "target_routing_rules must be a JSON object"
+    except Exception as e:
+        parsed_rules = {}
+        routing_rule_error = f"Invalid target_routing_rules JSON: {e}"
+    checks = {
+        "paths": [],
+        "services": {},
+        "qb": qb.diagnose() if run_network_tests else None,
+        "routing_rules": {"valid": routing_rule_error is None, "error": routing_rule_error, "rules": parsed_rules if routing_rule_error is None else None},
+    }
+    checks["paths"].append(_path_check("incoming_dir", config.INCOMING_DIR, create=True))
+    if config.FILE_ORG_ENABLED:
+        checks["paths"].append(_path_check("ebook_organized_dir", config.EBOOK_ORGANIZED_DIR, create=True))
+        checks["paths"].append(_path_check("audiobook_organized_dir", config.AUDIOBOOK_ORGANIZED_DIR, create=True))
+    else:
+        checks["paths"].append({"name": "file_org", "ok": True, "info": "disabled"})
+    if config.KAVITA_LIBRARY_PATH:
+        checks["paths"].append(_path_check("kavita_library_path", config.KAVITA_LIBRARY_PATH, create=True))
+
+    checks["services"]["prowlarr"] = (
+        _test_prowlarr_connection(config.PROWLARR_URL, config.PROWLARR_API_KEY) if config.has_prowlarr()
+        else {"success": None, "info": "not configured"}
+    ) if run_network_tests else {"success": None, "info": "skipped"}
+    checks["services"]["audiobookshelf"] = (
+        _test_audiobookshelf_connection(config.ABS_URL, config.ABS_TOKEN) if config.has_audiobookshelf()
+        else {"success": None, "info": "not configured"}
+    ) if run_network_tests else {"success": None, "info": "skipped"}
+    checks["services"]["kavita"] = (
+        _test_kavita_connection(config.KAVITA_URL, config.KAVITA_API_KEY) if config.has_kavita()
+        else {"success": None, "info": "not configured"}
+    ) if run_network_tests else {"success": None, "info": "skipped"}
+
+    path_errors = [p for p in checks["paths"] if p.get("ok") is False]
+    svc_failures = [v for v in checks["services"].values() if v.get("success") is False]
+    qb_fail = checks["qb"] and checks["qb"].get("success") is False
+    checks["success"] = not path_errors and not svc_failures and not qb_fail and checks["routing_rules"]["valid"]
+    return checks
+
+
+@app.route("/api/validate/config")
+def api_validate_config():
+    include_network = request.args.get("network", "0").lower() in ("1", "true", "yes")
+    return jsonify(_runtime_config_validation(run_network_tests=include_network))
+
+
+@app.route("/api/test/all", methods=["POST"])
+def api_test_all():
+    return jsonify(_runtime_config_validation(run_network_tests=True))
+
+
 @app.route("/api/test/prowlarr", methods=["POST"])
 def api_test_prowlarr():
     data = request.json
     url = data.get("url", "").rstrip("/")
     api_key = data.get("api_key", "")
-    if not url or not api_key:
-        return jsonify({"success": False, "error": "URL and API key required"})
-    try:
-        resp = requests.get(
-            f"{url}/api/v1/indexer",
-            headers={"X-Api-Key": api_key},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            indexers = resp.json()
-            count = len(indexers)
-            return jsonify({"success": True, "message": f"Connected ({count} indexer{'s' if count != 1 else ''})"})
-        elif resp.status_code == 401:
-            return jsonify({"success": False, "error": "Invalid API key"})
-        else:
-            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
-    except requests.ConnectionError:
-        return jsonify({"success": False, "error": "Connection refused — is Prowlarr running?"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    return jsonify(_test_prowlarr_connection(url, api_key))
 
 
 @app.route("/api/test/qbittorrent", methods=["POST"])
@@ -2382,26 +3178,7 @@ def api_test_qbittorrent():
     url = data.get("url", "").rstrip("/")
     user = data.get("user", "admin")
     password = data.get("pass", "")
-    if not url:
-        return jsonify({"success": False, "error": "URL required"})
-    try:
-        session = requests.Session()
-        resp = session.post(
-            f"{url}/api/v2/auth/login",
-            data={"username": user, "password": password},
-            timeout=10,
-        )
-        if resp.text == "Ok.":
-            # Get version
-            ver_resp = session.get(f"{url}/api/v2/app/version", timeout=5)
-            version = ver_resp.text if ver_resp.status_code == 200 else "unknown"
-            return jsonify({"success": True, "message": f"Connected (v{version})"})
-        else:
-            return jsonify({"success": False, "error": "Login failed — check username/password"})
-    except requests.ConnectionError:
-        return jsonify({"success": False, "error": "Connection refused — is qBittorrent running?"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    return jsonify(_test_qbittorrent_connection(url, user, password))
 
 
 @app.route("/api/test/audiobookshelf", methods=["POST"])
@@ -2409,30 +3186,7 @@ def api_test_audiobookshelf():
     data = request.json
     url = data.get("url", "").rstrip("/")
     token = data.get("token", "")
-    if not url or not token:
-        return jsonify({"success": False, "error": "URL and API token required"})
-    try:
-        resp = requests.get(
-            f"{url}/api/libraries",
-            headers={"Authorization": f"Bearer {token}"},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            libraries = resp.json().get("libraries", [])
-            lib_info = ", ".join(f"{l['name']} ({l['id'][:8]}...)" for l in libraries[:5])
-            return jsonify({
-                "success": True,
-                "message": f"Connected ({len(libraries)} libraries)",
-                "libraries": [{"id": l["id"], "name": l["name"]} for l in libraries],
-            })
-        elif resp.status_code == 401:
-            return jsonify({"success": False, "error": "Invalid API token"})
-        else:
-            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
-    except requests.ConnectionError:
-        return jsonify({"success": False, "error": "Connection refused — is Audiobookshelf running?"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    return jsonify(_test_audiobookshelf_connection(url, token))
 
 
 @app.route("/api/test/kavita", methods=["POST"])
@@ -2440,41 +3194,153 @@ def api_test_kavita():
     data = request.json
     url = data.get("url", "").rstrip("/")
     api_key = data.get("api_key", "")
-    if not url or not api_key:
-        return jsonify({"success": False, "error": "URL and API key required"})
-    try:
-        resp = requests.post(
-            f"{url}/api/Plugin/authenticate",
-            params={"apiKey": api_key, "pluginName": "Librarr"},
-            timeout=10,
-        )
-        if resp.status_code == 200:
-            token = resp.json().get("token", "")
-            if not token:
-                return jsonify({"success": False, "error": "Auth returned no token"})
-            lib_resp = requests.get(
-                f"{url}/api/Library",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10,
-            )
-            libraries = []
-            if lib_resp.status_code == 200:
-                libraries = [{"id": l["id"], "name": l["name"]}
-                             for l in lib_resp.json()]
-            return jsonify({
-                "success": True,
-                "message": f"Connected ({len(libraries)} libraries)",
-                "libraries": libraries,
-            })
-        elif resp.status_code == 401:
-            return jsonify({"success": False, "error": "Invalid API key"})
-        else:
-            return jsonify({"success": False, "error": f"HTTP {resp.status_code}"})
-    except requests.ConnectionError:
-        return jsonify({"success": False, "error": "Connection refused — is Kavita running?"})
-    except Exception as e:
-        return jsonify({"success": False, "error": str(e)})
+    return jsonify(_test_kavita_connection(url, api_key))
 
+
+
+
+
+# =============================================================================
+# Goodreads / StoryGraph CSV Import
+# =============================================================================
+# Users export their "to-read" shelf from Goodreads (My Books → Export) or
+# StoryGraph (Settings → Export Data). Librarr parses the CSV, extracts
+# book titles + authors, and queues a search+download for each.
+
+@app.route("/api/import/csv", methods=["POST"])
+def api_import_csv():
+    """Parse a Goodreads or StoryGraph CSV export and queue downloads.
+
+    Accepts multipart/form-data with file field "csv_file".
+    Optional fields:
+      - shelf: filter to this shelf name (default: "to-read")
+      - media_type: "ebook" or "audiobook" (default: "ebook")
+      - limit: max items to queue (default: 50, max: 200)
+    """
+    import csv, io
+    f = request.files.get("csv_file")
+    if not f:
+        return jsonify({"error": "csv_file is required"}), 400
+
+    shelf_filter = request.form.get("shelf", "to-read").lower()
+    media_type = request.form.get("media_type", "ebook")
+    limit = min(int(request.form.get("limit", 50)), 200)
+
+    try:
+        text = f.read().decode("utf-8-sig", errors="replace")
+    except Exception as e:
+        return jsonify({"error": f"Could not read file: {e}"}), 400
+
+    reader = csv.DictReader(io.StringIO(text))
+    headers = [h.lower().strip() for h in (reader.fieldnames or [])]
+
+    # Detect format: Goodreads vs StoryGraph
+    # Goodreads: "Title", "Author", "Exclusive Shelf"
+    # StoryGraph: "Title", "Authors", "Read Status"
+    is_goodreads = "exclusive shelf" in headers
+    is_storygraph = "read status" in headers
+
+    queued = []
+    skipped = 0
+
+    for row in reader:
+        if len(queued) >= limit:
+            break
+
+        # Normalize field names
+        def _get(*keys):
+            for k in keys:
+                for h, v in row.items():
+                    if h.lower().strip() == k:
+                        return (v or "").strip()
+            return ""
+
+        title = _get("title")
+        author = _get("author", "authors")
+        if not title:
+            skipped += 1
+            continue
+
+        # Shelf / status filter
+        if is_goodreads:
+            shelf = _get("exclusive shelf").lower()
+            if shelf_filter and shelf != shelf_filter:
+                skipped += 1
+                continue
+        elif is_storygraph:
+            read_status = _get("read status").lower()
+            # StoryGraph statuses: "to-read", "currently-reading", "read"
+            sg_map = {"to-read": "to-read", "currently-reading": "reading", "read": "read"}
+            mapped = sg_map.get(read_status, read_status)
+            if shelf_filter and mapped != shelf_filter and read_status != shelf_filter:
+                skipped += 1
+                continue
+
+        # Skip if already in library
+        search_title = f"{title} {author}".strip()
+        if library.find_by_title(title):
+            skipped += 1
+            continue
+
+        # Queue a search job
+        job_id = str(uuid.uuid4())[:8]
+        download_jobs[job_id] = _base_job_fields(
+            title,
+            "csv_import",
+            type="search_import",
+            author=author,
+            query=search_title,
+            media_type=media_type,
+        )
+        queued.append({"job_id": job_id, "title": title, "author": author})
+
+    # Kick off a background worker to process the queued search-import jobs
+    if queued:
+        threading.Thread(target=_process_csv_import_jobs, daemon=True).start()
+
+    return jsonify({
+        "queued": len(queued),
+        "skipped": skipped,
+        "items": queued,
+        "format": "goodreads" if is_goodreads else "storygraph" if is_storygraph else "unknown",
+    })
+
+
+def _process_csv_import_jobs():
+    """Background worker: find and download queued search-import jobs."""
+    import time
+    sources.load_sources()
+    for job_id, job in list(download_jobs.items()):
+        if job.get("type") != "search_import" or job.get("status") != "queued":
+            continue
+        query = job.get("query", "")
+        media_type = job.get("media_type", "ebook")
+        try:
+            download_jobs[job_id]["status"] = "searching"
+            results = []
+            for src in sources.get_enabled_sources("main"):
+                try:
+                    results.extend(_search_source_safe(src, query))
+                except Exception:
+                    pass
+            if results:
+                best = results[0]
+                url = best.get("download_url") or best.get("magnet")
+                if url:
+                    download_jobs[job_id]["url"] = url
+                    download_jobs[job_id]["status"] = "queued"
+                    download_jobs[job_id]["type"] = "torrent" if (url or "").startswith("magnet:") else "direct"
+                    logger.info(f"CSV import: queued '{query}'")
+                else:
+                    download_jobs[job_id]["status"] = "error"
+                    download_jobs[job_id]["error"] = "No downloadable result found"
+            else:
+                download_jobs[job_id]["status"] = "error"
+                download_jobs[job_id]["error"] = "Not found in any source"
+        except Exception as e:
+            download_jobs[job_id]["status"] = "error"
+            download_jobs[job_id]["error"] = str(e)
+        time.sleep(1)
 
 
 # =============================================================================
@@ -2576,8 +3442,12 @@ if __name__ == "__main__":
         import_thread = threading.Thread(target=auto_import_loop, daemon=True)
         import_thread.start()
 
+    _ensure_retry_scheduler()
+
+    # Register OPDS catalog server
+    opds.init_app(app, library)
+
     # Initialize and start AI monitor
-    global _monitor
     _monitor = monitor.LibrarrMonitor(
         get_jobs=lambda: list(download_jobs.items()),
         qb_reauth=lambda: qb.login(),

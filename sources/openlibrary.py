@@ -152,6 +152,7 @@ class OpenLibrarySource(Source):
                     media_type="ebook", source="openlibrary",
                     source_id=source_id,
                     job_id=job._job_id, library_db=library,
+                    target_names=job.get("target_names"),
                 )
 
                 size_mb = file_size / (1024 * 1024)

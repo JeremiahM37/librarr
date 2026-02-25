@@ -1,6 +1,6 @@
 # Librarr
 
-Self-hosted book search and download manager. Searches multiple sources, downloads via direct HTTP or torrents, and auto-imports into your library.
+Self-hosted book, audiobook, and webnovel search and download manager. Searches multiple sources, downloads via direct HTTP or torrents, and auto-imports into your library.
 
 ## Legal & Educational Use
 

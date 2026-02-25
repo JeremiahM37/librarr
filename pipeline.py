@@ -6,6 +6,7 @@ import shutil
 
 import config
 import targets
+import telemetry
 
 logger = logging.getLogger("librarr")
 
@@ -75,8 +76,34 @@ def organize_file(file_path, title, author, media_type="ebook"):
 
         return dest_path
 
+def _resolve_target_names(media_type, source, requested_target_names=None):
+    """Resolve import target names using explicit request and routing rules."""
+    enabled = set(config.get_enabled_target_names())
+    if requested_target_names:
+        requested = {t for t in requested_target_names if t}
+        return enabled & requested
+
+    rules = config.get_target_routing_rules()
+    selected = set(enabled)
+    # Supported lightweight shapes:
+    # {"media_type":{"ebook":["calibre","kavita"]},"source":{"annas":["calibre"]}}
+    # {"ebook":["calibre"], "audiobook":["audiobookshelf"]}
+    try:
+        media_rules = rules.get("media_type", {}) if isinstance(rules, dict) else {}
+        source_rules = rules.get("source", {}) if isinstance(rules, dict) else {}
+        if not media_rules and isinstance(rules.get(media_type), list):
+            media_rules = {media_type: rules.get(media_type)}
+        if media_type in media_rules and isinstance(media_rules[media_type], list):
+            selected &= set(media_rules[media_type])
+        if source in source_rules and isinstance(source_rules[source], list):
+            selected &= set(source_rules[source])
+    except Exception:
+        return enabled
+    return selected
+
+
 def run_pipeline(file_path, title="", author="", media_type="ebook",
-                 source="", source_id="", job_id="", library_db=None):
+                 source="", source_id="", job_id="", library_db=None, target_names=None):
     """Full post-processing: organize → import → track.
 
     Args:
@@ -92,7 +119,13 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
     Returns:
         dict with pipeline results, or None if skipped (duplicate).
     """
-    result = {"organized": False, "imports": {}, "tracked": False}
+    result = {
+        "organized": False,
+        "imports": {},
+        "verifications": {},
+        "verification_failed_targets": [],
+        "tracked": False,
+    }
 
     # Duplicate check
     if library_db and source_id and library_db.has_source_id(source_id):
@@ -100,6 +133,12 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
         library_db.log_event("skip", title=title,
                              detail=f"Duplicate (source: {source})",
                              job_id=job_id)
+        telemetry.emit_event("job_duplicate_skipped", {
+            "job_id": job_id,
+            "title": title,
+            "source": source,
+            "source_id": source_id,
+        })
         return None
 
     # Organize
@@ -124,7 +163,8 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
                              detail=f"→ {organized_path}", job_id=job_id)
 
     # Import to enabled targets
-    enabled = targets.get_enabled_targets()
+    enabled_names = _resolve_target_names(media_type, source, requested_target_names=target_names)
+    enabled = [t for t in targets.get_enabled_targets() if t.name in enabled_names]
     for target in enabled:
         try:
             import_result = target.import_book(
@@ -132,12 +172,50 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
             )
             if import_result:
                 result["imports"][target.name] = import_result
+                verify = {"ok": None, "mode": "unsupported"}
+                if hasattr(target, "verify_import"):
+                    try:
+                        verify = target.verify_import(
+                            organized_path,
+                            title=title,
+                            author=author,
+                            media_type=media_type,
+                            import_result=import_result,
+                        ) or {"ok": None, "mode": "unknown"}
+                    except Exception as e:
+                        verify = {"ok": False, "mode": "exception", "reason": str(e)}
+                result["verifications"][target.name] = verify
+                verify_ok = verify.get("ok")
+                telemetry.metrics.inc(
+                    "librarr_import_verifications_total",
+                    target=target.name,
+                    result="ok" if verify_ok is True else "failed" if verify_ok is False else "skipped",
+                )
+                telemetry.emit_event(
+                    "import_verified" if verify_ok is not False else "import_verification_failed",
+                    {
+                        "job_id": job_id,
+                        "title": title,
+                        "author": author,
+                        "target": target.name,
+                        "media_type": media_type,
+                        "verification": verify,
+                    },
+                )
+                if verify_ok is False:
+                    result["verification_failed_targets"].append(target.name)
                 if library_db:
                     library_db.log_event(
                         "import", title=title,
                         detail=f"Imported to {target.label}",
                         job_id=job_id,
                     )
+                    if verify_ok is False:
+                        library_db.log_event(
+                            "error", title=title,
+                            detail=f"{target.label} verification failed",
+                            job_id=job_id,
+                        )
         except Exception as e:
             logger.error(f"Target {target.name} failed: {e}")
             if library_db:
@@ -146,6 +224,10 @@ def run_pipeline(file_path, title="", author="", media_type="ebook",
                     detail=f"{target.label} import failed: {e}",
                     job_id=job_id,
                 )
+
+    if result["verification_failed_targets"]:
+        failed = ", ".join(result["verification_failed_targets"])
+        raise RuntimeError(f"Post-import verification failed for: {failed}")
 
     # Track in library
     file_format = os.path.splitext(organized_path)[1].lstrip(".").lower()

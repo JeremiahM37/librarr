@@ -5,6 +5,8 @@ import sqlite3
 import threading
 import logging
 
+from db_migrations import apply_migrations
+
 logger = logging.getLogger("librarr")
 
 
@@ -29,38 +31,7 @@ class LibraryDB:
 
     def _init_db(self):
         with self._connect() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS library_items (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    title       TEXT NOT NULL,
-                    author      TEXT DEFAULT '',
-                    file_path   TEXT DEFAULT '',
-                    original_path TEXT DEFAULT '',
-                    file_size   INTEGER DEFAULT 0,
-                    file_format TEXT DEFAULT '',
-                    media_type  TEXT DEFAULT 'ebook',
-                    source      TEXT DEFAULT '',
-                    source_id   TEXT DEFAULT '',
-                    added_at    REAL DEFAULT (strftime('%s','now')),
-                    metadata    TEXT DEFAULT '{}'
-                );
-                CREATE INDEX IF NOT EXISTS idx_library_source_id
-                    ON library_items(source_id);
-                CREATE INDEX IF NOT EXISTS idx_library_title
-                    ON library_items(title);
-
-                CREATE TABLE IF NOT EXISTS activity_log (
-                    id          INTEGER PRIMARY KEY AUTOINCREMENT,
-                    timestamp   REAL DEFAULT (strftime('%s','now')),
-                    event_type  TEXT NOT NULL,
-                    title       TEXT DEFAULT '',
-                    detail      TEXT DEFAULT '',
-                    library_item_id INTEGER DEFAULT NULL,
-                    job_id      TEXT DEFAULT ''
-                );
-                CREATE INDEX IF NOT EXISTS idx_activity_timestamp
-                    ON activity_log(timestamp);
-            """)
+            apply_migrations(conn)
 
     # --- Library Items ---
 

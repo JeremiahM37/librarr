@@ -1,13 +1,23 @@
 """Import targets — library apps that Librarr can send books to."""
 import logging
+import os
 import re
 import subprocess
+import time
 
 import requests
 
 import config
 
 logger = logging.getLogger("librarr")
+
+
+def _safe_name(name, max_len=80):
+    name = re.sub(r'[<>:"/\\|?*]', "", (name or ""))
+    name = re.sub(r"\s+", " ", name).strip().strip(".")
+    if len(name) > max_len:
+        name = name[:max_len].rstrip()
+    return name or "Unknown"
 
 
 class CalibreTarget:
@@ -64,6 +74,31 @@ class CalibreTarget:
     def scan(self):
         pass  # calibredb add handles it
 
+    def verify_import(self, file_path, title="", author="", media_type="ebook", import_result=None):
+        if media_type != "ebook":
+            return {"ok": None, "mode": "unsupported"}
+        book_id = str((import_result or {}).get("calibre_id", "")).strip()
+        if not book_id:
+            return {"ok": False, "mode": "calibredb", "reason": "missing_calibre_id"}
+        try:
+            result = subprocess.run(
+                [
+                    "docker", "exec", config.CALIBRE_CONTAINER,
+                    "calibredb", "show_metadata", book_id,
+                    "--library-path", config.CALIBRE_LIBRARY_CONTAINER,
+                ],
+                capture_output=True, text=True, timeout=60,
+            )
+            ok = result.returncode == 0
+            return {
+                "ok": ok,
+                "mode": "calibredb",
+                "book_id": book_id,
+                "reason": "" if ok else (result.stderr.strip() or "show_metadata_failed"),
+            }
+        except Exception as e:
+            return {"ok": False, "mode": "calibredb", "book_id": book_id, "reason": str(e)}
+
 
 class KavitaTarget:
     """Import into Kavita by triggering a library scan."""
@@ -104,6 +139,17 @@ class KavitaTarget:
         # File should already be copied to KAVITA_LIBRARY_PATH by the pipeline
         self.scan()
         return {"kavita_scanned": True}
+
+    def verify_import(self, file_path, title="", author="", media_type="ebook", import_result=None):
+        if media_type != "ebook":
+            return {"ok": None, "mode": "unsupported"}
+        if not config.KAVITA_LIBRARY_PATH:
+            return {"ok": None, "mode": "filesystem", "reason": "kavita_library_path_not_configured"}
+        safe_author = _safe_name(author or "Unknown")
+        safe_title = _safe_name(title or "Unknown")
+        ext = os.path.splitext(file_path)[1].lower() or ".epub"
+        expected = os.path.join(config.KAVITA_LIBRARY_PATH, safe_author, safe_title, f"{safe_title}{ext}")
+        return {"ok": os.path.exists(expected), "mode": "filesystem", "path": expected}
 
     def scan(self, library_id=None):
         lib_id = library_id or config.KAVITA_LIBRARY_ID
@@ -167,6 +213,15 @@ class AudiobookshelfTarget:
             self._scan_library(config.ABS_EBOOK_LIBRARY_ID)
         if config.ABS_LIBRARY_ID:
             self._scan_library(config.ABS_LIBRARY_ID)
+
+    def verify_import(self, file_path, title="", author="", media_type="ebook", import_result=None):
+        # ABS indexing is async and API search varies by version; verify the handoff path exists.
+        deadline = time.time() + 5
+        while time.time() < deadline:
+            if os.path.exists(file_path):
+                return {"ok": True, "mode": "filesystem", "path": file_path}
+            time.sleep(0.25)
+        return {"ok": False, "mode": "filesystem", "path": file_path, "reason": "path_missing"}
 
 
 # --- Target Registry ---
