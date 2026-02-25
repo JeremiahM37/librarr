@@ -18,9 +18,12 @@ def register_blueprints(app, deps):
         "library": deps["library"],
         "source_health": deps["source_health"],
         "telemetry": deps["telemetry"],
+        "sources": deps["sources"],
+        "runtime_config_validation": deps["runtime_config_validation"],
     }))
     app.register_blueprint(create_settings_blueprint({
         "config": deps["config"],
+        "db_path": deps["db_path"],
         "flask_app": app,
         "qb": deps["qb"],
         "logger": deps["logger"],

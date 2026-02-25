@@ -235,6 +235,53 @@ def get_all_settings():
     }
 
 
+def get_all_settings_unmasked():
+    """Return effective settings without masking (for authenticated exports/backups)."""
+    return {
+        "prowlarr_url": PROWLARR_URL,
+        "prowlarr_api_key": PROWLARR_API_KEY,
+        "qb_url": QB_URL,
+        "qb_user": QB_USER,
+        "qb_pass": QB_PASS,
+        "qb_save_path": QB_SAVE_PATH,
+        "qb_category": QB_CATEGORY,
+        "qb_audiobook_save_path": QB_AUDIOBOOK_SAVE_PATH,
+        "qb_audiobook_category": QB_AUDIOBOOK_CATEGORY,
+        "abs_url": ABS_URL,
+        "abs_token": ABS_TOKEN,
+        "abs_library_id": ABS_LIBRARY_ID,
+        "abs_ebook_library_id": ABS_EBOOK_LIBRARY_ID,
+        "abs_public_url": ABS_PUBLIC_URL,
+        "calibre_container": CALIBRE_CONTAINER,
+        "calibre_library": CALIBRE_LIBRARY,
+        "calibre_library_container": CALIBRE_LIBRARY_CONTAINER,
+        "lncrawl_container": LNCRAWL_CONTAINER,
+        "incoming_dir": INCOMING_DIR,
+        "audiobook_dir": AUDIOBOOK_DIR,
+        "kavita_url": KAVITA_URL,
+        "kavita_api_key": KAVITA_API_KEY,
+        "kavita_library_id": KAVITA_LIBRARY_ID,
+        "kavita_library_path": KAVITA_LIBRARY_PATH,
+        "file_org_enabled": FILE_ORG_ENABLED,
+        "ebook_organized_dir": EBOOK_ORGANIZED_DIR,
+        "audiobook_organized_dir": AUDIOBOOK_ORGANIZED_DIR,
+        "enabled_targets": ENABLED_TARGETS,
+        "target_routing_rules": TARGET_ROUTING_RULES,
+        "api_key": API_KEY,
+        "auth_username": AUTH_USERNAME,
+        "auth_password": AUTH_PASSWORD,
+        "auth_enabled": has_auth(),
+        "settings_file": SETTINGS_FILE,
+    }
+
+
+def get_file_settings():
+    """Return raw settings.json values (not environment overrides)."""
+    with _lock:
+        _load_file_settings()
+        return dict(_file_settings)
+
+
 # Initialize on import
 _load_file_settings()
 _apply_settings()

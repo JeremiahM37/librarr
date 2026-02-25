@@ -3,7 +3,7 @@ from __future__ import annotations
 from flask import jsonify, redirect, request, session, url_for
 
 
-PUBLIC_PATHS = {"/login", "/api/health", "/metrics"}
+PUBLIC_PATHS = {"/login", "/api/health", "/readyz", "/metrics"}
 PUBLIC_PREFIXES = ("/static/",)
 
 

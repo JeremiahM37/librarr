@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 
-from flask import Blueprint, Response, jsonify
+from flask import Blueprint, Response, jsonify, request
 
 
 def create_blueprint(ctx):
@@ -11,6 +11,72 @@ def create_blueprint(ctx):
     @bp.route("/api/health")
     def api_health():
         return jsonify({"status": "ok", "version": "1.0.0"})
+
+    @bp.route("/readyz")
+    def readyz():
+        deep = request.args.get("deep", "0").lower() in ("1", "true", "yes")
+        strict = request.args.get("strict", "0").lower() in ("1", "true", "yes")
+
+        db_ok = True
+        db_error = None
+        try:
+            with sqlite3.connect(ctx["db_path"], timeout=5) as conn:
+                conn.execute("SELECT 1")
+        except Exception as e:
+            db_ok = False
+            db_error = str(e)
+
+        source_count = len(ctx["sources"].get_sources()) if "sources" in ctx else 0
+        runtime_diag = ctx["runtime_config_validation"](run_network_tests=deep)
+
+        local_failures = []
+        if not db_ok:
+            local_failures.append({"component": "database", "error": db_error})
+        if source_count == 0:
+            local_failures.append({"component": "sources", "error": "no sources loaded"})
+        if runtime_diag.get("routing_rules", {}).get("valid") is False:
+            local_failures.append({"component": "routing_rules", "error": runtime_diag["routing_rules"].get("error")})
+        for path_check in runtime_diag.get("paths", []):
+            if path_check.get("ok") is False:
+                local_failures.append({
+                    "component": "path",
+                    "name": path_check.get("name"),
+                    "error": path_check.get("error", "path check failed"),
+                })
+
+        service_failures = []
+        if deep:
+            qb_diag = runtime_diag.get("qb")
+            if qb_diag and qb_diag.get("success") is False:
+                service_failures.append({
+                    "component": "qbittorrent",
+                    "error": qb_diag.get("error"),
+                    "error_class": qb_diag.get("error_class"),
+                })
+            for name, check in (runtime_diag.get("services") or {}).items():
+                if check.get("success") is False:
+                    service_failures.append({
+                        "component": name,
+                        "error": check.get("error"),
+                        "error_class": check.get("error_class"),
+                    })
+
+        failures = list(local_failures)
+        if strict:
+            failures.extend(service_failures)
+
+        return jsonify({
+            "status": "ready" if not failures else "not_ready",
+            "strict": strict,
+            "deep": deep,
+            "checks": {
+                "database": {"ok": db_ok, "error": db_error},
+                "sources": {"ok": source_count > 0, "count": source_count},
+                "runtime": runtime_diag,
+            },
+            "failures": failures,
+            "warnings": [] if strict else service_failures,
+        }), (200 if not failures else 503)
 
     @bp.route("/api/schema")
     def api_schema_status():

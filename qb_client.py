@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import os
 import time
 
 import requests
@@ -10,12 +11,19 @@ import config
 
 logger = logging.getLogger("librarr")
 
+QB_STARTUP_GRACE_SEC = max(0, int(os.getenv("LIBRARR_QB_STARTUP_GRACE_SEC", "45")))
+QB_LOGIN_BACKOFF_INITIAL_SEC = max(1, int(os.getenv("LIBRARR_QB_LOGIN_BACKOFF_INITIAL_SEC", "3")))
+QB_LOGIN_BACKOFF_MAX_SEC = max(QB_LOGIN_BACKOFF_INITIAL_SEC, int(os.getenv("LIBRARR_QB_LOGIN_BACKOFF_MAX_SEC", "60")))
+
 
 class QBittorrentClient:
     def __init__(self):
         self.session = requests.Session()
         self.authenticated = False
         self._ban_until = 0
+        self._next_login_after = 0
+        self._login_backoff_sec = QB_LOGIN_BACKOFF_INITIAL_SEC
+        self._created_at = time.time()
         self.last_error = None
 
     def _set_last_error(self, kind, message, **extra):
@@ -23,6 +31,21 @@ class QBittorrentClient:
 
     def _clear_last_error(self):
         self.last_error = None
+
+    def _in_startup_grace(self):
+        return (time.time() - self._created_at) < QB_STARTUP_GRACE_SEC
+
+    def _schedule_backoff(self, kind, message, *, explicit_sec=None, **extra):
+        wait = explicit_sec if explicit_sec is not None else self._login_backoff_sec
+        wait = max(1, int(wait))
+        self._next_login_after = time.time() + wait
+        if explicit_sec is None:
+            self._login_backoff_sec = min(QB_LOGIN_BACKOFF_MAX_SEC, max(1, self._login_backoff_sec * 2))
+        self._set_last_error(kind, message, retry_in_sec=wait, **extra)
+
+    def _reset_backoff(self):
+        self._next_login_after = 0
+        self._login_backoff_sec = QB_LOGIN_BACKOFF_INITIAL_SEC
 
     def _classify_exception(self, exc):
         if isinstance(exc, requests.Timeout):
@@ -35,6 +58,11 @@ class QBittorrentClient:
         if not config.has_qbittorrent():
             self._set_last_error("not_configured", "qBittorrent not configured")
             return False
+        now = time.time()
+        if self._next_login_after and now < self._next_login_after:
+            retry_in = int(self._next_login_after - now)
+            self._set_last_error("cooldown", "Skipping qBittorrent login during backoff", retry_in_sec=retry_in)
+            return False
         try:
             resp = self.session.post(
                 f"{config.QB_URL}/api/v2/auth/login",
@@ -45,20 +73,28 @@ class QBittorrentClient:
                 logger.error("qBittorrent: IP banned, backing off for 60s")
                 self._ban_until = time.time() + 60
                 self.authenticated = False
-                self._set_last_error("ip_banned", "IP banned by qBittorrent", cooldown_sec=60)
+                self._schedule_backoff("ip_banned", "IP banned by qBittorrent", explicit_sec=60, cooldown_sec=60)
                 return False
             self.authenticated = resp.text == "Ok."
             if not self.authenticated:
                 self._ban_until = time.time() + 30
                 logger.error("qBittorrent login failed: %r", resp.text)
-                self._set_last_error("auth_failed", "Login failed — check username/password", response=resp.text[:120])
+                self._schedule_backoff(
+                    "auth_failed",
+                    "Login failed — check username/password",
+                    explicit_sec=30,
+                    response=resp.text[:120],
+                )
             else:
+                self._reset_backoff()
                 self._clear_last_error()
             return self.authenticated
         except Exception as e:
-            logger.error("qBittorrent login failed: %s", e)
             kind, msg = self._classify_exception(e)
-            self._set_last_error(kind, msg)
+            log_fn = logger.warning if self._in_startup_grace() and kind in {"timeout", "unreachable"} else logger.error
+            log_fn("qBittorrent login failed: %s", e)
+            self.authenticated = False
+            self._schedule_backoff(kind, msg)
             return False
 
     def _ensure_auth(self):
@@ -66,11 +102,13 @@ class QBittorrentClient:
             if self._ban_until and time.time() < self._ban_until:
                 logger.warning("qBittorrent: skipping login attempt, still in cooldown")
                 self._set_last_error("cooldown", "Skipping login attempt during cooldown", retry_in_sec=int(self._ban_until - time.time()))
-                return
-            self.login()
+                return False
+            return self.login()
+        return True
 
     def add_torrent(self, url, title="", save_path=None, category=None):
-        self._ensure_auth()
+        if not self._ensure_auth():
+            return False
         data = {
             "urls": url,
             "savepath": save_path or config.QB_SAVE_PATH,
@@ -96,7 +134,8 @@ class QBittorrentClient:
             return False
 
     def get_torrents(self, category=None):
-        self._ensure_auth()
+        if not self._ensure_auth():
+            return []
         try:
             params = {"category": category} if category else {}
             resp = self.session.get(f"{config.QB_URL}/api/v2/torrents/info", params=params, timeout=10)
@@ -117,7 +156,8 @@ class QBittorrentClient:
             return []
 
     def delete_torrent(self, torrent_hash, delete_files=True):
-        self._ensure_auth()
+        if not self._ensure_auth():
+            return False
         try:
             resp = self.session.post(
                 f"{config.QB_URL}/api/v2/torrents/delete",
@@ -147,12 +187,20 @@ class QBittorrentClient:
     def diagnose(self):
         if not config.has_qbittorrent():
             return {"success": False, "error_class": "not_configured", "error": "qBittorrent not configured"}
-        if self._ban_until and time.time() < self._ban_until:
+        now = time.time()
+        if self._ban_until and now < self._ban_until:
             return {
                 "success": False,
                 "error_class": "cooldown",
                 "error": "qBittorrent login cooldown active",
-                "retry_in_sec": int(self._ban_until - time.time()),
+                "retry_in_sec": int(self._ban_until - now),
+            }
+        if self._next_login_after and now < self._next_login_after and not self.authenticated:
+            return {
+                "success": False,
+                "error_class": "cooldown",
+                "error": "qBittorrent login backoff active",
+                "retry_in_sec": int(self._next_login_after - now),
             }
         try:
             self._ensure_auth()

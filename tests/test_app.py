@@ -395,3 +395,41 @@ def test_api_download_dry_run_and_duplicate_precheck(client, monkeypatch):
     assert r.status_code == 409
     d = r.get_json()
     assert d["duplicate_check"]["duplicate"] is True
+
+
+def test_readyz_endpoint(client):
+    r = client.get("/readyz")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["status"] == "ready"
+    assert "checks" in data
+    assert "database" in data["checks"]
+    assert "runtime" in data["checks"]
+
+
+def test_settings_export_and_backup_endpoints(client):
+    import tarfile
+
+    # Seed some values so export payload is meaningful.
+    r = client.post("/api/settings", json={
+        "qb_user": "jam",
+        "qb_pass": "1301",
+        "prowlarr_api_key": "prow-key",
+    })
+    assert r.status_code == 200
+
+    r = client.get("/api/settings/export")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert "file_settings" in data
+    assert "effective_settings" in data
+    assert data["effective_settings"]["qb_user"] == "jam"
+    assert data["effective_settings"]["qb_pass"]
+
+    r = client.get("/api/backup/export")
+    assert r.status_code == 200
+    assert r.mimetype == "application/gzip"
+    tf = tarfile.open(fileobj=io.BytesIO(r.data), mode="r:gz")
+    names = set(tf.getnames())
+    assert "manifest.json" in names
+    assert "downloads.db" in names

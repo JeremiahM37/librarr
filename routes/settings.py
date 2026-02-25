@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import io
 import json
+import os
+import tarfile
+import time
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, jsonify, request, send_file
 
 
 def create_blueprint(ctx):
@@ -48,6 +52,48 @@ def create_blueprint(ctx):
         except Exception as e:
             logger.error("Failed to save settings: %s", e)
             return jsonify({"success": False, "error": str(e)}), 500
+
+    @bp.route("/api/settings/export")
+    def api_export_settings():
+        return jsonify({
+            "exported_at": int(time.time()),
+            "settings_file": getattr(config, "SETTINGS_FILE", ""),
+            "file_settings": config.get_file_settings(),
+            "effective_settings": config.get_all_settings_unmasked(),
+        })
+
+    @bp.route("/api/backup/export")
+    def api_export_backup():
+        db_path = ctx["db_path"]
+        exported_at = int(time.time())
+        payload = {
+            "exported_at": exported_at,
+            "db_path": db_path,
+            "settings_file": getattr(config, "SETTINGS_FILE", ""),
+            "file_settings": config.get_file_settings(),
+            "effective_settings": config.get_all_settings_unmasked(),
+        }
+        tar_buf = io.BytesIO()
+        with tarfile.open(fileobj=tar_buf, mode="w:gz") as tar:
+            manifest_bytes = json.dumps(payload, indent=2).encode("utf-8")
+            info = tarfile.TarInfo("manifest.json")
+            info.size = len(manifest_bytes)
+            info.mtime = exported_at
+            tar.addfile(info, io.BytesIO(manifest_bytes))
+
+            for arcname, path in (
+                ("downloads.db", db_path),
+                ("settings.json", getattr(config, "SETTINGS_FILE", "")),
+            ):
+                if path and os.path.exists(path):
+                    tar.add(path, arcname=arcname, recursive=False)
+        tar_buf.seek(0)
+        return send_file(
+            tar_buf,
+            mimetype="application/gzip",
+            as_attachment=True,
+            download_name=f"librarr-backup-{exported_at}.tar.gz",
+        )
 
     @bp.route("/api/validate/config")
     def api_validate_config():

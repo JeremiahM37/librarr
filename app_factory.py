@@ -31,6 +31,7 @@ import monitor_helpers
 import pipeline
 import monitor
 import opds
+import rate_limit
 import sources
 import telemetry
 from app_callbacks import make_abb_rotate_callback, make_blueprint_registrar
@@ -61,6 +62,7 @@ logging.basicConfig(
 )
 logger = logging.getLogger("librarr")
 register_auth_guard(app, config)
+rate_limiter = rate_limit.register_rate_limiter(app)
 
 JOB_MAX_RETRIES = max(0, int(os.getenv("LIBRARR_JOB_MAX_RETRIES", "2")))
 JOB_RETRY_BACKOFF_SEC = max(1, int(os.getenv("LIBRARR_JOB_RETRY_BACKOFF_SEC", "60")))
@@ -109,6 +111,8 @@ library = LibraryDB(_DB_PATH)
 _monitor = None  # initialized in __main__
 _job_runtime = None
 _job_runtime_bridge = None
+_runtime_init_lock = threading.Lock()
+_runtime_initialized = False
 
 
 _source_health = SourceHealthTracker(
@@ -363,22 +367,34 @@ _do_abs_scan = partial(monitor_helpers.trigger_abs_scan, config=config, logger=l
 _register_blueprints()
 
 
+def initialize_runtime_once():
+    global _monitor, _runtime_initialized
+    if _runtime_initialized:
+        return _monitor
+    with _runtime_init_lock:
+        if _runtime_initialized:
+            return _monitor
+        _monitor = initialize_runtime_services(**build_startup_kwargs(
+            app=app,
+            config=config,
+            logger=logger,
+            library=library,
+            sources=sources,
+            qb=qb,
+            opds_module=opds,
+            monitor_module=monitor,
+            ensure_retry_scheduler=_ensure_retry_scheduler,
+            auto_import_loop=auto_import_loop,
+            validate_config=_validate_config,
+            get_jobs=lambda: list(download_jobs.items()),
+            get_abb_domains=lambda: list(ABB_DOMAINS),
+            rotate_abb_domain=_rotate_abb_domain,
+            trigger_abs_scan=_do_abs_scan,
+        ))
+        _runtime_initialized = True
+        return _monitor
+
+
 def run_main():
-    _monitor = initialize_runtime_services(**build_startup_kwargs(
-        app=app,
-        config=config,
-        logger=logger,
-        library=library,
-        sources=sources,
-        qb=qb,
-        opds_module=opds,
-        monitor_module=monitor,
-        ensure_retry_scheduler=_ensure_retry_scheduler,
-        auto_import_loop=auto_import_loop,
-        validate_config=_validate_config,
-        get_jobs=lambda: list(download_jobs.items()),
-        get_abb_domains=lambda: list(ABB_DOMAINS),
-        rotate_abb_domain=_rotate_abb_domain,
-        trigger_abs_scan=_do_abs_scan,
-    ))
+    initialize_runtime_once()
     app.run(host="0.0.0.0", port=5000, debug=False)
