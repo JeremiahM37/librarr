@@ -86,9 +86,11 @@ tailwind.config = {
       </div>
       <div>
         <h2 class="text-xl font-bold text-white">Librarr</h2>
-        <p class="text-sm text-slate-400">Sign in to continue</p>
+        <p id="login-subtitle" class="text-sm text-slate-400">Sign in to continue</p>
       </div>
     </div>
+
+    <!-- Login Form -->
     <form id="login-form" class="space-y-4">
       <div>
         <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
@@ -102,6 +104,46 @@ tailwind.config = {
       <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
         Sign In
       </button>
+      <div id="login-oidc-btn" class="hidden">
+        <div class="flex items-center gap-3 my-2"><div class="flex-1 border-t border-slate-700"></div><span class="text-xs text-slate-500">or</span><div class="flex-1 border-t border-slate-700"></div></div>
+        <a id="oidc-login-link" href="/auth/oidc/login" class="block w-full text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
+          Login with SSO
+        </a>
+      </div>
+      <p id="login-register-link" class="text-center text-sm text-slate-500 hidden">
+        No account? <a href="#" onclick="showRegisterForm(); return false;" class="text-indigo-400 hover:text-indigo-300">Register</a>
+      </p>
+    </form>
+
+    <!-- TOTP Form (shown after password login when 2FA is enabled) -->
+    <form id="totp-form" class="space-y-4 hidden">
+      <p class="text-sm text-slate-400">Enter the 6-digit code from your authenticator app, or a backup code.</p>
+      <div>
+        <label class="block text-sm font-medium text-slate-300 mb-1">TOTP Code</label>
+        <input type="text" id="totp-code" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center text-lg tracking-widest" placeholder="000000" autocomplete="one-time-code" maxlength="8">
+      </div>
+      <div id="totp-error" class="text-red-400 text-sm hidden"></div>
+      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
+        Verify
+      </button>
+      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300">Back to login</a></p>
+    </form>
+
+    <!-- Register Form -->
+    <form id="register-form" class="space-y-4 hidden">
+      <div>
+        <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
+        <input type="text" id="register-username" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Choose a username" autocomplete="username">
+      </div>
+      <div>
+        <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
+        <input type="password" id="register-password" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Min 6 characters" autocomplete="new-password">
+      </div>
+      <div id="register-error" class="text-red-400 text-sm hidden"></div>
+      <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
+        Create Account
+      </button>
+      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300">Back to login</a></p>
     </form>
   </div>
 </div>
@@ -123,6 +165,14 @@ tailwind.config = {
       </div>
       <div class="flex items-center gap-2">
         <span id="header-stats" class="text-xs text-slate-500 hidden sm:block"></span>
+        <span id="header-user" class="text-xs text-slate-400 hidden sm:flex items-center gap-1.5">
+          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"/></svg>
+          <span id="header-username"></span>
+          <span id="header-role" class="px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-500"></span>
+        </span>
+        <button onclick="doLogout()" id="logout-btn" class="hidden p-2 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors" title="Sign out">
+          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+        </button>
         <button onclick="switchTab('settings')" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="Settings">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
         </button>
@@ -296,6 +346,68 @@ tailwind.config = {
     <div id="tab-settings" class="tab-content">
       <h2 class="text-lg font-semibold text-white mb-6">Settings</h2>
 
+      <!-- Two-Factor Authentication -->
+      <div id="totp-settings" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 hidden">
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Two-Factor Authentication</h3>
+        <div id="totp-status-section">
+          <div id="totp-disabled-section">
+            <p class="text-sm text-slate-400 mb-3">Add an extra layer of security with a TOTP authenticator app.</p>
+            <button onclick="setupTOTP()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Enable 2FA</button>
+          </div>
+          <div id="totp-enabled-section" class="hidden">
+            <p class="text-sm text-emerald-400 mb-3">Two-factor authentication is enabled.</p>
+            <div class="flex gap-2">
+              <button onclick="showDisableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Disable 2FA</button>
+            </div>
+          </div>
+          <div id="totp-setup-section" class="hidden">
+            <p class="text-sm text-slate-400 mb-3">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+            <div class="bg-white p-4 rounded-lg inline-block mb-4">
+              <img id="totp-qr-img" class="w-48 h-48" alt="TOTP QR Code">
+            </div>
+            <p class="text-xs text-slate-500 mb-2">Or enter this secret manually:</p>
+            <code id="totp-secret-display" class="block bg-slate-800 text-indigo-400 px-3 py-2 rounded text-sm mb-4 break-all"></code>
+            <div class="bg-slate-800 rounded-lg p-4 mb-4">
+              <p class="text-sm font-medium text-yellow-400 mb-2">Backup Codes (save these somewhere safe!):</p>
+              <div id="totp-backup-codes" class="grid grid-cols-2 gap-1 text-sm font-mono text-slate-300"></div>
+            </div>
+            <div class="flex items-center gap-2">
+              <input type="text" id="totp-verify-code" class="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 w-40 text-center tracking-widest" placeholder="000000" maxlength="6">
+              <button onclick="verifyTOTP()" class="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors">Verify &amp; Enable</button>
+              <button onclick="cancelTOTPSetup()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">Cancel</button>
+            </div>
+          </div>
+          <div id="totp-disable-section" class="hidden">
+            <p class="text-sm text-slate-400 mb-3">Enter your current TOTP code to disable 2FA:</p>
+            <div class="flex items-center gap-2">
+              <input type="text" id="totp-disable-code" class="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 w-40 text-center tracking-widest" placeholder="000000" maxlength="6">
+              <button onclick="disableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Confirm Disable</button>
+              <button onclick="cancelDisableTOTP()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">Cancel</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- User Management (admin only) -->
+      <div id="user-management" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 hidden">
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">User Management</h3>
+        <div id="users-list" class="space-y-2 mb-4"></div>
+        <div class="border-t border-slate-800 pt-4">
+          <h4 class="text-sm font-medium text-slate-300 mb-3">Add New User</h4>
+          <div class="flex items-end gap-2">
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Username</label>
+              <input type="text" id="new-user-name" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36" placeholder="username">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1">Password</label>
+              <input type="password" id="new-user-pass" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36" placeholder="password">
+            </div>
+            <button onclick="addUser()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add User</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Connection Tests -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Connection Tests</h3>
@@ -369,6 +481,8 @@ const state = {
   libraryPages: 1,
   config: null,
   downloadPollTimer: null,
+  currentUser: null,
+  currentRole: null,
 };
 
 const SOURCE_COLORS = {
@@ -482,17 +596,67 @@ function showToast(message, type = 'info') {
 }
 
 // ============================================================
-// LOGIN
+// LOGIN / REGISTER / TOTP
 // ============================================================
+let pendingTOTPSession = '';
+
 function showLoginModal() {
   document.getElementById('login-modal').classList.remove('hidden');
   document.getElementById('login-modal').classList.add('flex');
-  document.getElementById('login-username').focus();
+  showLoginForm();
+
+  // Check auth status to decide showing register link or OIDC button.
+  fetch('/api/auth/status', { credentials: 'include' }).then(r => r.json()).then(data => {
+    if (data.authenticated) {
+      hideLoginModal();
+      return;
+    }
+    // Show register link if no users exist yet.
+    const regLink = document.getElementById('login-register-link');
+    if (!data.has_users) {
+      regLink.classList.remove('hidden');
+      document.getElementById('login-subtitle').textContent = 'Create your admin account';
+    } else {
+      regLink.classList.add('hidden');
+      document.getElementById('login-subtitle').textContent = 'Sign in to continue';
+    }
+  }).catch(() => {});
+
+  // Check OIDC config.
+  fetch('/api/config', { credentials: 'include' }).then(r => r.json()).then(data => {
+    if (data.oidc_enabled) {
+      document.getElementById('login-oidc-btn').classList.remove('hidden');
+      document.getElementById('oidc-login-link').textContent = 'Login with ' + (data.oidc_provider_name || 'SSO');
+    }
+  }).catch(() => {});
 }
 
 function hideLoginModal() {
   document.getElementById('login-modal').classList.add('hidden');
   document.getElementById('login-modal').classList.remove('flex');
+}
+
+function showLoginForm() {
+  document.getElementById('login-form').classList.remove('hidden');
+  document.getElementById('totp-form').classList.add('hidden');
+  document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('login-username').focus();
+}
+
+function showRegisterForm() {
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('totp-form').classList.add('hidden');
+  document.getElementById('register-form').classList.remove('hidden');
+  document.getElementById('login-subtitle').textContent = 'Create your account';
+  document.getElementById('register-username').focus();
+}
+
+function showTOTPForm() {
+  document.getElementById('login-form').classList.add('hidden');
+  document.getElementById('register-form').classList.add('hidden');
+  document.getElementById('totp-form').classList.remove('hidden');
+  document.getElementById('login-subtitle').textContent = 'Two-factor authentication';
+  document.getElementById('totp-code').focus();
 }
 
 document.getElementById('login-form').addEventListener('submit', async (e) => {
@@ -517,12 +681,19 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       body: JSON.stringify({ username, password }),
     });
 
-    if (resp.ok) {
+    const data = await resp.json().catch(() => ({}));
+
+    if (resp.ok && data.success) {
+      if (data.needs_totp) {
+        pendingTOTPSession = data.session_pending;
+        showTOTPForm();
+        return;
+      }
       hideLoginModal();
+      updateUserHeader(data.username, data.role);
       init();
       showToast('Signed in successfully', 'success');
     } else {
-      const data = await resp.json().catch(() => ({}));
       errEl.textContent = data.error || 'Invalid credentials';
       errEl.classList.remove('hidden');
     }
@@ -531,6 +702,113 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
     errEl.classList.remove('hidden');
   }
 });
+
+document.getElementById('totp-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('totp-error');
+  errEl.classList.add('hidden');
+
+  const code = document.getElementById('totp-code').value.trim();
+  if (!code) {
+    errEl.textContent = 'Code is required';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/login/totp', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ session_pending: pendingTOTPSession, code }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.success) {
+      hideLoginModal();
+      updateUserHeader(data.username, data.role);
+      init();
+      showToast('Signed in successfully', 'success');
+      if (data.backup_code_used) showToast('Backup code used. Consider generating new ones.', 'warning');
+    } else {
+      errEl.textContent = data.error || 'Invalid code';
+      errEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errEl.textContent = 'Connection error';
+    errEl.classList.remove('hidden');
+  }
+});
+
+document.getElementById('register-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errEl = document.getElementById('register-error');
+  errEl.classList.add('hidden');
+
+  const username = document.getElementById('register-username').value.trim();
+  const password = document.getElementById('register-password').value;
+
+  if (!username || !password) {
+    errEl.textContent = 'Username and password are required';
+    errEl.classList.remove('hidden');
+    return;
+  }
+
+  try {
+    const resp = await fetch('/api/register', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username, password }),
+    });
+
+    const data = await resp.json().catch(() => ({}));
+    if (resp.ok && data.success) {
+      if (data.token) {
+        // First user — auto-logged in.
+        hideLoginModal();
+        updateUserHeader(data.username, data.role);
+        init();
+        showToast('Admin account created. Welcome!', 'success');
+      } else {
+        showLoginForm();
+        showToast('Account created. Please sign in.', 'success');
+      }
+    } else {
+      errEl.textContent = data.error || 'Registration failed';
+      errEl.classList.remove('hidden');
+    }
+  } catch (err) {
+    errEl.textContent = 'Connection error';
+    errEl.classList.remove('hidden');
+  }
+});
+
+function updateUserHeader(username, role) {
+  if (username) {
+    document.getElementById('header-user').classList.remove('hidden');
+    document.getElementById('header-user').classList.add('flex');
+    document.getElementById('header-username').textContent = username;
+    document.getElementById('header-role').textContent = role || 'user';
+    document.getElementById('logout-btn').classList.remove('hidden');
+    state.currentUser = username;
+    state.currentRole = role;
+  } else {
+    document.getElementById('header-user').classList.add('hidden');
+    document.getElementById('logout-btn').classList.add('hidden');
+    state.currentUser = null;
+    state.currentRole = null;
+  }
+}
+
+async function doLogout() {
+  try {
+    await fetch('/api/logout', { method: 'POST', credentials: 'include' });
+  } catch (e) {}
+  updateUserHeader(null, null);
+  showLoginModal();
+  showToast('Signed out', 'info');
+}
 
 // ============================================================
 // TAB NAVIGATION
@@ -1222,6 +1500,10 @@ function searchWishlistItem(title, mediaType) {
 async function loadSettings() {
   loadConfig();
   loadSources();
+  loadTOTPStatus();
+  if (state.currentRole === 'admin') {
+    loadUsers();
+  }
 }
 
 async function loadConfig() {
@@ -1312,6 +1594,211 @@ async function testConnection(service) {
 }
 
 // ============================================================
+// TOTP SETTINGS
+// ============================================================
+async function loadTOTPStatus() {
+  const section = document.getElementById('totp-settings');
+  try {
+    const data = await apiJson('/api/totp/status');
+    section.classList.remove('hidden');
+    if (data.enabled) {
+      document.getElementById('totp-disabled-section').classList.add('hidden');
+      document.getElementById('totp-enabled-section').classList.remove('hidden');
+    } else {
+      document.getElementById('totp-disabled-section').classList.remove('hidden');
+      document.getElementById('totp-enabled-section').classList.add('hidden');
+    }
+    document.getElementById('totp-setup-section').classList.add('hidden');
+    document.getElementById('totp-disable-section').classList.add('hidden');
+  } catch (err) {
+    // Not in multi-user mode — hide TOTP settings.
+    section.classList.add('hidden');
+  }
+}
+
+async function setupTOTP() {
+  try {
+    const data = await apiJson('/api/totp/setup', { method: 'POST' });
+    if (!data.success) {
+      showToast(data.error || 'Failed to setup TOTP', 'error');
+      return;
+    }
+    document.getElementById('totp-disabled-section').classList.add('hidden');
+    document.getElementById('totp-setup-section').classList.remove('hidden');
+    document.getElementById('totp-secret-display').textContent = data.secret;
+
+    // Generate QR code using a QR API.
+    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(data.qr_url);
+    document.getElementById('totp-qr-img').src = qrUrl;
+
+    // Display backup codes.
+    const codesEl = document.getElementById('totp-backup-codes');
+    codesEl.innerHTML = data.backup_codes.map(c => `<span class="bg-slate-700 px-2 py-1 rounded text-center">${escapeHtml(c)}</span>`).join('');
+  } catch (err) {
+    showToast('Failed to setup TOTP', 'error');
+  }
+}
+
+async function verifyTOTP() {
+  const code = document.getElementById('totp-verify-code').value.trim();
+  if (!code) {
+    showToast('Enter the 6-digit code from your app', 'warning');
+    return;
+  }
+  try {
+    const data = await apiJson('/api/totp/verify', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    if (data.success) {
+      showToast('Two-factor authentication enabled', 'success');
+      loadTOTPStatus();
+    } else {
+      showToast(data.error || 'Invalid code', 'error');
+    }
+  } catch (err) {
+    showToast('Verification failed', 'error');
+  }
+}
+
+function cancelTOTPSetup() {
+  document.getElementById('totp-setup-section').classList.add('hidden');
+  document.getElementById('totp-disabled-section').classList.remove('hidden');
+}
+
+function showDisableTOTP() {
+  document.getElementById('totp-enabled-section').classList.add('hidden');
+  document.getElementById('totp-disable-section').classList.remove('hidden');
+  document.getElementById('totp-disable-code').focus();
+}
+
+function cancelDisableTOTP() {
+  document.getElementById('totp-disable-section').classList.add('hidden');
+  document.getElementById('totp-enabled-section').classList.remove('hidden');
+}
+
+async function disableTOTP() {
+  const code = document.getElementById('totp-disable-code').value.trim();
+  if (!code) {
+    showToast('Enter your current TOTP code', 'warning');
+    return;
+  }
+  try {
+    const data = await apiJson('/api/totp/disable', {
+      method: 'POST',
+      body: JSON.stringify({ code }),
+    });
+    if (data.success) {
+      showToast('Two-factor authentication disabled', 'success');
+      loadTOTPStatus();
+    } else {
+      showToast(data.error || 'Invalid code', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to disable TOTP', 'error');
+  }
+}
+
+// ============================================================
+// USER MANAGEMENT (ADMIN)
+// ============================================================
+async function loadUsers() {
+  const section = document.getElementById('user-management');
+  try {
+    const data = await apiJson('/api/users');
+    if (!data.success) return;
+    section.classList.remove('hidden');
+
+    const container = document.getElementById('users-list');
+    const users = data.users || [];
+    container.innerHTML = users.map(u => {
+      const roleOptions = `<select onchange="changeUserRole(${u.id}, this.value)" class="bg-slate-700 text-sm text-slate-300 rounded px-2 py-1 border-0">
+        <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
+        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+      </select>`;
+      const totpBadge = u.totp_enabled ? '<span class="text-xs text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">2FA</span>' : '';
+      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
+      return `
+        <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
+          <div class="flex items-center gap-3">
+            <span class="text-sm font-medium text-white">${escapeHtml(u.username)}</span>
+            ${totpBadge}
+            <span class="text-xs text-slate-600">Last login: ${lastLogin}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            ${roleOptions}
+            <button onclick="deleteUser(${u.id}, '${escapeJs(u.username)}')" class="px-2 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white rounded transition-colors" title="Delete user">
+              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+            </button>
+          </div>
+        </div>
+      `;
+    }).join('');
+  } catch (err) {
+    // Not admin or multi-user not active — hide.
+    section.classList.add('hidden');
+  }
+}
+
+async function changeUserRole(id, role) {
+  try {
+    const data = await apiJson(`/api/users/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ role }),
+    });
+    if (data.success) {
+      showToast('User role updated', 'success');
+    } else {
+      showToast(data.error || 'Failed to update role', 'error');
+      loadUsers();
+    }
+  } catch (err) {
+    showToast('Failed to update role', 'error');
+    loadUsers();
+  }
+}
+
+async function deleteUser(id, username) {
+  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  try {
+    const data = await apiJson(`/api/users/${id}`, { method: 'DELETE' });
+    if (data.success) {
+      showToast('User deleted', 'success');
+      loadUsers();
+    } else {
+      showToast(data.error || 'Failed to delete user', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to delete user', 'error');
+  }
+}
+
+async function addUser() {
+  const username = document.getElementById('new-user-name').value.trim();
+  const password = document.getElementById('new-user-pass').value;
+  if (!username || !password) {
+    showToast('Username and password required', 'warning');
+    return;
+  }
+  try {
+    const data = await apiJson('/api/register', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    });
+    if (data.success) {
+      showToast('User created', 'success');
+      document.getElementById('new-user-name').value = '';
+      document.getElementById('new-user-pass').value = '';
+      loadUsers();
+    } else {
+      showToast(data.error || 'Failed to create user', 'error');
+    }
+  } catch (err) {
+    showToast('Failed to create user', 'error');
+  }
+}
+
+// ============================================================
 // STATS
 // ============================================================
 async function loadStats() {
@@ -1365,7 +1852,14 @@ document.addEventListener('keydown', (e) => {
 async function init() {
   try {
     // Test auth by hitting config
-    await apiJson('/api/config');
+    const cfg = await apiJson('/api/config');
+    state.config = cfg;
+
+    // Update user header.
+    if (cfg.current_user) {
+      updateUserHeader(cfg.current_user, cfg.current_role);
+    }
+
     // Auth OK
     loadStats();
     // Show default tab

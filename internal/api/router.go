@@ -28,10 +28,13 @@ type Server struct {
 	sessions    *SessionStore
 	metrics     *MetricsCollector
 	rateLimiter *RateLimiter
+	oidc        *OIDCHandler
 }
 
 // NewServer creates the HTTP API server.
 func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, sab *download.SABnzbdClient) *Server {
+	sessions := NewSessionStore()
+
 	s := &Server{
 		cfg:         cfg,
 		db:          database,
@@ -40,9 +43,12 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		qb:          qb,
 		sab:         sab,
 		mux:         http.NewServeMux(),
-		sessions:    NewSessionStore(),
+		sessions:    sessions,
 		metrics:     NewMetricsCollector(),
 	}
+
+	// Initialize OIDC handler if configured.
+	s.oidc = NewOIDCHandler(cfg, database, sessions)
 
 	// Initialize rate limiter if enabled.
 	if cfg.RateLimitEnabled {
@@ -62,7 +68,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 // Handler returns the HTTP handler with middleware.
 func (s *Server) Handler() http.Handler {
 	var handler http.Handler = s.mux
-	handler = authMiddleware(s.cfg, s.sessions, handler)
+	handler = authMiddleware(s.cfg, s.db, s.sessions, handler)
 	handler = RateLimitMiddleware(s.rateLimiter, handler)
 	handler = s.corsMiddleware(handler)
 	handler = s.logMiddleware(handler)
@@ -78,7 +84,28 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 
 	// Authentication.
-	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.sessions))
+	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions))
+	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.db, s.sessions))
+	s.mux.HandleFunc("POST /api/register", handleRegister(s.db, s.sessions))
+	s.mux.HandleFunc("POST /api/logout", handleLogout(s.sessions))
+	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.db, s.sessions))
+
+	// User management (admin only).
+	s.mux.HandleFunc("GET /api/users", requireAdmin(handleListUsers(s.db)))
+	s.mux.HandleFunc("PATCH /api/users/{id}", requireAdmin(handleUpdateUser(s.db)))
+	s.mux.HandleFunc("DELETE /api/users/{id}", requireAdmin(handleDeleteUser(s.db)))
+
+	// TOTP 2FA.
+	s.mux.HandleFunc("POST /api/totp/setup", handleTOTPSetup(s.db))
+	s.mux.HandleFunc("POST /api/totp/verify", handleTOTPVerify(s.db))
+	s.mux.HandleFunc("POST /api/totp/disable", handleTOTPDisable(s.db))
+	s.mux.HandleFunc("GET /api/totp/status", handleTOTPStatus(s.db))
+
+	// OIDC/SSO.
+	if s.oidc != nil {
+		s.mux.HandleFunc("GET /auth/oidc/login", s.oidc.HandleLogin)
+		s.mux.HandleFunc("GET /auth/oidc/callback", s.oidc.HandleCallback)
+	}
 
 	// Search.
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
@@ -119,7 +146,7 @@ func (s *Server) registerRoutes() {
 	// Duplicate check.
 	s.mux.HandleFunc("GET /api/check-duplicate", s.handleCheckDuplicate)
 
-	// Settings (Feature 12).
+	// Settings (admin only in multi-user mode — middleware checks in handler).
 	s.mux.HandleFunc("GET /api/settings", s.handleGetSettings)
 	s.mux.HandleFunc("POST /api/settings", s.handleSaveSettings)
 
@@ -187,7 +214,7 @@ func (s *Server) logMiddleware(next http.Handler) http.Handler {
 func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, PATCH, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Api-Key")
 		if r.Method == "OPTIONS" {
 			w.WriteHeader(http.StatusNoContent)

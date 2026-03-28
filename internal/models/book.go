@@ -100,6 +100,18 @@ type WishlistItem struct {
 	AddedAt   time.Time `json:"added_at"`
 }
 
+// User represents a registered user.
+type User struct {
+	ID           int64     `json:"id"`
+	Username     string    `json:"username"`
+	PasswordHash string    `json:"-"`
+	Role         string    `json:"role"` // "admin" or "user"
+	TOTPSecret   string    `json:"-"`
+	TOTPEnabled  bool      `json:"totp_enabled"`
+	CreatedAt    time.Time `json:"created_at"`
+	LastLogin    time.Time `json:"last_login,omitempty"`
+}
+
 // DownloadRequest is the payload for the POST /api/download endpoint.
 type DownloadRequest struct {
 	Source      string `json:"source"`

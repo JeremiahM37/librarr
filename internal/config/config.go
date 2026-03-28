@@ -104,6 +104,16 @@ type Config struct {
 	// Settings persistence
 	SettingsFile string
 
+	// OIDC / SSO
+	OIDCEnabled         bool
+	OIDCProviderName    string
+	OIDCIssuer          string
+	OIDCClientID        string
+	OIDCClientSecret    string
+	OIDCRedirectURI     string
+	OIDCAutoCreateUsers bool
+	OIDCDefaultRole     string
+
 	// User Agent
 	UserAgent string
 }
@@ -189,8 +199,22 @@ func Load() *Config {
 
 		SettingsFile: getEnv("SETTINGS_FILE", "/data/settings.json"),
 
+		OIDCEnabled:         getEnvBool("OIDC_ENABLED", false),
+		OIDCProviderName:    getEnv("OIDC_PROVIDER_NAME", "SSO"),
+		OIDCIssuer:          getEnv("OIDC_ISSUER", ""),
+		OIDCClientID:        getEnv("OIDC_CLIENT_ID", ""),
+		OIDCClientSecret:    getEnv("OIDC_CLIENT_SECRET", ""),
+		OIDCRedirectURI:     getEnv("OIDC_REDIRECT_URI", ""),
+		OIDCAutoCreateUsers: getEnvBool("OIDC_AUTO_CREATE_USERS", true),
+		OIDCDefaultRole:     getEnv("OIDC_DEFAULT_ROLE", "user"),
+
 		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
 	}
+}
+
+// HasOIDC returns true if OIDC/SSO is configured.
+func (c *Config) HasOIDC() bool {
+	return c.OIDCEnabled && c.OIDCIssuer != "" && c.OIDCClientID != "" && c.OIDCClientSecret != ""
 }
 
 // HasQBittorrent returns true if qBittorrent is configured.

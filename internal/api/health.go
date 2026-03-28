@@ -17,7 +17,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	// Determine if audiobook search is available (prowlarr audiobooks or ABB).
 	hasAudiobookSearch := false
 	for _, src := range s.searchMgr.GetSources() {
@@ -42,6 +42,27 @@ func (s *Server) handleConfig(w http.ResponseWriter, _ *http.Request) {
 		"webnovel_enabled":   s.cfg.WebNovelEnabled,
 		"mangadex_enabled":   s.cfg.MangaDexEnabled,
 		"audiobooks":         hasAudiobookSearch,
+	}
+
+	// OIDC config (safe to expose — no secrets).
+	if s.cfg.HasOIDC() {
+		resp["oidc_enabled"] = true
+		resp["oidc_provider_name"] = s.cfg.OIDCProviderName
+	} else {
+		resp["oidc_enabled"] = false
+	}
+
+	// Multi-user info.
+	userCount, _ := s.db.CountUsers()
+	resp["multi_user"] = userCount > 0
+	resp["has_users"] = userCount > 0
+
+	// Current user info from context.
+	if username, ok := r.Context().Value(ctxUsername).(string); ok && username != "" {
+		resp["current_user"] = username
+	}
+	if role, ok := r.Context().Value(ctxUserRole).(string); ok && role != "" {
+		resp["current_role"] = role
 	}
 
 	if s.cfg.KavitaPublicURL != "" {
