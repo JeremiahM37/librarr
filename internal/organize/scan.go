@@ -76,8 +76,9 @@ func (s *AudiobookScanner) scan() {
 			return nil
 		}
 
-		// Check if already tracked.
-		if s.db.HasSourceID("scan-" + path) {
+		// Check if this directory is already tracked (we track by dir, not file).
+		dir := filepath.Dir(path)
+		if s.db.HasSourceID("scan-" + dir) {
 			return nil
 		}
 
