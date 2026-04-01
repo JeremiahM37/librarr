@@ -2,8 +2,20 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"runtime"
+	"time"
 )
+
+// Set at build time via -ldflags
+var (
+	Version   = "2.0.0"
+	BuildTime = "unknown"
+	GoVersion = runtime.Version()
+)
+
+var startTime = time.Now()
 
 func (s *Server) handleRoot(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -11,10 +23,52 @@ func (s *Server) handleRoot(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	uptime := time.Since(startTime)
+
+	// Count enabled sources
+	enabledSources := 0
+	sourceNames := []string{}
+	for _, src := range s.searchMgr.GetSources() {
+		if src.Enabled() {
+			enabledSources++
+			sourceNames = append(sourceNames, src.Name())
+		}
+	}
+
+	// Library stats
+	libraryTotal := 0
+	if stats, err := s.db.GetStats(); err == nil {
+		if total, ok := stats["total_items"]; ok {
+			if n, ok := total.(int); ok {
+				libraryTotal = n
+			}
+		}
+	}
+
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"status":  "ok",
-		"version": "2.0.0",
+		"status":          "ok",
+		"version":         Version,
+		"build_time":      BuildTime,
+		"go_version":      GoVersion,
+		"uptime_seconds":  int(uptime.Seconds()),
+		"uptime_human":    formatDuration(uptime),
+		"sources_enabled": enabledSources,
+		"sources":         sourceNames,
+		"library_items":   libraryTotal,
 	})
+}
+
+func formatDuration(d time.Duration) string {
+	days := int(d.Hours()) / 24
+	hours := int(d.Hours()) % 24
+	mins := int(d.Minutes()) % 60
+	if days > 0 {
+		return fmt.Sprintf("%dd %dh %dm", days, hours, mins)
+	}
+	if hours > 0 {
+		return fmt.Sprintf("%dh %dm", hours, mins)
+	}
+	return fmt.Sprintf("%dm", mins)
 }
 
 func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
