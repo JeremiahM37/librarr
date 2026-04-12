@@ -28,6 +28,15 @@ func NewDirectDownloader(cfg *config.Config, client *http.Client) *DirectDownloa
 
 var getLinkRe = regexp.MustCompile(`href="(get\.php\?md5=[^"]+)"`)
 
+// libgenMirrors are alternative libgen front-ends that host the same data.
+// Tried in order when one fails with transient errors (5xx).
+var libgenMirrors = []string{
+	"https://libgen.li",
+	"https://libgen.is",
+	"https://libgen.rs",
+	"https://libgen.st",
+}
+
 // DownloadFromAnnas downloads a file from Anna's Archive via libgen.
 // Returns the local file path and size, or an error.
 func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, error) {
@@ -35,40 +44,30 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 		progressFn("Fetching download link from Anna's Archive...")
 	}
 
-	// Step 1: Get the download key from libgen ads page.
-	adsURL := fmt.Sprintf("https://libgen.li/ads.php?md5=%s", md5)
-	req, err := http.NewRequest("GET", adsURL, nil)
-	if err != nil {
-		return "", 0, err
-	}
-	req.Header.Set("User-Agent", d.cfg.UserAgent)
+	// Step 1: Try each libgen mirror to get the download key.
+	downloadURL, mirrorErr := d.fetchLibgenDownloadURL(md5, progressFn)
+	if mirrorErr != nil {
+		// All libgen mirrors failed. Try Anna's Archive's own slow_download endpoint as a last resort.
+		if progressFn != nil {
+			progressFn("libgen unavailable, trying Anna's Archive slow download...")
+		}
+		slowURL := fmt.Sprintf("https://annas-archive.gl/slow_download/%s/0/0", md5)
+		if _, _, err := d.downloadFile(slowURL, title, progressFn); err == nil {
+			return d.downloadFile(slowURL, title, progressFn)
+		}
 
-	resp, err := d.client.Do(req)
-	if err != nil {
-		return "", 0, fmt.Errorf("fetch libgen ads page: %w", err)
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024)) // 2MB max for HTML pages
-	if resp.StatusCode != 200 {
-		return "", 0, fmt.Errorf("libgen ads page HTTP %d", resp.StatusCode)
-	}
-
-	match := getLinkRe.FindSubmatch(body)
-	if len(match) < 2 {
-		// Try alternative MD5 hashes by re-searching Anna's Archive.
+		// Final fallback: alternative MD5 hashes by re-searching Anna's Archive.
 		if progressFn != nil {
 			progressFn("No direct link found, trying alternative mirrors...")
 		}
 		altURL, altErr := d.tryAltMD5(title, md5, progressFn)
 		if altErr != nil {
-			return "", 0, fmt.Errorf("no get.php link found on libgen for md5=%s (alt search also failed: %v)", md5, altErr)
+			return "", 0, fmt.Errorf("all libgen mirrors failed (%v); alt search also failed: %v", mirrorErr, altErr)
 		}
 		return d.downloadFile(altURL, title, progressFn)
 	}
 
-	downloadURL := fmt.Sprintf("https://libgen.li/%s", string(match[1]))
-	slog.Info("found libgen download link", "title", title, "url", downloadURL[:60])
+	slog.Info("found libgen download link", "title", title, "url", downloadURL[:min(60, len(downloadURL))])
 
 	if progressFn != nil {
 		progressFn("Downloading...")
@@ -76,6 +75,54 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 
 	// Step 2: Download the file.
 	return d.downloadFile(downloadURL, title, progressFn)
+}
+
+// fetchLibgenDownloadURL tries each libgen mirror to find a valid get.php download link.
+// Returns the full URL on success, or the last error if all mirrors fail.
+func (d *DirectDownloader) fetchLibgenDownloadURL(md5 string, progressFn func(string)) (string, error) {
+	var lastErr error
+	for i, mirror := range libgenMirrors {
+		if i > 0 && progressFn != nil {
+			progressFn(fmt.Sprintf("Mirror %d failed, trying %s...", i, mirror))
+		}
+
+		adsURL := fmt.Sprintf("%s/ads.php?md5=%s", mirror, md5)
+		req, err := http.NewRequest("GET", adsURL, nil)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		req.Header.Set("User-Agent", d.cfg.UserAgent)
+
+		resp, err := d.client.Do(req)
+		if err != nil {
+			lastErr = fmt.Errorf("fetch %s: %w", mirror, err)
+			continue
+		}
+
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+		resp.Body.Close()
+
+		if resp.StatusCode >= 500 {
+			// Transient server error — move to next mirror.
+			lastErr = fmt.Errorf("%s ads page HTTP %d", mirror, resp.StatusCode)
+			continue
+		}
+		if resp.StatusCode != 200 {
+			// Non-transient error — this mirror has a permanent issue, try next.
+			lastErr = fmt.Errorf("%s ads page HTTP %d", mirror, resp.StatusCode)
+			continue
+		}
+
+		match := getLinkRe.FindSubmatch(body)
+		if len(match) < 2 {
+			lastErr = fmt.Errorf("%s returned no get.php link for md5=%s", mirror, md5)
+			continue
+		}
+
+		return fmt.Sprintf("%s/%s", mirror, string(match[1])), nil
+	}
+	return "", lastErr
 }
 
 // DownloadFromURL downloads a file from any direct URL.
@@ -128,7 +175,7 @@ func (d *DirectDownloader) downloadFile(fileURL, title string, progressFn func(s
 		return "", 0, fmt.Errorf("create incoming dir: %w", err)
 	}
 
-	// Determine file extension from Content-Type.
+	// Initial extension from Content-Type (may be corrected after inspecting bytes).
 	ext := ".epub"
 	if strings.Contains(contentType, "pdf") {
 		ext = ".pdf"
@@ -139,9 +186,9 @@ func (d *DirectDownloader) downloadFile(fileURL, title string, progressFn func(s
 	if err != nil {
 		return "", 0, fmt.Errorf("create file: %w", err)
 	}
-	defer f.Close()
 
 	written, err := io.Copy(f, resp.Body)
+	f.Close()
 	if err != nil {
 		os.Remove(filePath)
 		return "", 0, fmt.Errorf("write file: %w", err)
@@ -152,9 +199,25 @@ func (d *DirectDownloader) downloadFile(fileURL, title string, progressFn func(s
 		return "", 0, fmt.Errorf("downloaded file too small (%d bytes)", written)
 	}
 
+	// Detect actual file type from magic bytes and correct the extension if needed.
+	// Content-Type headers often lie (e.g., application/octet-stream) so we always
+	// verify by reading the file signature.
+	actualExt, err := detectFileExtension(filePath)
+	if err != nil {
+		slog.Warn("failed to detect file type from content", "error", err, "path", filePath)
+	} else if actualExt != "" && actualExt != ext {
+		correctedPath := filepath.Join(d.cfg.IncomingDir, safeTitle+actualExt)
+		if err := os.Rename(filePath, correctedPath); err == nil {
+			slog.Info("corrected file extension based on content", "title", title,
+				"from", ext, "to", actualExt)
+			filePath = correctedPath
+			ext = actualExt
+		}
+	}
+
 	slog.Info("file downloaded", "title", title, "size", written, "path", filePath)
 
-	// EPUB verification: validate ZIP and title match.
+	// EPUB verification: validate ZIP and title match (only for actual EPUB files).
 	if strings.HasSuffix(strings.ToLower(filePath), ".epub") {
 		if err := d.verifyEPUB(filePath, title); err != nil {
 			os.Remove(filePath)
@@ -163,6 +226,42 @@ func (d *DirectDownloader) downloadFile(fileURL, title string, progressFn func(s
 	}
 
 	return filePath, written, nil
+}
+
+// detectFileExtension inspects the first bytes of a file and returns the
+// appropriate extension for its actual content. Returns "" if the format
+// is not recognized (caller should keep the original extension).
+func detectFileExtension(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	var header [8]byte
+	n, err := f.Read(header[:])
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	if n < 4 {
+		return "", nil
+	}
+
+	// Magic byte signatures
+	switch {
+	case string(header[:5]) == "%PDF-":
+		return ".pdf", nil
+	case header[0] == 0x50 && header[1] == 0x4B && (header[2] == 0x03 || header[2] == 0x05):
+		// ZIP container — could be EPUB, CBZ, or plain ZIP.
+		// For EPUBs the mimetype file is conventionally present, but checking it
+		// requires parsing the ZIP. Since our downloads target ebooks, assume EPUB.
+		return ".epub", nil
+	case header[0] == 0x52 && header[1] == 0x61 && header[2] == 0x72 && header[3] == 0x21:
+		return ".cbr", nil // RAR, likely CBR for ebook context
+	case string(header[:4]) == "BOOK" || (header[0] == 0xEB && header[2] == 0x48):
+		return ".mobi", nil
+	}
+	return "", nil
 }
 
 // verifyEPUB validates that an EPUB file is a valid ZIP and its title matches.

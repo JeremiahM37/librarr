@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -139,8 +140,28 @@ func (p *Prowlarr) doSearch(ctx context.Context, params prowlarrSearchParams) ([
 		return nil, fmt.Errorf("prowlarr HTTP %d", resp.StatusCode)
 	}
 
+	// Read body first so we can diagnose HTML error pages (which happen when
+	// the user's API key is wrong, the reverse proxy intercepts the request,
+	// or Prowlarr is starting up and serving a placeholder page).
+	bodyBytes, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read prowlarr response: %w", err)
+	}
+
+	// Detect HTML response — usually means API key mismatch, auth redirect,
+	// or a reverse proxy (nginx, authelia) is intercepting the request.
+	trimmed := strings.TrimSpace(string(bodyBytes))
+	if strings.HasPrefix(trimmed, "<") {
+		ct := resp.Header.Get("Content-Type")
+		preview := trimmed
+		if len(preview) > 200 {
+			preview = preview[:200]
+		}
+		return nil, fmt.Errorf("prowlarr returned HTML instead of JSON (content-type=%q, likely wrong API key or reverse proxy issue): %s", ct, preview)
+	}
+
 	var items []prowlarrItem
-	if err := json.NewDecoder(resp.Body).Decode(&items); err != nil {
+	if err := json.Unmarshal(bodyBytes, &items); err != nil {
 		return nil, fmt.Errorf("decode prowlarr response: %w", err)
 	}
 

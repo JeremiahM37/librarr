@@ -299,3 +299,52 @@ func TestIsNZBURL_NewznabPattern(t *testing.T) {
 		t.Error("expected &t=get& in URL")
 	}
 }
+
+// TestProwlarr_HTMLResponse verifies that Prowlarr returning HTML instead of JSON
+// (e.g., from a reverse proxy intercept or wrong API key) produces a helpful error
+// rather than the cryptic "invalid character '<'" JSON decode error.
+// Related to issue #7.
+func TestProwlarr_HTMLResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("<!DOCTYPE html>\n<html><body>Login required</body></html>"))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{ProwlarrURL: server.URL, ProwlarrAPIKey: "key"}
+	p := NewProwlarr(cfg, server.Client(), "main")
+
+	_, err := p.doSearch(context.Background(), prowlarrSearchParams{query: "test", limit: 10})
+	if err == nil {
+		t.Fatal("expected error for HTML response, got nil")
+	}
+	msg := err.Error()
+	if !strings.Contains(msg, "HTML") {
+		t.Errorf("error should mention HTML, got: %v", err)
+	}
+	if !strings.Contains(msg, "reverse proxy") && !strings.Contains(msg, "API key") {
+		t.Errorf("error should suggest cause (proxy/API key), got: %v", err)
+	}
+}
+
+// TestProwlarr_HTMLWithLeadingWhitespace ensures the HTML detector handles
+// responses with leading whitespace before the < character.
+func TestProwlarr_HTMLWithLeadingWhitespace(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("\n\n  <html><body>error</body></html>"))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{ProwlarrURL: server.URL, ProwlarrAPIKey: "key"}
+	p := NewProwlarr(cfg, server.Client(), "main")
+
+	_, err := p.doSearch(context.Background(), prowlarrSearchParams{query: "test", limit: 10})
+	if err == nil {
+		t.Fatal("expected error for HTML response, got nil")
+	}
+	if !strings.Contains(err.Error(), "HTML") {
+		t.Errorf("error should mention HTML, got: %v", err)
+	}
+}
