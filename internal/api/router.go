@@ -452,7 +452,11 @@ func (s *Server) corsMiddleware(next http.Handler) http.Handler {
 				w.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
 			// For API-key-only requests (no cookies), allow any origin.
-			if r.Header.Get("X-Api-Key") != "" {
+			// Accept the key via X-Api-Key header OR ?apikey= query param —
+			// clients like the Homelab PWA use the query-param form because
+			// they fetch() without custom headers (which would force a CORS
+			// preflight the browser never sends the key on).
+			if r.Header.Get("X-Api-Key") != "" || r.URL.Query().Get("apikey") != "" {
 				w.Header().Set("Access-Control-Allow-Origin", origin)
 			}
 		}
