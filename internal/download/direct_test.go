@@ -217,5 +217,140 @@ func TestDownloadFile_TooSmallRejected(t *testing.T) {
 	}
 }
 
+// TestDetectFileExtension_ShortFile covers files smaller than the 4-byte
+// signature window. Should return "" (no decision) without error.
+func TestDetectFileExtension_ShortFile(t *testing.T) {
+	for _, contents := range [][]byte{nil, {0x25}, {0x25, 0x50}, {0x25, 0x50, 0x44}} {
+		f, err := os.CreateTemp(t.TempDir(), "short-*")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := f.Write(contents); err != nil {
+			t.Fatal(err)
+		}
+		f.Close()
+
+		ext, err := detectFileExtension(f.Name())
+		if err != nil {
+			t.Errorf("unexpected error for %d-byte file: %v", len(contents), err)
+		}
+		if ext != "" {
+			t.Errorf("expected no-decision for %d-byte file, got %q", len(contents), ext)
+		}
+	}
+}
+
+// TestDetectFileExtension_WeirdZIPSignature — ZIP has a few variants
+// (PK\x03\x04 local file header and PK\x05\x06 empty archive EOCD are
+// accepted as .epub). Anything else starting with PK\x07\x08 (spanned record)
+// or a plain PK prefix without those trailing bytes should NOT be misclassified.
+func TestDetectFileExtension_WeirdZIPSignature(t *testing.T) {
+	tests := []struct {
+		name    string
+		bytes   []byte
+		wantExt string
+	}{
+		{"spanned record (PK 07 08)", []byte{0x50, 0x4B, 0x07, 0x08, 0, 0, 0, 0}, ""},
+		{"PK only (not a ZIP sig)", []byte{0x50, 0x4B, 0x01, 0x02, 0, 0, 0, 0}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f, _ := os.CreateTemp(t.TempDir(), "zip-*")
+			_, _ = f.Write(tt.bytes)
+			f.Close()
+			ext, err := detectFileExtension(f.Name())
+			if err != nil {
+				t.Fatal(err)
+			}
+			if ext != tt.wantExt {
+				t.Errorf("got %q, want %q", ext, tt.wantExt)
+			}
+		})
+	}
+}
+
+// TestDownloadFile_RenameCollision — if we download a PDF masquerading as EPUB
+// but a file with the correct .pdf name already exists in the incoming dir,
+// document the behavior. os.Rename on Linux atomically replaces the target,
+// which is what we want (the new download wins; the stale file is overwritten).
+func TestDownloadFile_RenameCollision(t *testing.T) {
+	pdfBytes := append([]byte("%PDF-1.6\n"), make([]byte, 2000)...)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/octet-stream")
+		_, _ = w.Write(pdfBytes)
+	}))
+	defer server.Close()
+
+	dir := t.TempDir()
+	// Pre-create a stale file at the target path the rename will pick.
+	stalePath := filepath.Join(dir, "Collide.pdf")
+	if err := os.WriteFile(stalePath, []byte("STALE"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{IncomingDir: dir, UserAgent: "test"}
+	d := NewDirectDownloader(cfg, server.Client())
+
+	path, _, err := d.downloadFile(server.URL, "Collide", nil)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.HasSuffix(path, ".pdf") {
+		t.Errorf("expected .pdf extension, got: %s", path)
+	}
+	// The stale content should have been overwritten with the new PDF bytes.
+	got, _ := os.ReadFile(path)
+	if string(got[:5]) != "%PDF-" {
+		t.Errorf("stale file was not replaced; first bytes: %q", got[:5])
+	}
+}
+
+// TestFetchLibgenDownloadURL_ProgressBeforeRequest — progress messages for a
+// given mirror must be emitted *before* the HTTP request to that mirror,
+// otherwise users see "Trying mirror X" after X already failed silently.
+func TestFetchLibgenDownloadURL_ProgressBeforeRequest(t *testing.T) {
+	events := []string{}
+
+	m1 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		events = append(events, "request:m1")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer m1.Close()
+	m2 := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		events = append(events, "request:m2")
+		_, _ = w.Write([]byte(`<a href="get.php?md5=a&key=B">GET</a>`))
+	}))
+	defer m2.Close()
+
+	withMirrors(t, []string{m1.URL, m2.URL})
+	cfg := &config.Config{UserAgent: "test"}
+	d := NewDirectDownloader(cfg, m1.Client())
+
+	_, err := d.fetchLibgenDownloadURL("a", func(msg string) {
+		if strings.Contains(msg, m2.URL) {
+			events = append(events, "progress:m2")
+		}
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// progress:m2 must come before request:m2.
+	pIdx, rIdx := -1, -1
+	for i, e := range events {
+		if e == "progress:m2" && pIdx < 0 {
+			pIdx = i
+		}
+		if e == "request:m2" && rIdx < 0 {
+			rIdx = i
+		}
+	}
+	if pIdx < 0 || rIdx < 0 {
+		t.Fatalf("missing events: %v", events)
+	}
+	if pIdx >= rIdx {
+		t.Errorf("progress message emitted AFTER request (progress=%d, request=%d): %v", pIdx, rIdx, events)
+	}
+}
+
 // --- Silence linter (io import used only in some builds) ---
 var _ = io.Copy
