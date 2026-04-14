@@ -60,4 +60,20 @@ func init() {
 	RegisterSource(func(cfg *config.Config, client *http.Client) Searcher {
 		return NewWebNovel(cfg, client)
 	})
+	// ThePirateBay (ebooks)
+	RegisterSource(func(cfg *config.Config, client *http.Client) Searcher {
+		return NewThePirateBay(cfg, client, "main")
+	})
+	// ThePirateBay (audiobooks)
+	RegisterSource(func(cfg *config.Config, client *http.Client) Searcher {
+		return NewThePirateBay(cfg, client, "audiobook")
+	})
+	// BookTracker (ebooks)
+	RegisterSource(func(cfg *config.Config, client *http.Client) Searcher {
+		return NewBookTracker(cfg, client, "main")
+	})
+	// BookTracker (audiobooks)
+	RegisterSource(func(cfg *config.Config, client *http.Client) Searcher {
+		return NewBookTracker(cfg, client, "audiobook")
+	})
 }
