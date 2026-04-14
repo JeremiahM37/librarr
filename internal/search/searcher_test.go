@@ -2,6 +2,8 @@ package search
 
 import (
 	"testing"
+
+	"github.com/JeremiahM37/librarr/internal/models"
 )
 
 func TestIsForeignTitle(t *testing.T) {
@@ -65,6 +67,7 @@ func TestExtractWords(t *testing.T) {
 		{"x", map[string]bool{}},                                                   // single char filtered
 		{"", map[string]bool{}},
 		{"hello world 42", map[string]bool{"hello": true, "world": true, "42": true}},
+		{"книга на русском", map[string]bool{"книга": true, "на": true, "русском": true}}, // Cyrillic words extracted
 	}
 
 	for _, tt := range tests {
@@ -113,4 +116,63 @@ func TestFilterResults(t *testing.T) {
 			}
 		}
 	})
+
+	t.Run("multilang sources bypass foreign filter", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "booktracker", Title: "Книга на русском языке"},     // Cyrillic >30%, but multilang source
+			{Source: "booktracker_audiobook", Title: "Русская аудиокнига"}, // multilang source
+			{Source: "annas", Title: "Normal English Book"},               // English, regular source
+		}
+		filtered := FilterResults(results, "", true)
+		if len(filtered) != 3 {
+			t.Errorf("expected 3 results (multilang bypasses filter), got %d", len(filtered))
+		}
+	})
+
+	t.Run("non-multilang foreign titles removed", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "annas", Title: "Книга на русском языке"}, // Cyrillic >30%, not multilang
+			{Source: "annas", Title: "Normal English Book"},    // English, passes
+		}
+		filtered := FilterResults(results, "", true)
+		if len(filtered) != 1 {
+			t.Errorf("expected 1 result (foreign removed), got %d", len(filtered))
+		}
+	})
+
+	t.Run("filter disabled preserves all titles", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "annas", Title: "Книга на русском языке"}, // Cyrillic, but filter off
+			{Source: "annas", Title: "Normal English Book"},
+		}
+		filtered := FilterResults(results, "", false)
+		if len(filtered) != 2 {
+			t.Errorf("expected 2 results (filter disabled), got %d", len(filtered))
+		}
+	})
+}
+
+func TestIsMultilangSource(t *testing.T) {
+	tests := []struct {
+		source   string
+		expected bool
+	}{
+		{"booktracker", true},
+		{"booktracker_audiobook", true},
+		{"flibusta", true},
+		{"zlibrary", true},
+		{"annas", false},
+		{"torrent", false},
+		{"tpb", false},
+		{"gutenberg", false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.source, func(t *testing.T) {
+			result := isMultilangSource(tt.source)
+			if result != tt.expected {
+				t.Errorf("isMultilangSource(%q) = %v, want %v", tt.source, result, tt.expected)
+			}
+		})
+	}
 }
