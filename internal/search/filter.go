@@ -73,7 +73,7 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 		}
 
 		// Torrent-specific filters.
-		isTorrent := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga"
+		isTorrent := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" || r.Source == "tpb" || r.Source == "tpb_audiobook" || r.Source == "booktracker" || r.Source == "booktracker_audiobook"
 		isABB := r.Source == "audiobook"
 
 		if isTorrent {
@@ -150,7 +150,7 @@ func sourcePriority(r models.SearchResult) int {
 	switch r.Source {
 	case "annas", "annas_manga":
 		return 0
-	case "torrent", "audiobook", "prowlarr_manga", "nyaa_manga":
+	case "torrent", "audiobook", "prowlarr_manga", "nyaa_manga", "tpb", "tpb_audiobook", "booktracker", "booktracker_audiobook":
 		if r.Seeders > 0 {
 			return 1
 		}
