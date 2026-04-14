@@ -97,7 +97,7 @@ func (m *Manager) SearchWithAuthor(ctx context.Context, tab, query, author strin
 	wg.Wait()
 
 	// Apply relevance and foreign-language filtering.
-	results = FilterResults(results, query)
+	results = FilterResults(results, query, m.cfg.ForeignLangFilter)
 	// Apply suspicious keyword, seed, size, dedup, and sorting filters.
 	results = FilterAndSortResults(results, query, m.cfg.MinTorrentSizeBytes, m.cfg.MaxTorrentSizeBytes)
 
@@ -153,10 +153,13 @@ func (m *Manager) SourceMeta() []map[string]interface{} {
 }
 
 // FilterResults removes irrelevant, foreign-language, or suspicious results.
-func FilterResults(results []models.SearchResult, query string) []models.SearchResult {
+// When foreignLangFilter is true, results with non-English titles are removed
+// (unless they come from multilang sources like BookTracker, Flibusta, Z-Library).
+// When foreignLangFilter is false, all titles pass regardless of language.
+func FilterResults(results []models.SearchResult, query string, foreignLangFilter bool) []models.SearchResult {
 	var filtered []models.SearchResult
 	for _, r := range results {
-		if isForeignTitle(r.Title) {
+		if foreignLangFilter && isForeignTitle(r.Title) && !isMultilangSource(r.Source) {
 			continue
 		}
 		if !titleRelevant(r.Title, query) {
@@ -165,6 +168,16 @@ func FilterResults(results []models.SearchResult, query string) []models.SearchR
 		filtered = append(filtered, r)
 	}
 	return filtered
+}
+
+// isMultilangSource returns true for sources that inherently serve multilingual
+// content and should bypass the foreign-language filter.
+func isMultilangSource(source string) bool {
+	switch source {
+	case "booktracker", "booktracker_audiobook", "flibusta", "zlibrary":
+		return true
+	}
+	return false
 }
 
 var foreignKeywords = map[string]bool{
@@ -201,7 +214,7 @@ func isForeignTitle(title string) bool {
 	return false
 }
 
-var wordRe = regexp.MustCompile(`\w+`)
+var wordRe = regexp.MustCompile(`[\pL\pN]+`)
 
 var stopwords = map[string]bool{
 	"the": true, "a": true, "an": true, "of": true, "in": true,
