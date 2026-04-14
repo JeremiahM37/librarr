@@ -143,6 +143,28 @@ type Config struct {
 	RenameEnabled bool
 	RenamePattern string
 
+	// ThePirateBay
+	TPBEnabled bool
+
+	// BookTracker
+	BookTrackerURL   string
+	BookTrackerUser  string
+	BookTrackerPass  string
+	BookTrackerEnabled bool
+
+	// Flibusta
+	FlibustaURL     string
+	FlibustaEnabled bool
+
+	// Z-Library
+	ZLibraryURL      string
+	ZLibraryEmail    string
+	ZLibraryPassword string
+	ZLibraryEnabled  bool
+
+	// Foreign language filter
+	ForeignLangFilter bool
+
 	// Author Monitoring
 	AuthorMonitorEnabled      bool
 	AuthorCheckIntervalDays   int
@@ -262,6 +284,23 @@ func Load() *Config {
 
 		AuthorMonitorEnabled:    getEnvBool("AUTHOR_MONITOR_ENABLED", false),
 		AuthorCheckIntervalDays: getEnvInt("AUTHOR_CHECK_INTERVAL_DAYS", 7),
+
+		TPBEnabled: getEnvBool("TPB_ENABLED", false),
+
+		BookTrackerURL:     getEnv("BOOKTRACKER_URL", ""),
+		BookTrackerUser:    getEnv("BOOKTRACKER_USER", ""),
+		BookTrackerPass:    getEnv("BOOKTRACKER_PASS", ""),
+		BookTrackerEnabled: getEnvBool("BOOKTRACKER_ENABLED", false),
+
+		FlibustaURL:     getEnv("FLIBUSTA_URL", ""),
+		FlibustaEnabled: getEnvBool("FLIBUSTA_ENABLED", false),
+
+		ZLibraryURL:      getEnv("ZLIBRARY_URL", ""),
+		ZLibraryEmail:    getEnv("ZLIBRARY_EMAIL", ""),
+		ZLibraryPassword: getEnv("ZLIBRARY_PASSWORD", ""),
+		ZLibraryEnabled:  getEnvBool("ZLIBRARY_ENABLED", false),
+
+		ForeignLangFilter: getEnvBool("FOREIGN_LANG_FILTER", true),
 	}
 }
 
@@ -323,6 +362,21 @@ func (c *Config) HasDeluge() bool {
 // HasTransmission returns true if Transmission is configured.
 func (c *Config) HasTransmission() bool {
 	return c.TransmissionURL != ""
+}
+
+// HasBookTracker returns true if BookTracker is configured.
+func (c *Config) HasBookTracker() bool {
+	return c.BookTrackerURL != "" && c.BookTrackerUser != "" && c.BookTrackerPass != ""
+}
+
+// HasFlibusta returns true if Flibusta is configured.
+func (c *Config) HasFlibusta() bool {
+	return c.FlibustaEnabled && c.FlibustaURL != ""
+}
+
+// HasZLibrary returns true if Z-Library is configured.
+func (c *Config) HasZLibrary() bool {
+	return c.ZLibraryEnabled && c.ZLibraryEmail != "" && c.ZLibraryPassword != ""
 }
 
 func getEnv(key, fallback string) string {
