@@ -75,6 +75,10 @@ tailwind.config = {
   .hamburger-btn { display: none; }
   .mobile-nav-overlay { display: none; }
 
+  /* Russian locale adjustments */
+  html[lang="ru"] .sub-tab { font-size: 0.75rem; }
+  html[lang="ru"] #tab-settings h3 { letter-spacing: 0.02em; }
+
   /* Mobile responsive */
   @media (max-width: 640px) {
     /* Hamburger menu toggle */
@@ -135,64 +139,64 @@ tailwind.config = {
       </div>
       <div>
         <h2 class="text-xl font-bold text-white">Librarr</h2>
-        <p id="login-subtitle" class="text-sm text-slate-400">Sign in to continue</p>
+        <p id="login-subtitle" class="text-sm text-slate-400" data-i18n="login_subtitle">Sign in to continue</p>
       </div>
     </div>
 
     <!-- Login Form -->
     <form id="login-form" class="space-y-4">
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-        <input type="text" id="login-username" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Username" autocomplete="username">
+        <label class="block text-sm font-medium text-slate-300 mb-1" data-i18n="label_username">Username</label>
+        <input type="text" id="login-username" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Username" data-i18n-placeholder="ph_username" autocomplete="username">
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-        <input type="password" id="login-password" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Password" autocomplete="current-password">
+        <label class="block text-sm font-medium text-slate-300 mb-1" data-i18n="label_password">Password</label>
+        <input type="password" id="login-password" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Password" data-i18n-placeholder="ph_password" autocomplete="current-password">
       </div>
       <div id="login-error" class="text-red-400 text-sm hidden"></div>
-      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
+      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors" data-i18n="login_sign_in">
         Sign In
       </button>
       <div id="login-oidc-btn" class="hidden">
-        <div class="flex items-center gap-3 my-2"><div class="flex-1 border-t border-slate-700"></div><span class="text-xs text-slate-500">or</span><div class="flex-1 border-t border-slate-700"></div></div>
-        <a id="oidc-login-link" href="/auth/oidc/login" class="block w-full text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-lg transition-colors">
+        <div class="flex items-center gap-3 my-2"><div class="flex-1 border-t border-slate-700"></div><span class="text-xs text-slate-500" data-i18n="login_or">or</span><div class="flex-1 border-t border-slate-700"></div></div>
+        <a id="oidc-login-link" href="/auth/oidc/login" class="block w-full text-center bg-slate-700 hover:bg-slate-600 text-white font-semibold py-2.5 rounded-lg transition-colors" data-i18n="login_sso">
           Login with SSO
         </a>
       </div>
-      <p id="login-register-link" class="text-center text-sm text-slate-500 hidden">
+      <p id="login-register-link" class="text-center text-sm text-slate-500 hidden" data-i18n-html="login_no_account">
         No account? <a href="#" onclick="showRegisterForm(); return false;" class="text-indigo-400 hover:text-indigo-300">Register</a>
       </p>
     </form>
 
     <!-- TOTP Form (shown after password login when 2FA is enabled) -->
     <form id="totp-form" class="space-y-4 hidden">
-      <p class="text-sm text-slate-400">Enter the 6-digit code from your authenticator app, or a backup code.</p>
+      <p class="text-sm text-slate-400" data-i18n="totp_enter_code">Enter the 6-digit code from your authenticator app, or a backup code.</p>
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-1">TOTP Code</label>
+        <label class="block text-sm font-medium text-slate-300 mb-1" data-i18n="totp_code_label">TOTP Code</label>
         <input type="text" id="totp-code" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-center text-lg tracking-widest" placeholder="000000" autocomplete="one-time-code" maxlength="8">
       </div>
       <div id="totp-error" class="text-red-400 text-sm hidden"></div>
-      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
+      <button type="submit" class="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2.5 rounded-lg transition-colors" data-i18n="totp_verify">
         Verify
       </button>
-      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300">Back to login</a></p>
+      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300" data-i18n="back_to_login">Back to login</a></p>
     </form>
 
     <!-- Register Form -->
     <form id="register-form" class="space-y-4 hidden">
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-1">Username</label>
-        <input type="text" id="register-username" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Choose a username" autocomplete="username">
+        <label class="block text-sm font-medium text-slate-300 mb-1" data-i18n="label_username">Username</label>
+        <input type="text" id="register-username" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Choose a username" data-i18n-placeholder="ph_choose_username" autocomplete="username">
       </div>
       <div>
-        <label class="block text-sm font-medium text-slate-300 mb-1">Password</label>
-        <input type="password" id="register-password" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Min 6 characters" autocomplete="new-password">
+        <label class="block text-sm font-medium text-slate-300 mb-1" data-i18n="label_password">Password</label>
+        <input type="password" id="register-password" class="w-full bg-slate-800 border border-slate-600 rounded-lg px-4 py-2.5 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Min 6 characters" data-i18n-placeholder="ph_min_6_chars" autocomplete="new-password">
       </div>
       <div id="register-error" class="text-red-400 text-sm hidden"></div>
-      <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition-colors">
+      <button type="submit" class="w-full bg-emerald-600 hover:bg-emerald-500 text-white font-semibold py-2.5 rounded-lg transition-colors" data-i18n="create_account">
         Create Account
       </button>
-      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300">Back to login</a></p>
+      <p class="text-center text-sm"><a href="#" onclick="showLoginForm(); return false;" class="text-slate-500 hover:text-slate-300" data-i18n="back_to_login">Back to login</a></p>
     </form>
   </div>
 </div>
@@ -212,7 +216,7 @@ tailwind.config = {
         </div>
         <div>
           <h1 class="text-lg font-bold text-white leading-tight">Librarr</h1>
-          <p class="text-xs text-slate-400 hidden sm:block">Self-hosted book manager</p>
+          <p class="text-xs text-slate-400 hidden sm:block" data-i18n="header_subtitle">Self-hosted book manager</p>
         </div>
       </div>
       <div class="flex items-center gap-2">
@@ -222,10 +226,11 @@ tailwind.config = {
           <span id="header-username"></span>
           <span id="header-role" class="px-1.5 py-0.5 rounded text-xs bg-slate-800 text-slate-500"></span>
         </span>
-        <button onclick="doLogout()" id="logout-btn" class="hidden p-2 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors" title="Sign out">
+        <button onclick="doLogout()" id="logout-btn" class="hidden p-2 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors" data-i18n-title="sign_out" title="Sign out">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
         </button>
-        <button onclick="switchTab('settings')" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" title="Settings">
+        <button onclick="toggleLanguage()" id="lang-toggle" class="p-2 text-xs font-bold text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors">RU</button>
+        <button onclick="switchTab('settings')" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" data-i18n-title="nav_settings" title="Settings">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
         </button>
       </div>
@@ -235,20 +240,20 @@ tailwind.config = {
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
       <nav class="flex gap-1 -mb-px overflow-x-auto" id="main-nav">
         <button onclick="switchTab('search')" class="nav-tab active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="search">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>Search
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><span data-i18n="nav_search">Search</span>
         </button>
         <button onclick="switchTab('library')" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="library">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg>Library
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg><span data-i18n="nav_library">Library</span>
         </button>
         <button onclick="switchTab('downloads')" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap relative" data-tab="downloads">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>Downloads
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg><span data-i18n="nav_downloads">Downloads</span>
           <span id="dl-badge" class="hidden ml-1 px-1.5 py-0.5 text-xs bg-indigo-600 text-white rounded-full"></span>
         </button>
         <button onclick="switchTab('wishlist')" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="wishlist">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>Wishlist
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg><span data-i18n="nav_wishlist">Wishlist</span>
         </button>
         <button onclick="switchTab('settings')" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="settings">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>Settings
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span data-i18n="nav_settings">Settings</span>
         </button>
       </nav>
     </div>
@@ -261,15 +266,15 @@ tailwind.config = {
     <div id="tab-search" class="tab-content active">
       <!-- Sub-tabs -->
       <div class="flex gap-2 mb-4">
-        <button onclick="switchSearchTab('ebooks')" class="sub-tab active px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="ebooks">Ebooks</button>
-        <button onclick="switchSearchTab('audiobooks')" class="sub-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="audiobooks">Audiobooks</button>
-        <button onclick="switchSearchTab('manga')" class="sub-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="manga">Manga</button>
+        <button onclick="switchSearchTab('ebooks')" class="sub-tab active px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="ebooks" data-i18n="tab_ebooks">Ebooks</button>
+        <button onclick="switchSearchTab('audiobooks')" class="sub-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="audiobooks" data-i18n="tab_audiobooks">Audiobooks</button>
+        <button onclick="switchSearchTab('manga')" class="sub-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-stab="manga" data-i18n="tab_manga">Manga</button>
       </div>
 
       <!-- Search Bar -->
       <div class="relative mb-6">
         <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <input type="text" id="search-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-base" placeholder="Search for books...">
+        <input type="text" id="search-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-base" placeholder="Search for books..." data-i18n-placeholder="search_placeholder">
         <div id="search-spinner" class="absolute right-4 top-1/2 -translate-y-1/2 hidden">
           <svg class="w-5 h-5 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
         </div>
@@ -279,9 +284,9 @@ tailwind.config = {
       <div id="search-sort-bar" class="hidden flex items-center justify-between mb-4">
         <span id="search-result-count" class="text-sm text-slate-400"></span>
         <div class="flex gap-2">
-          <button onclick="setSortMode('relevance')" class="sort-btn text-xs px-3 py-1 rounded-md bg-indigo-600 text-white" data-sort="relevance">Relevance</button>
-          <button onclick="setSortMode('seeders')" class="sort-btn text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-400 hover:text-white" data-sort="seeders">Seeders</button>
-          <button onclick="setSortMode('size')" class="sort-btn text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-400 hover:text-white" data-sort="size">Size</button>
+          <button onclick="setSortMode('relevance')" class="sort-btn text-xs px-3 py-1 rounded-md bg-indigo-600 text-white" data-sort="relevance" data-i18n="sort_relevance">Relevance</button>
+          <button onclick="setSortMode('seeders')" class="sort-btn text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-400 hover:text-white" data-sort="seeders" data-i18n="sort_seeders">Seeders</button>
+          <button onclick="setSortMode('size')" class="sort-btn text-xs px-3 py-1 rounded-md bg-slate-800 text-slate-400 hover:text-white" data-sort="size" data-i18n="sort_size">Size</button>
         </div>
       </div>
 
@@ -296,15 +301,15 @@ tailwind.config = {
       <!-- Empty state -->
       <div id="search-empty" class="hidden text-center py-20">
         <svg class="w-16 h-16 mx-auto text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <p class="text-slate-400 text-lg mb-1">Search for your next read</p>
-        <p class="text-slate-600 text-sm">Try searching by title, author, or ISBN</p>
+        <p class="text-slate-400 text-lg mb-1" data-i18n="search_empty_title">Search for your next read</p>
+        <p class="text-slate-600 text-sm" data-i18n="search_empty_hint">Try searching by title, author, or ISBN</p>
       </div>
 
       <!-- No results state -->
       <div id="search-no-results" class="hidden text-center py-20">
         <svg class="w-16 h-16 mx-auto text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M9.172 16.172a4 4 0 015.656 0M9 10h.01M15 10h.01M12 2a10 10 0 110 20 10 10 0 010-20z"/></svg>
-        <p class="text-slate-400 text-lg mb-1">No results found</p>
-        <p class="text-slate-600 text-sm">Try different keywords or check your spelling</p>
+        <p class="text-slate-400 text-lg mb-1" data-i18n="no_results">No results found</p>
+        <p class="text-slate-600 text-sm" data-i18n="no_results_hint">Try different keywords or check your spelling</p>
       </div>
     </div>
 
@@ -312,15 +317,15 @@ tailwind.config = {
     <div id="tab-library" class="tab-content">
       <!-- Sub-tabs -->
       <div class="flex gap-2 mb-4">
-        <button onclick="switchLibraryTab('ebooks')" class="lib-tab active px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="ebooks">Ebooks</button>
-        <button onclick="switchLibraryTab('audiobooks')" class="lib-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="audiobooks">Audiobooks</button>
-        <button onclick="switchLibraryTab('manga')" class="lib-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="manga">Manga</button>
+        <button onclick="switchLibraryTab('ebooks')" class="lib-tab active px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="ebooks" data-i18n="tab_ebooks">Ebooks</button>
+        <button onclick="switchLibraryTab('audiobooks')" class="lib-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="audiobooks" data-i18n="tab_audiobooks">Audiobooks</button>
+        <button onclick="switchLibraryTab('manga')" class="lib-tab px-4 py-1.5 text-sm font-medium rounded-lg bg-slate-800 text-slate-400 hover:text-white transition-colors" data-ltab="manga" data-i18n="tab_manga">Manga</button>
       </div>
 
       <!-- Library search -->
       <div class="relative mb-6">
         <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-        <input type="text" id="library-search" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Filter library...">
+        <input type="text" id="library-search" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500" placeholder="Filter library..." data-i18n-placeholder="library_filter_placeholder">
       </div>
 
       <div id="library-results" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-4"></div>
@@ -331,21 +336,21 @@ tailwind.config = {
       <!-- Library empty -->
       <div id="library-empty" class="hidden text-center py-20">
         <svg class="w-16 h-16 mx-auto text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg>
-        <p class="text-slate-400 text-lg mb-1">Your library is empty</p>
-        <p class="text-slate-600 text-sm">Download some books to get started</p>
+        <p class="text-slate-400 text-lg mb-1" data-i18n="library_empty">Your library is empty</p>
+        <p class="text-slate-600 text-sm" data-i18n="library_empty_hint">Download some books to get started</p>
       </div>
     </div>
 
     <!-- ==================== DOWNLOADS TAB ==================== -->
     <div id="tab-downloads" class="tab-content">
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-lg font-semibold text-white">Downloads</h2>
+        <h2 class="text-lg font-semibold text-white" data-i18n="downloads_title">Downloads</h2>
         <div class="flex gap-2">
           <button onclick="refreshDownloads()" class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors flex items-center gap-1.5">
             <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
-            Refresh
+            <span data-i18n="refresh">Refresh</span>
           </button>
-          <button onclick="clearCompleted()" class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">Clear Completed</button>
+          <button onclick="clearCompleted()" class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors" data-i18n="clear_completed">Clear Completed</button>
         </div>
       </div>
 
@@ -353,34 +358,34 @@ tailwind.config = {
 
       <div id="downloads-empty" class="hidden text-center py-20">
         <svg class="w-16 h-16 mx-auto text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-        <p class="text-slate-400 text-lg mb-1">No active downloads</p>
-        <p class="text-slate-600 text-sm">Search for books and click download to get started</p>
+        <p class="text-slate-400 text-lg mb-1" data-i18n="no_active_downloads">No active downloads</p>
+        <p class="text-slate-600 text-sm" data-i18n="no_downloads_hint">Search for books and click download to get started</p>
       </div>
     </div>
 
     <!-- ==================== WISHLIST TAB ==================== -->
     <div id="tab-wishlist" class="tab-content">
       <div class="flex items-center justify-between mb-6">
-        <h2 class="text-lg font-semibold text-white">Wishlist</h2>
+        <h2 class="text-lg font-semibold text-white" data-i18n="wishlist_title">Wishlist</h2>
         <button onclick="showWishlistForm()" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors flex items-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"/></svg>
-          Add Book
+          <span data-i18n="wishlist_add_book">Add Book</span>
         </button>
       </div>
 
       <!-- Add wishlist form (hidden by default) -->
       <div id="wishlist-form" class="hidden bg-slate-900 border border-slate-700 rounded-xl p-4 mb-6">
         <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
-          <input type="text" id="wl-title" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 sm:col-span-1" placeholder="Title">
-          <input type="text" id="wl-author" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" placeholder="Author (optional)">
+          <input type="text" id="wl-title" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 sm:col-span-1" placeholder="Title" data-i18n-placeholder="ph_wishlist_title">
+          <input type="text" id="wl-author" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500" placeholder="Author (optional)" data-i18n-placeholder="ph_wishlist_author">
           <select id="wl-type" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white focus:outline-none focus:border-indigo-500">
-            <option value="ebook">Ebook</option>
-            <option value="audiobook">Audiobook</option>
-            <option value="manga">Manga</option>
+            <option value="ebook" data-i18n="opt_ebook">Ebook</option>
+            <option value="audiobook" data-i18n="opt_audiobook">Audiobook</option>
+            <option value="manga" data-i18n="opt_manga">Manga</option>
           </select>
           <div class="flex gap-2">
-            <button onclick="addWishlistItem()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg transition-colors">Add</button>
-            <button onclick="hideWishlistForm()" class="px-3 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors">Cancel</button>
+            <button onclick="addWishlistItem()" class="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-medium py-2 rounded-lg transition-colors" data-i18n="add">Add</button>
+            <button onclick="hideWishlistForm()" class="px-3 bg-slate-800 hover:bg-slate-700 text-slate-400 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
           </div>
         </div>
       </div>
@@ -389,52 +394,52 @@ tailwind.config = {
 
       <div id="wishlist-empty" class="hidden text-center py-20">
         <svg class="w-16 h-16 mx-auto text-slate-700 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg>
-        <p class="text-slate-400 text-lg mb-1">Wishlist is empty</p>
-        <p class="text-slate-600 text-sm">Add books you want to find later</p>
+        <p class="text-slate-400 text-lg mb-1" data-i18n="wishlist_empty">Wishlist is empty</p>
+        <p class="text-slate-600 text-sm" data-i18n="wishlist_empty_hint">Add books you want to find later</p>
       </div>
     </div>
 
     <!-- ==================== SETTINGS TAB ==================== -->
     <div id="tab-settings" class="tab-content">
-      <h2 class="text-lg font-semibold text-white mb-6">Settings</h2>
+      <h2 class="text-lg font-semibold text-white mb-6" data-i18n="nav_settings">Settings</h2>
 
       <!-- Two-Factor Authentication -->
       <div id="totp-settings" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 hidden">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Two-Factor Authentication</h3>
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_totp_title">Two-Factor Authentication</h3>
         <div id="totp-status-section">
           <div id="totp-disabled-section">
-            <p class="text-sm text-slate-400 mb-3">Add an extra layer of security with a TOTP authenticator app.</p>
-            <button onclick="setupTOTP()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Enable 2FA</button>
+            <p class="text-sm text-slate-400 mb-3" data-i18n="s_totp_desc">Add an extra layer of security with a TOTP authenticator app.</p>
+            <button onclick="setupTOTP()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="enable_2fa">Enable 2FA</button>
           </div>
           <div id="totp-enabled-section" class="hidden">
-            <p class="text-sm text-emerald-400 mb-3">Two-factor authentication is enabled.</p>
+            <p class="text-sm text-emerald-400 mb-3" data-i18n="totp_enabled_msg">Two-factor authentication is enabled.</p>
             <div class="flex gap-2">
-              <button onclick="showDisableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Disable 2FA</button>
+              <button onclick="showDisableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-i18n="disable_2fa">Disable 2FA</button>
             </div>
           </div>
           <div id="totp-setup-section" class="hidden">
-            <p class="text-sm text-slate-400 mb-3">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+            <p class="text-sm text-slate-400 mb-3" data-i18n="totp_scan_qr">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
             <div class="bg-white p-4 rounded-lg inline-block mb-4">
               <img id="totp-qr-img" class="w-48 h-48" alt="TOTP QR Code">
             </div>
-            <p class="text-xs text-slate-500 mb-2">Or enter this secret manually:</p>
+            <p class="text-xs text-slate-500 mb-2" data-i18n="totp_manual_secret">Or enter this secret manually:</p>
             <code id="totp-secret-display" class="block bg-slate-800 text-indigo-400 px-3 py-2 rounded text-sm mb-4 break-all"></code>
             <div class="bg-slate-800 rounded-lg p-4 mb-4">
-              <p class="text-sm font-medium text-yellow-400 mb-2">Backup Codes (save these somewhere safe!):</p>
+              <p class="text-sm font-medium text-yellow-400 mb-2" data-i18n="totp_backup_codes">Backup Codes (save these somewhere safe!):</p>
               <div id="totp-backup-codes" class="grid grid-cols-2 gap-1 text-sm font-mono text-slate-300"></div>
             </div>
             <div class="flex items-center gap-2">
               <input type="text" id="totp-verify-code" class="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 w-40 text-center tracking-widest" placeholder="000000" maxlength="6">
-              <button onclick="verifyTOTP()" class="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors">Verify &amp; Enable</button>
-              <button onclick="cancelTOTPSetup()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">Cancel</button>
+              <button onclick="verifyTOTP()" class="px-4 py-2 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors" data-i18n="verify_enable">Verify &amp; Enable</button>
+              <button onclick="cancelTOTPSetup()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
             </div>
           </div>
           <div id="totp-disable-section" class="hidden">
-            <p class="text-sm text-slate-400 mb-3">Enter your current TOTP code to disable 2FA:</p>
+            <p class="text-sm text-slate-400 mb-3" data-i18n="totp_disable_desc">Enter your current TOTP code to disable 2FA:</p>
             <div class="flex items-center gap-2">
               <input type="text" id="totp-disable-code" class="bg-slate-800 border border-slate-600 rounded-lg px-4 py-2 text-white placeholder-slate-500 w-40 text-center tracking-widest" placeholder="000000" maxlength="6">
-              <button onclick="disableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors">Confirm Disable</button>
-              <button onclick="cancelDisableTOTP()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors">Cancel</button>
+              <button onclick="disableTOTP()" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-i18n="confirm_disable">Confirm Disable</button>
+              <button onclick="cancelDisableTOTP()" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-300 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
             </div>
           </div>
         </div>
@@ -442,61 +447,61 @@ tailwind.config = {
 
       <!-- User Management (admin only) -->
       <div id="user-management" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6 hidden">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">User Management</h3>
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_user_mgmt_title">User Management</h3>
         <div id="users-list" class="space-y-2 mb-4"></div>
         <div class="border-t border-slate-800 pt-4">
-          <h4 class="text-sm font-medium text-slate-300 mb-3">Add New User</h4>
+          <h4 class="text-sm font-medium text-slate-300 mb-3" data-i18n="add_new_user">Add New User</h4>
           <div class="flex items-end gap-2">
             <div>
-              <label class="block text-xs text-slate-500 mb-1">Username</label>
+              <label class="block text-xs text-slate-500 mb-1" data-i18n="label_username">Username</label>
               <input type="text" id="new-user-name" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36" placeholder="username">
             </div>
             <div>
-              <label class="block text-xs text-slate-500 mb-1">Password</label>
+              <label class="block text-xs text-slate-500 mb-1" data-i18n="label_password">Password</label>
               <input type="password" id="new-user-pass" class="bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white text-sm w-36" placeholder="password">
             </div>
-            <button onclick="addUser()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Add User</button>
+            <button onclick="addUser()" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="add_user_btn">Add User</button>
           </div>
         </div>
       </div>
 
       <!-- Connection Tests -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Connection Tests</h3>
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_connection_tests">Connection Tests</h3>
         <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="connection-tests">
           <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300">Prowlarr</span>
+            <span class="text-sm text-slate-300" data-i18n="conn_prowlarr">Prowlarr</span>
             <div class="flex items-center gap-2">
-              <span id="test-prowlarr-status" class="text-xs text-slate-500">Not tested</span>
-              <button onclick="testConnection('prowlarr')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Test</button>
+              <span id="test-prowlarr-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
+              <button onclick="testConnection('prowlarr')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
           <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300">qBittorrent</span>
+            <span class="text-sm text-slate-300" data-i18n="conn_qbittorrent">qBittorrent</span>
             <div class="flex items-center gap-2">
-              <span id="test-qbittorrent-status" class="text-xs text-slate-500">Not tested</span>
-              <button onclick="testConnection('qbittorrent')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Test</button>
+              <span id="test-qbittorrent-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
+              <button onclick="testConnection('qbittorrent')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
           <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300">SABnzbd</span>
+            <span class="text-sm text-slate-300" data-i18n="conn_sabnzbd">SABnzbd</span>
             <div class="flex items-center gap-2">
-              <span id="test-sabnzbd-status" class="text-xs text-slate-500">Not tested</span>
-              <button onclick="testConnection('sabnzbd')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Test</button>
+              <span id="test-sabnzbd-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
+              <button onclick="testConnection('sabnzbd')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
           <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300">Audiobookshelf</span>
+            <span class="text-sm text-slate-300" data-i18n="conn_audiobookshelf">Audiobookshelf</span>
             <div class="flex items-center gap-2">
-              <span id="test-audiobookshelf-status" class="text-xs text-slate-500">Not tested</span>
-              <button onclick="testConnection('audiobookshelf')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Test</button>
+              <span id="test-audiobookshelf-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
+              <button onclick="testConnection('audiobookshelf')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
           <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300">Kavita</span>
+            <span class="text-sm text-slate-300" data-i18n="conn_kavita">Kavita</span>
             <div class="flex items-center gap-2">
-              <span id="test-kavita-status" class="text-xs text-slate-500">Not tested</span>
-              <button onclick="testConnection('kavita')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Test</button>
+              <span id="test-kavita-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
+              <button onclick="testConnection('kavita')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
         </div>
@@ -504,15 +509,15 @@ tailwind.config = {
 
       <!-- Sources -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Search Sources</h3>
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_search_sources">Search Sources</h3>
         <div id="sources-list" class="space-y-2"></div>
-        <div id="sources-loading" class="text-center py-4 text-slate-500 text-sm">Loading sources...</div>
+        <div id="sources-loading" class="text-center py-4 text-slate-500 text-sm" data-i18n="loading_sources">Loading sources...</div>
       </div>
 
       <!-- Config Info -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Configuration</h3>
-        <div id="config-info" class="space-y-2 text-sm text-slate-400">Loading...</div>
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_configuration">Configuration</h3>
+        <div id="config-info" class="space-y-2 text-sm text-slate-400" data-i18n="loading">Loading...</div>
       </div>
     </div>
 
@@ -520,6 +525,427 @@ tailwind.config = {
 </div>
 
 <script>
+// ============================================================
+// I18N (INTERNATIONALIZATION)
+// ============================================================
+let currentLang = localStorage.getItem('librarr_lang') || 'en';
+
+const I18N = {
+  en: {
+    // Navigation
+    nav_search: 'Search',
+    nav_library: 'Library',
+    nav_downloads: 'Downloads',
+    nav_wishlist: 'Wishlist',
+    nav_settings: 'Settings',
+    sign_out: 'Sign out',
+    // Header
+    header_subtitle: 'Self-hosted book manager',
+    // Login modal
+    login_subtitle: 'Sign in to continue',
+    login_sign_in: 'Sign In',
+    login_or: 'or',
+    login_sso: 'Login with SSO',
+    login_with: 'Login with {provider}',
+    login_no_account: 'No account? <a href="#" onclick="showRegisterForm(); return false;" class="text-indigo-400 hover:text-indigo-300">Register</a>',
+    create_admin_account: 'Create your admin account',
+    create_your_account: 'Create your account',
+    create_account: 'Create Account',
+    back_to_login: 'Back to login',
+    // Labels
+    label_username: 'Username',
+    label_password: 'Password',
+    // Placeholders
+    ph_username: 'Username',
+    ph_password: 'Password',
+    ph_choose_username: 'Choose a username',
+    ph_min_6_chars: 'Min 6 characters',
+    // TOTP
+    totp_enter_code: 'Enter the 6-digit code from your authenticator app, or a backup code.',
+    totp_code_label: 'TOTP Code',
+    totp_verify: 'Verify',
+    s_totp_title: 'Two-Factor Authentication',
+    s_totp_desc: 'Add an extra layer of security with a TOTP authenticator app.',
+    enable_2fa: 'Enable 2FA',
+    disable_2fa: 'Disable 2FA',
+    totp_enabled_msg: 'Two-factor authentication is enabled.',
+    totp_scan_qr: 'Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)',
+    totp_manual_secret: 'Or enter this secret manually:',
+    totp_backup_codes: 'Backup Codes (save these somewhere safe!):',
+    verify_enable: 'Verify & Enable',
+    confirm_disable: 'Confirm Disable',
+    totp_disable_desc: 'Enter your current TOTP code to disable 2FA:',
+    // Search
+    tab_ebooks: 'Ebooks',
+    tab_audiobooks: 'Audiobooks',
+    tab_manga: 'Manga',
+    search_placeholder: 'Search for books...',
+    search_placeholder_ab: 'Search for audiobooks...',
+    search_placeholder_manga: 'Search for manga...',
+    sort_relevance: 'Relevance',
+    sort_seeders: 'Seeders',
+    sort_size: 'Size',
+    n_results: '{n} results',
+    search_empty_title: 'Search for your next read',
+    search_empty_hint: 'Try searching by title, author, or ISBN',
+    no_results: 'No results found',
+    no_results_hint: 'Try different keywords or check your spelling',
+    download: 'Download',
+    search_failed: 'Search failed: {msg}',
+    n_seeds: '{n} seed',
+    n_leech: '{n} leech',
+    // Library
+    library_filter_placeholder: 'Filter library...',
+    library_empty: 'Your library is empty',
+    library_empty_hint: 'Download some books to get started',
+    failed_load_library: 'Failed to load library',
+    other: 'Other',
+    n_items: '{n} items',
+    n_files: '{n} files',
+    n_pages: '{n} pages',
+    open_in_abs: 'Open in Audiobookshelf',
+    open_in_kavita: 'Open in Kavita',
+    prev: 'Prev',
+    next: 'Next',
+    // Downloads
+    downloads_title: 'Downloads',
+    refresh: 'Refresh',
+    clear_completed: 'Clear Completed',
+    no_active_downloads: 'No active downloads',
+    no_downloads_hint: 'Search for books and click download to get started',
+    failed_load_downloads: 'Failed to load downloads',
+    retry: 'Retry',
+    // Status
+    status_downloading: 'Downloading',
+    status_completed: 'Completed',
+    status_error: 'Error',
+    status_organizing: 'Organizing',
+    status_dead_letter: 'Dead Letter',
+    status_queued: 'Queued',
+    status_searching: 'Searching',
+    status_importing: 'Importing',
+    // Download actions
+    download_started: 'Download started: {title}',
+    download_failed: 'Download failed: {msg}',
+    unknown_error: 'Unknown error',
+    retrying_download: 'Retrying download',
+    retry_failed: 'Retry failed',
+    cleared_completed: 'Cleared completed downloads',
+    failed_clear: 'Failed to clear',
+    // Wishlist
+    wishlist_title: 'Wishlist',
+    wishlist_add_book: 'Add Book',
+    ph_wishlist_title: 'Title',
+    ph_wishlist_author: 'Author (optional)',
+    opt_ebook: 'Ebook',
+    opt_audiobook: 'Audiobook',
+    opt_manga: 'Manga',
+    add: 'Add',
+    cancel: 'Cancel',
+    wishlist_empty: 'Wishlist is empty',
+    wishlist_empty_hint: 'Add books you want to find later',
+    wishlist_search: 'Search',
+    failed_load_wishlist: 'Failed to load wishlist',
+    err_title_required: 'Title is required',
+    added_to_wishlist: 'Added to wishlist',
+    failed_add_wishlist: 'Failed to add to wishlist',
+    removed_from_wishlist: 'Removed from wishlist',
+    failed_delete: 'Failed to delete',
+    // Settings
+    s_user_mgmt_title: 'User Management',
+    add_new_user: 'Add New User',
+    add_user_btn: 'Add User',
+    role_user: 'User',
+    role_admin: 'Admin',
+    last_login: 'Last login: {date}',
+    never: 'Never',
+    confirm_delete_user: 'Delete user "{username}"? This cannot be undone.',
+    s_connection_tests: 'Connection Tests',
+    conn_prowlarr: 'Prowlarr',
+    conn_qbittorrent: 'qBittorrent',
+    conn_sabnzbd: 'SABnzbd',
+    conn_audiobookshelf: 'Audiobookshelf',
+    conn_kavita: 'Kavita',
+    not_tested: 'Not tested',
+    btn_test: 'Test',
+    s_search_sources: 'Search Sources',
+    loading_sources: 'Loading sources...',
+    s_configuration: 'Configuration',
+    loading: 'Loading...',
+    not_configured: 'Not configured',
+    no_config_data: 'No configuration data available',
+    failed_load_config: 'Failed to load configuration',
+    no_sources: 'No sources configured',
+    enabled: 'Enabled',
+    disabled: 'Disabled',
+    failed_load_sources: 'Failed to load sources',
+    testing: 'Testing...',
+    connected: 'Connected',
+    conn_error: 'Error',
+    // TOTP settings toasts
+    failed_setup_totp: 'Failed to setup TOTP',
+    enter_6digit_code: 'Enter the 6-digit code from your app',
+    totp_enabled_success: 'Two-factor authentication enabled',
+    verification_failed: 'Verification failed',
+    enter_totp_code: 'Enter your current TOTP code',
+    totp_disabled_success: 'Two-factor authentication disabled',
+    failed_disable_totp: 'Failed to disable TOTP',
+    // User management toasts
+    user_role_updated: 'User role updated',
+    failed_update_role: 'Failed to update role',
+    user_deleted: 'User deleted',
+    failed_delete_user: 'Failed to delete user',
+    user_created: 'User created',
+    failed_create_user: 'Failed to create user',
+    // Auth
+    signed_in: 'Signed in successfully',
+    admin_created: 'Admin account created. Welcome!',
+    account_created: 'Account created. Please sign in.',
+    signed_out: 'Signed out',
+    err_credentials_required: 'Username and password are required',
+    err_invalid_credentials: 'Invalid credentials',
+    err_connection: 'Connection error',
+    err_code_required: 'Code is required',
+    err_invalid_code: 'Invalid code',
+    backup_code_used: 'Backup code used. Consider generating new ones.',
+    registration_failed: 'Registration failed',
+    // Stats
+    n_items_in_library: '{n} items in library',
+  },
+  ru: {
+    // Navigation
+    nav_search: 'Поиск',
+    nav_library: 'Библиотека',
+    nav_downloads: 'Загрузки',
+    nav_wishlist: 'Желаемое',
+    nav_settings: 'Настройки',
+    sign_out: 'Выйти',
+    // Header
+    header_subtitle: 'Менеджер книг для самохостинга',
+    // Login modal
+    login_subtitle: 'Войдите для продолжения',
+    login_sign_in: 'Войти',
+    login_or: 'или',
+    login_sso: 'Войти через SSO',
+    login_with: 'Войти через {provider}',
+    login_no_account: 'Нет аккаунта? <a href="#" onclick="showRegisterForm(); return false;" class="text-indigo-400 hover:text-indigo-300">Регистрация</a>',
+    create_admin_account: 'Создайте аккаунт администратора',
+    create_your_account: 'Создайте аккаунт',
+    create_account: 'Создать аккаунт',
+    back_to_login: 'Назад к входу',
+    // Labels
+    label_username: 'Логин',
+    label_password: 'Пароль',
+    // Placeholders
+    ph_username: 'Логин',
+    ph_password: 'Пароль',
+    ph_choose_username: 'Выберите логин',
+    ph_min_6_chars: 'Минимум 6 символов',
+    // TOTP
+    totp_enter_code: 'Введите 6-значный код из приложения-аутентификатора или резервный код.',
+    totp_code_label: 'TOTP код',
+    totp_verify: 'Проверить',
+    s_totp_title: 'Двухфакторная аутентификация',
+    s_totp_desc: 'Добавьте дополнительный уровень защиты с помощью TOTP-приложения.',
+    enable_2fa: 'Включить 2FA',
+    disable_2fa: 'Отключить 2FA',
+    totp_enabled_msg: 'Двухфакторная аутентификация включена.',
+    totp_scan_qr: 'Отсканируйте QR-код приложением-аутентификатором (Google Authenticator, Authy и т.д.)',
+    totp_manual_secret: 'Или введите секрет вручную:',
+    totp_backup_codes: 'Резервные коды (сохраните в безопасном месте!):',
+    verify_enable: 'Проверить и включить',
+    confirm_disable: 'Подтвердить отключение',
+    totp_disable_desc: 'Введите текущий TOTP-код для отключения 2FA:',
+    // Search
+    tab_ebooks: 'Книги',
+    tab_audiobooks: 'Аудиокниги',
+    tab_manga: 'Манга',
+    search_placeholder: 'Поиск книг...',
+    search_placeholder_ab: 'Поиск аудиокниг...',
+    search_placeholder_manga: 'Поиск манги...',
+    sort_relevance: 'Релевантность',
+    sort_seeders: 'Сидеры',
+    sort_size: 'Размер',
+    n_results: '{n} результатов',
+    search_empty_title: 'Найдите следующую книгу для чтения',
+    search_empty_hint: 'Попробуйте искать по названию, автору или ISBN',
+    no_results: 'Ничего не найдено',
+    no_results_hint: 'Попробуйте другие ключевые слова или проверьте написание',
+    download: 'Скачать',
+    search_failed: 'Ошибка поиска: {msg}',
+    n_seeds: '{n} сид.',
+    n_leech: '{n} лич.',
+    // Library
+    library_filter_placeholder: 'Фильтр библиотеки...',
+    library_empty: 'Ваша библиотека пуста',
+    library_empty_hint: 'Скачайте несколько книг для начала',
+    failed_load_library: 'Не удалось загрузить библиотеку',
+    other: 'Другое',
+    n_items: '{n} элементов',
+    n_files: '{n} файлов',
+    n_pages: '{n} страниц',
+    open_in_abs: 'Открыть в Audiobookshelf',
+    open_in_kavita: 'Открыть в Kavita',
+    prev: 'Назад',
+    next: 'Далее',
+    // Downloads
+    downloads_title: 'Загрузки',
+    refresh: 'Обновить',
+    clear_completed: 'Очистить завершённые',
+    no_active_downloads: 'Нет активных загрузок',
+    no_downloads_hint: 'Найдите книги и нажмите «Скачать» для начала',
+    failed_load_downloads: 'Не удалось загрузить список загрузок',
+    retry: 'Повторить',
+    // Status
+    status_downloading: 'Загрузка',
+    status_completed: 'Завершено',
+    status_error: 'Ошибка',
+    status_organizing: 'Организация',
+    status_dead_letter: 'Dead Letter',
+    status_queued: 'В очереди',
+    status_searching: 'Поиск',
+    status_importing: 'Импорт',
+    // Download actions
+    download_started: 'Загрузка начата: {title}',
+    download_failed: 'Ошибка загрузки: {msg}',
+    unknown_error: 'Неизвестная ошибка',
+    retrying_download: 'Повтор загрузки',
+    retry_failed: 'Ошибка повтора',
+    cleared_completed: 'Завершённые загрузки очищены',
+    failed_clear: 'Не удалось очистить',
+    // Wishlist
+    wishlist_title: 'Список желаемого',
+    wishlist_add_book: 'Добавить книгу',
+    ph_wishlist_title: 'Название',
+    ph_wishlist_author: 'Автор (необязательно)',
+    opt_ebook: 'Книга',
+    opt_audiobook: 'Аудиокнига',
+    opt_manga: 'Манга',
+    add: 'Добавить',
+    cancel: 'Отмена',
+    wishlist_empty: 'Список желаемого пуст',
+    wishlist_empty_hint: 'Добавьте книги, которые хотите найти позже',
+    wishlist_search: 'Найти',
+    failed_load_wishlist: 'Не удалось загрузить список желаемого',
+    err_title_required: 'Требуется название',
+    added_to_wishlist: 'Добавлено в список желаемого',
+    failed_add_wishlist: 'Не удалось добавить в список желаемого',
+    removed_from_wishlist: 'Удалено из списка желаемого',
+    failed_delete: 'Не удалось удалить',
+    // Settings
+    s_user_mgmt_title: 'Управление пользователями',
+    add_new_user: 'Добавить пользователя',
+    add_user_btn: 'Добавить',
+    role_user: 'Пользователь',
+    role_admin: 'Админ',
+    last_login: 'Последний вход: {date}',
+    never: 'Никогда',
+    confirm_delete_user: 'Удалить пользователя «{username}»? Это нельзя отменить.',
+    s_connection_tests: 'Проверка подключений',
+    conn_prowlarr: 'Prowlarr',
+    conn_qbittorrent: 'qBittorrent',
+    conn_sabnzbd: 'SABnzbd',
+    conn_audiobookshelf: 'Audiobookshelf',
+    conn_kavita: 'Kavita',
+    not_tested: 'Не проверено',
+    btn_test: 'Проверить',
+    s_search_sources: 'Источники поиска',
+    loading_sources: 'Загрузка источников...',
+    s_configuration: 'Конфигурация',
+    loading: 'Загрузка...',
+    not_configured: 'Не настроено',
+    no_config_data: 'Нет данных конфигурации',
+    failed_load_config: 'Не удалось загрузить конфигурацию',
+    no_sources: 'Нет настроенных источников',
+    enabled: 'Включено',
+    disabled: 'Отключено',
+    failed_load_sources: 'Не удалось загрузить источники',
+    testing: 'Проверка...',
+    connected: 'Подключено',
+    conn_error: 'Ошибка',
+    // TOTP settings toasts
+    failed_setup_totp: 'Не удалось настроить TOTP',
+    enter_6digit_code: 'Введите 6-значный код из приложения',
+    totp_enabled_success: 'Двухфакторная аутентификация включена',
+    verification_failed: 'Ошибка проверки',
+    enter_totp_code: 'Введите текущий TOTP-код',
+    totp_disabled_success: 'Двухфакторная аутентификация отключена',
+    failed_disable_totp: 'Не удалось отключить TOTP',
+    // User management toasts
+    user_role_updated: 'Роль пользователя обновлена',
+    failed_update_role: 'Не удалось обновить роль',
+    user_deleted: 'Пользователь удалён',
+    failed_delete_user: 'Не удалось удалить пользователя',
+    user_created: 'Пользователь создан',
+    failed_create_user: 'Не удалось создать пользователя',
+    // Auth
+    signed_in: 'Успешный вход',
+    admin_created: 'Аккаунт администратора создан. Добро пожаловать!',
+    account_created: 'Аккаунт создан. Пожалуйста, войдите.',
+    signed_out: 'Вы вышли',
+    err_credentials_required: 'Требуется логин и пароль',
+    err_invalid_credentials: 'Неверные учётные данные',
+    err_connection: 'Ошибка соединения',
+    err_code_required: 'Требуется код',
+    err_invalid_code: 'Неверный код',
+    backup_code_used: 'Использован резервный код. Рекомендуется создать новые.',
+    registration_failed: 'Ошибка регистрации',
+    // Stats
+    n_items_in_library: '{n} элементов в библиотеке',
+  }
+};
+
+function t(key, vars) {
+  const pack = I18N[currentLang] || I18N.en;
+  let value = pack[key] !== undefined ? pack[key] : (I18N.en[key] !== undefined ? I18N.en[key] : key);
+  if (vars) {
+    Object.keys(vars).forEach(k => {
+      value = value.replaceAll('{' + k + '}', String(vars[k]));
+    });
+  }
+  return value;
+}
+
+function applyLanguage() {
+  document.documentElement.lang = currentLang;
+  // textContent for data-i18n
+  document.querySelectorAll('[data-i18n]').forEach(el => {
+    el.textContent = t(el.dataset.i18n);
+  });
+  // innerHTML for data-i18n-html
+  document.querySelectorAll('[data-i18n-html]').forEach(el => {
+    el.innerHTML = t(el.dataset.i18nHtml);
+  });
+  // placeholder for data-i18n-placeholder
+  document.querySelectorAll('[data-i18n-placeholder]').forEach(el => {
+    el.placeholder = t(el.dataset.i18nPlaceholder);
+  });
+  // title for data-i18n-title
+  document.querySelectorAll('[data-i18n-title]').forEach(el => {
+    el.title = t(el.dataset.i18nTitle);
+  });
+  // Language toggle button
+  const langBtn = document.getElementById('lang-toggle');
+  if (langBtn) langBtn.textContent = currentLang === 'ru' ? 'EN' : 'RU';
+  // Refresh dynamic content
+  refreshDynamicContent();
+}
+
+function toggleLanguage() {
+  currentLang = currentLang === 'ru' ? 'en' : 'ru';
+  localStorage.setItem('librarr_lang', currentLang);
+  applyLanguage();
+}
+
+function refreshDynamicContent() {
+  if (state.searchResults.length > 0) renderSearchResults();
+  if (state.currentTab === 'downloads') refreshDownloads();
+  if (state.currentTab === 'library') loadLibrary();
+  if (state.currentTab === 'wishlist') loadWishlist();
+  if (state.currentTab === 'settings') loadSettings();
+  loadStats();
+}
+
 // ============================================================
 // STATE
 // ============================================================
@@ -667,10 +1093,10 @@ function showLoginModal() {
     const regLink = document.getElementById('login-register-link');
     if (!data.has_users) {
       regLink.classList.remove('hidden');
-      document.getElementById('login-subtitle').textContent = 'Create your admin account';
+      document.getElementById('login-subtitle').textContent = t('create_admin_account');
     } else {
       regLink.classList.add('hidden');
-      document.getElementById('login-subtitle').textContent = 'Sign in to continue';
+      document.getElementById('login-subtitle').textContent = t('login_subtitle');
     }
   }).catch(() => {});
 
@@ -678,7 +1104,7 @@ function showLoginModal() {
   fetch('/api/config', { credentials: 'include' }).then(r => r.json()).then(data => {
     if (data.oidc_enabled) {
       document.getElementById('login-oidc-btn').classList.remove('hidden');
-      document.getElementById('oidc-login-link').textContent = 'Login with ' + (data.oidc_provider_name || 'SSO');
+      document.getElementById('oidc-login-link').textContent = t('login_with', {provider: data.oidc_provider_name || 'SSO'});
     }
   }).catch(() => {});
 }
@@ -699,7 +1125,7 @@ function showRegisterForm() {
   document.getElementById('login-form').classList.add('hidden');
   document.getElementById('totp-form').classList.add('hidden');
   document.getElementById('register-form').classList.remove('hidden');
-  document.getElementById('login-subtitle').textContent = 'Create your account';
+  document.getElementById('login-subtitle').textContent = t('create_your_account');
   document.getElementById('register-username').focus();
 }
 
@@ -707,7 +1133,7 @@ function showTOTPForm() {
   document.getElementById('login-form').classList.add('hidden');
   document.getElementById('register-form').classList.add('hidden');
   document.getElementById('totp-form').classList.remove('hidden');
-  document.getElementById('login-subtitle').textContent = 'Two-factor authentication';
+  document.getElementById('login-subtitle').textContent = t('s_totp_title');
   document.getElementById('totp-code').focus();
 }
 
@@ -720,7 +1146,7 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
   const password = document.getElementById('login-password').value;
 
   if (!username || !password) {
-    errEl.textContent = 'Username and password are required';
+    errEl.textContent = t('err_credentials_required');
     errEl.classList.remove('hidden');
     return;
   }
@@ -744,13 +1170,13 @@ document.getElementById('login-form').addEventListener('submit', async (e) => {
       hideLoginModal();
       updateUserHeader(data.username, data.role);
       init();
-      showToast('Signed in successfully', 'success');
+      showToast(t('signed_in'), 'success');
     } else {
-      errEl.textContent = data.error || 'Invalid credentials';
+      errEl.textContent = data.error || t('err_invalid_credentials');
       errEl.classList.remove('hidden');
     }
   } catch (err) {
-    errEl.textContent = 'Connection error';
+    errEl.textContent = t('err_connection');
     errEl.classList.remove('hidden');
   }
 });
@@ -762,7 +1188,7 @@ document.getElementById('totp-form').addEventListener('submit', async (e) => {
 
   const code = document.getElementById('totp-code').value.trim();
   if (!code) {
-    errEl.textContent = 'Code is required';
+    errEl.textContent = t('err_code_required');
     errEl.classList.remove('hidden');
     return;
   }
@@ -780,14 +1206,14 @@ document.getElementById('totp-form').addEventListener('submit', async (e) => {
       hideLoginModal();
       updateUserHeader(data.username, data.role);
       init();
-      showToast('Signed in successfully', 'success');
-      if (data.backup_code_used) showToast('Backup code used. Consider generating new ones.', 'warning');
+      showToast(t('signed_in'), 'success');
+      if (data.backup_code_used) showToast(t('backup_code_used'), 'warning');
     } else {
-      errEl.textContent = data.error || 'Invalid code';
+      errEl.textContent = data.error || t('err_invalid_code');
       errEl.classList.remove('hidden');
     }
   } catch (err) {
-    errEl.textContent = 'Connection error';
+    errEl.textContent = t('err_connection');
     errEl.classList.remove('hidden');
   }
 });
@@ -801,7 +1227,7 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
   const password = document.getElementById('register-password').value;
 
   if (!username || !password) {
-    errEl.textContent = 'Username and password are required';
+    errEl.textContent = t('err_credentials_required');
     errEl.classList.remove('hidden');
     return;
   }
@@ -821,17 +1247,17 @@ document.getElementById('register-form').addEventListener('submit', async (e) =>
         hideLoginModal();
         updateUserHeader(data.username, data.role);
         init();
-        showToast('Admin account created. Welcome!', 'success');
+        showToast(t('admin_created'), 'success');
       } else {
         showLoginForm();
-        showToast('Account created. Please sign in.', 'success');
+        showToast(t('account_created'), 'success');
       }
     } else {
-      errEl.textContent = data.error || 'Registration failed';
+      errEl.textContent = data.error || t('registration_failed');
       errEl.classList.remove('hidden');
     }
   } catch (err) {
-    errEl.textContent = 'Connection error';
+    errEl.textContent = t('err_connection');
     errEl.classList.remove('hidden');
   }
 });
@@ -859,7 +1285,7 @@ async function doLogout() {
   } catch (e) {}
   updateUserHeader(null, null);
   showLoginModal();
-  showToast('Signed out', 'info');
+  showToast(t('signed_out'), 'info');
 }
 
 // ============================================================
@@ -913,7 +1339,7 @@ function switchSearchTab(tab) {
   state.searchResults = [];
 
   // Update placeholder
-  const placeholders = { ebooks: 'Search for books...', audiobooks: 'Search for audiobooks...', manga: 'Search for manga...' };
+  const placeholders = { ebooks: t('search_placeholder'), audiobooks: t('search_placeholder_ab'), manga: t('search_placeholder_manga') };
   document.getElementById('search-input').placeholder = placeholders[tab] || 'Search...';
   document.getElementById('search-input').value = '';
 }
@@ -969,14 +1395,14 @@ async function doSearch(query) {
       document.getElementById('search-sort-bar').classList.add('hidden');
     } else {
       document.getElementById('search-sort-bar').classList.remove('hidden');
-      document.getElementById('search-result-count').textContent = `${state.searchResults.length} results`;
+      document.getElementById('search-result-count').textContent = t('n_results', {n: state.searchResults.length});
       renderSearchResults();
     }
   } catch (err) {
     document.getElementById('search-spinner').classList.add('hidden');
     hideSearchSkeleton();
     if (err.message !== 'Unauthorized') {
-      showToast('Search failed: ' + err.message, 'error');
+      showToast(t('search_failed', {msg: err.message}), 'error');
     }
   }
 }
@@ -1045,8 +1471,8 @@ function renderBookCard(result, index) {
     ? `<img src="${escapeHtml(result.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" onerror="this.outerHTML=makePlaceholder('${escapeHtml(result.title || '')}', ${index})">`
     : makePlaceholderHtml(result.title || '?', index);
 
-  const seeders = result.seeders ? `<span class="text-emerald-400 text-xs font-medium">${result.seeders} seed${result.seeders !== 1 ? 's' : ''}</span>` : '';
-  const leechers = result.leechers ? `<span class="text-amber-400 text-xs">${result.leechers} leech</span>` : '';
+  const seeders = result.seeders ? `<span class="text-emerald-400 text-xs font-medium">${t('n_seeds', {n: result.seeders})}</span>` : '';
+  const leechers = result.leechers ? `<span class="text-amber-400 text-xs">${t('n_leech', {n: result.leechers})}</span>` : '';
   const sizeText = (result.size && result.size > 0) ? formatSize(result.size) : (result.size_human || result.sizeHuman || '');
   const size = sizeText ? `<span class="text-slate-400 text-xs font-medium">${escapeHtml(sizeText)}</span>` : '';
   const format = result.format ? `<span class="text-slate-500 text-xs uppercase">${escapeHtml(result.format)}</span>` : '';
@@ -1066,7 +1492,7 @@ function renderBookCard(result, index) {
         </div>
         <button onclick='startDownload(${JSON.stringify(result).replace(/'/g, "&#39;")})' class="w-full bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5">
           <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
-          Download
+          ${t('download')}
         </button>
       </div>
     </div>
@@ -1118,13 +1544,13 @@ async function startDownload(result) {
     });
 
     if (data.success || data.job_id) {
-      showToast(`Download started: ${result.title}`, 'success');
+      showToast(t('download_started', {title: result.title}), 'success');
     } else {
-      showToast(`Download failed: ${data.error || 'Unknown error'}`, 'error');
+      showToast(t('download_failed', {msg: data.error || t('unknown_error')}), 'error');
     }
   } catch (err) {
     if (err.message !== 'Unauthorized') {
-      showToast('Download failed: ' + err.message, 'error');
+      showToast(t('download_failed', {msg: err.message}), 'error');
     }
   }
 }
@@ -1156,7 +1582,7 @@ async function refreshDownloads() {
     container.innerHTML = jobs.map(renderDownloadJob).join('');
   } catch (err) {
     if (err.message !== 'Unauthorized') {
-      showToast('Failed to load downloads', 'error');
+      showToast(t('failed_load_downloads'), 'error');
     }
   }
 }
@@ -1168,14 +1594,14 @@ function renderDownloadJob(job) {
 
   let actions = '';
   if (job.status === 'error' || job.status === 'dead_letter') {
-    actions = `<button onclick="retryDownload('${escapeHtml(job.job_id)}')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">Retry</button>`;
+    actions = `<button onclick="retryDownload('${escapeHtml(job.job_id)}')" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors">${t('retry')}</button>`;
   }
 
   return `
     <div class="bg-slate-900 border ${st.border} rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 mb-1">
-          <span class="px-2 py-0.5 rounded text-xs font-medium ${st.bg} ${st.text}">${st.label}</span>
+          <span class="px-2 py-0.5 rounded text-xs font-medium ${st.bg} ${st.text}">${t('status_' + job.status)}</span>
           ${job.source ? `<span class="text-xs text-slate-500">${escapeHtml(job.source)}</span>` : ''}
         </div>
         <h4 class="text-sm font-medium text-white truncate" title="${escapeHtml(job.title || '')}">${escapeHtml(job.title || 'Unknown')}</h4>
@@ -1198,20 +1624,20 @@ function renderDownloadJob(job) {
 async function retryDownload(jobId) {
   try {
     await apiJson(`/api/downloads/jobs/${jobId}/retry`, { method: 'POST' });
-    showToast('Retrying download', 'info');
+    showToast(t('retrying_download'), 'info');
     refreshDownloads();
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast('Retry failed', 'error');
+    if (err.message !== 'Unauthorized') showToast(t('retry_failed'), 'error');
   }
 }
 
 async function clearCompleted() {
   try {
     await apiJson('/api/downloads/clear', { method: 'POST' });
-    showToast('Cleared completed downloads', 'success');
+    showToast(t('cleared_completed'), 'success');
     refreshDownloads();
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast('Failed to clear', 'error');
+    if (err.message !== 'Unauthorized') showToast(t('failed_clear'), 'error');
   }
 }
 
@@ -1280,7 +1706,7 @@ async function loadLibrary() {
     }
   } catch (err) {
     if (err.message !== 'Unauthorized') {
-      container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-500">Failed to load library</div>`;
+      container.innerHTML = `<div class="col-span-full text-center py-10 text-slate-500">${t('failed_load_library')}</div>`;
     }
   }
 }
@@ -1320,7 +1746,7 @@ function renderGroupedBySeries(items, renderFn) {
       html += `<div class="col-span-full mt-4 mb-2 first:mt-0">
         <div class="flex items-center gap-3">
           <h3 class="text-sm font-semibold text-indigo-400">${escapeHtml(series)}</h3>
-          <span class="text-xs text-slate-600">${groupItems.length} items</span>
+          <span class="text-xs text-slate-600">${t('n_items', {n: groupItems.length})}</span>
           <div class="flex-1 border-t border-slate-800"></div>
         </div>
       </div>`;
@@ -1338,7 +1764,7 @@ function renderGroupedBySeries(items, renderFn) {
   if (standalone.length > 0 && groups.size > 0) {
     html += `<div class="col-span-full mt-4 mb-2">
       <div class="flex items-center gap-3">
-        <h3 class="text-sm font-semibold text-slate-500">Other</h3>
+        <h3 class="text-sm font-semibold text-slate-500">${t('other')}</h3>
         <div class="flex-1 border-t border-slate-800"></div>
       </div>
     </div>`;
@@ -1391,9 +1817,9 @@ function renderLibraryAudiobook(item, index) {
         ${item.series ? `<p class="text-xs text-indigo-400 line-clamp-1 mb-1">${escapeHtml(item.series)}</p>` : ''}
         <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
           ${duration ? `<span>${duration}</span>` : ''}
-          ${item.num_files ? `<span>${item.num_files} files</span>` : ''}
+          ${item.num_files ? `<span>${t('n_files', {n: item.num_files})}</span>` : ''}
         </div>
-        ${item.abs_url ? `<a href="${escapeHtml(item.abs_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Open in Audiobookshelf</a>` : ''}
+        ${item.abs_url ? `<a href="${escapeHtml(item.abs_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">${t('open_in_abs')}</a>` : ''}
       </div>
     </div>
   `;
@@ -1410,10 +1836,10 @@ function renderLibraryManga(item, index) {
       <div class="p-3">
         <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1">${escapeHtml(item.name || 'Unknown')}</h3>
         <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
-          ${item.pages ? `<span>${item.pages} pages</span>` : ''}
+          ${item.pages ? `<span>${t('n_pages', {n: item.pages})}</span>` : ''}
           ${item.library ? `<span>${escapeHtml(item.library)}</span>` : ''}
         </div>
-        ${item.kavita_url ? `<a href="${escapeHtml(item.kavita_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">Open in Kavita</a>` : ''}
+        ${item.kavita_url ? `<a href="${escapeHtml(item.kavita_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">${t('open_in_kavita')}</a>` : ''}
       </div>
     </div>
   `;
@@ -1423,7 +1849,7 @@ function renderPagination(container, currentPage, totalPages) {
   let html = '';
 
   // Previous
-  html += `<button onclick="goLibraryPage(${currentPage - 1})" class="px-3 py-1.5 text-sm rounded-lg ${currentPage <= 1 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}" ${currentPage <= 1 ? 'disabled' : ''}>Prev</button>`;
+  html += `<button onclick="goLibraryPage(${currentPage - 1})" class="px-3 py-1.5 text-sm rounded-lg ${currentPage <= 1 ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}" ${currentPage <= 1 ? 'disabled' : ''}>${t('prev')}</button>`;
 
   // Page numbers
   const maxVisible = 7;
@@ -1446,7 +1872,7 @@ function renderPagination(container, currentPage, totalPages) {
   }
 
   // Next
-  html += `<button onclick="goLibraryPage(${currentPage + 1})" class="px-3 py-1.5 text-sm rounded-lg ${currentPage >= totalPages ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}" ${currentPage >= totalPages ? 'disabled' : ''}>Next</button>`;
+  html += `<button onclick="goLibraryPage(${currentPage + 1})" class="px-3 py-1.5 text-sm rounded-lg ${currentPage >= totalPages ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 hover:bg-slate-700 text-slate-300'}" ${currentPage >= totalPages ? 'disabled' : ''}>${t('next')}</button>`;
 
   container.innerHTML = html;
 }
@@ -1478,7 +1904,7 @@ async function loadWishlist() {
     container.innerHTML = items.map(renderWishlistItem).join('');
   } catch (err) {
     if (err.message !== 'Unauthorized') {
-      showToast('Failed to load wishlist', 'error');
+      showToast(t('failed_load_wishlist'), 'error');
     }
   }
 }
@@ -1499,7 +1925,7 @@ function renderWishlistItem(item) {
         ${item.author ? `<p class="text-xs text-slate-400">${escapeHtml(item.author)}</p>` : ''}
       </div>
       <div class="flex items-center gap-2 flex-shrink-0">
-        <button onclick="searchWishlistItem('${escapeJs(item.title)}', '${escapeJs(item.media_type || 'ebook')}')" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors" title="Search for this item">Search</button>
+        <button onclick="searchWishlistItem('${escapeJs(item.title)}', '${escapeJs(item.media_type || 'ebook')}')" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors" title="${t('wishlist_search')}">${t('wishlist_search')}</button>
         <button onclick="deleteWishlistItem(${item.id})" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded transition-colors" title="Remove">
           <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
         </button>
@@ -1525,7 +1951,7 @@ async function addWishlistItem() {
   const mediaType = document.getElementById('wl-type').value;
 
   if (!title) {
-    showToast('Title is required', 'warning');
+    showToast(t('err_title_required'), 'warning');
     return;
   }
 
@@ -1534,21 +1960,21 @@ async function addWishlistItem() {
       method: 'POST',
       body: JSON.stringify({ title, author, media_type: mediaType }),
     });
-    showToast('Added to wishlist', 'success');
+    showToast(t('added_to_wishlist'), 'success');
     hideWishlistForm();
     loadWishlist();
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast('Failed to add to wishlist', 'error');
+    if (err.message !== 'Unauthorized') showToast(t('failed_add_wishlist'), 'error');
   }
 }
 
 async function deleteWishlistItem(id) {
   try {
     await api(`/api/wishlist/${id}`, { method: 'DELETE' });
-    showToast('Removed from wishlist', 'success');
+    showToast(t('removed_from_wishlist'), 'success');
     loadWishlist();
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast('Failed to delete', 'error');
+    if (err.message !== 'Unauthorized') showToast(t('failed_delete'), 'error');
   }
 }
 
@@ -1580,16 +2006,16 @@ async function loadConfig() {
     const configEl = document.getElementById('config-info');
     const items = [];
 
-    if (data.prowlarr) items.push(configItem('Prowlarr', data.prowlarr.url || 'Not configured'));
-    if (data.qbittorrent) items.push(configItem('qBittorrent', data.qbittorrent.url || 'Not configured'));
-    if (data.sabnzbd) items.push(configItem('SABnzbd', data.sabnzbd.url || 'Not configured'));
+    if (data.prowlarr) items.push(configItem('Prowlarr', data.prowlarr.url || t('not_configured')));
+    if (data.qbittorrent) items.push(configItem('qBittorrent', data.qbittorrent.url || t('not_configured')));
+    if (data.sabnzbd) items.push(configItem('SABnzbd', data.sabnzbd.url || t('not_configured')));
     if (data.kavita_url) items.push(configItem('Kavita', data.kavita_url));
     if (data.audiobookshelf_url) items.push(configItem('Audiobookshelf', data.audiobookshelf_url));
 
-    configEl.innerHTML = items.length > 0 ? items.join('') : '<p class="text-slate-500">No configuration data available</p>';
+    configEl.innerHTML = items.length > 0 ? items.join('') : `<p class="text-slate-500">${t('no_config_data')}</p>`;
   } catch (err) {
     if (err.message !== 'Unauthorized') {
-      document.getElementById('config-info').innerHTML = '<p class="text-red-400">Failed to load configuration</p>';
+      document.getElementById('config-info').innerHTML = `<p class="text-red-400">${t('failed_load_config')}</p>`;
     }
   }
 }
@@ -1613,7 +2039,7 @@ async function loadSources() {
     loadingEl.classList.add('hidden');
 
     if (sources.length === 0) {
-      container.innerHTML = '<p class="text-slate-500 text-sm">No sources configured</p>';
+      container.innerHTML = `<p class="text-slate-500 text-sm">${t('no_sources')}</p>`;
       return;
     }
 
@@ -1627,34 +2053,34 @@ async function loadSources() {
             <span class="text-sm text-slate-300">${escapeHtml(s.label || s.name || 'Unknown')}</span>
             ${tabLabel ? `<span class="text-xs text-slate-600">${escapeHtml(tabLabel)}</span>` : ''}
           </div>
-          <span class="text-xs ${enabled ? 'text-emerald-400' : 'text-slate-500'}">${enabled ? 'Enabled' : 'Disabled'}</span>
+          <span class="text-xs ${enabled ? 'text-emerald-400' : 'text-slate-500'}">${enabled ? t('enabled') : t('disabled')}</span>
         </div>
       `;
     }).join('');
   } catch (err) {
     loadingEl.classList.add('hidden');
     if (err.message !== 'Unauthorized') {
-      container.innerHTML = '<p class="text-red-400 text-sm">Failed to load sources</p>';
+      container.innerHTML = `<p class="text-red-400 text-sm">${t('failed_load_sources')}</p>`;
     }
   }
 }
 
 async function testConnection(service) {
   const statusEl = document.getElementById(`test-${service}-status`);
-  statusEl.textContent = 'Testing...';
+  statusEl.textContent = t('testing');
   statusEl.className = 'text-xs text-yellow-400';
 
   try {
     const data = await apiJson(`/api/test/${service}`, { method: 'POST' });
     if (data.success) {
-      statusEl.textContent = 'Connected';
+      statusEl.textContent = t('connected');
       statusEl.className = 'text-xs text-emerald-400';
     } else {
-      statusEl.textContent = data.error || 'Failed';
+      statusEl.textContent = data.error || t('conn_error');
       statusEl.className = 'text-xs text-red-400';
     }
   } catch (err) {
-    statusEl.textContent = 'Error';
+    statusEl.textContent = t('conn_error');
     statusEl.className = 'text-xs text-red-400';
   }
 }
@@ -1686,7 +2112,7 @@ async function setupTOTP() {
   try {
     const data = await apiJson('/api/totp/setup', { method: 'POST' });
     if (!data.success) {
-      showToast(data.error || 'Failed to setup TOTP', 'error');
+      showToast(data.error || t('failed_setup_totp'), 'error');
       return;
     }
     document.getElementById('totp-disabled-section').classList.add('hidden');
@@ -1701,14 +2127,14 @@ async function setupTOTP() {
     const codesEl = document.getElementById('totp-backup-codes');
     codesEl.innerHTML = data.backup_codes.map(c => `<span class="bg-slate-700 px-2 py-1 rounded text-center">${escapeHtml(c)}</span>`).join('');
   } catch (err) {
-    showToast('Failed to setup TOTP', 'error');
+    showToast(t('failed_setup_totp'), 'error');
   }
 }
 
 async function verifyTOTP() {
   const code = document.getElementById('totp-verify-code').value.trim();
   if (!code) {
-    showToast('Enter the 6-digit code from your app', 'warning');
+    showToast(t('enter_6digit_code'), 'warning');
     return;
   }
   try {
@@ -1717,13 +2143,13 @@ async function verifyTOTP() {
       body: JSON.stringify({ code }),
     });
     if (data.success) {
-      showToast('Two-factor authentication enabled', 'success');
+      showToast(t('totp_enabled_success'), 'success');
       loadTOTPStatus();
     } else {
-      showToast(data.error || 'Invalid code', 'error');
+      showToast(data.error || t('err_invalid_code'), 'error');
     }
   } catch (err) {
-    showToast('Verification failed', 'error');
+    showToast(t('verification_failed'), 'error');
   }
 }
 
@@ -1746,7 +2172,7 @@ function cancelDisableTOTP() {
 async function disableTOTP() {
   const code = document.getElementById('totp-disable-code').value.trim();
   if (!code) {
-    showToast('Enter your current TOTP code', 'warning');
+    showToast(t('enter_totp_code'), 'warning');
     return;
   }
   try {
@@ -1755,13 +2181,13 @@ async function disableTOTP() {
       body: JSON.stringify({ code }),
     });
     if (data.success) {
-      showToast('Two-factor authentication disabled', 'success');
+      showToast(t('totp_disabled_success'), 'success');
       loadTOTPStatus();
     } else {
-      showToast(data.error || 'Invalid code', 'error');
+      showToast(data.error || t('err_invalid_code'), 'error');
     }
   } catch (err) {
-    showToast('Failed to disable TOTP', 'error');
+    showToast(t('failed_disable_totp'), 'error');
   }
 }
 
@@ -1779,21 +2205,21 @@ async function loadUsers() {
     const users = data.users || [];
     container.innerHTML = users.map(u => {
       const roleOptions = `<select onchange="changeUserRole(${u.id}, this.value)" class="bg-slate-700 text-sm text-slate-300 rounded px-2 py-1 border-0">
-        <option value="user" ${u.role === 'user' ? 'selected' : ''}>User</option>
-        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+        <option value="user" ${u.role === 'user' ? 'selected' : ''}>${t('role_user')}</option>
+        <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>${t('role_admin')}</option>
       </select>`;
       const totpBadge = u.totp_enabled ? '<span class="text-xs text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">2FA</span>' : '';
-      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : 'Never';
+      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : t('never');
       return `
         <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
           <div class="flex items-center gap-3">
             <span class="text-sm font-medium text-white">${escapeHtml(u.username)}</span>
             ${totpBadge}
-            <span class="text-xs text-slate-600">Last login: ${lastLogin}</span>
+            <span class="text-xs text-slate-600">${t('last_login', {date: lastLogin})}</span>
           </div>
           <div class="flex items-center gap-2">
             ${roleOptions}
-            <button onclick="deleteUser(${u.id}, '${escapeJs(u.username)}')" class="px-2 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white rounded transition-colors" title="Delete user">
+            <button onclick="deleteUser(${u.id}, '${escapeJs(u.username)}')" class="px-2 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white rounded transition-colors" title="${t('failed_delete_user')}">
               <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
             </button>
           </div>
@@ -1813,29 +2239,29 @@ async function changeUserRole(id, role) {
       body: JSON.stringify({ role }),
     });
     if (data.success) {
-      showToast('User role updated', 'success');
+      showToast(t('user_role_updated'), 'success');
     } else {
-      showToast(data.error || 'Failed to update role', 'error');
+      showToast(data.error || t('failed_update_role'), 'error');
       loadUsers();
     }
   } catch (err) {
-    showToast('Failed to update role', 'error');
+    showToast(t('failed_update_role'), 'error');
     loadUsers();
   }
 }
 
 async function deleteUser(id, username) {
-  if (!confirm(`Delete user "${username}"? This cannot be undone.`)) return;
+  if (!confirm(t('confirm_delete_user', {username: username}))) return;
   try {
     const data = await apiJson(`/api/users/${id}`, { method: 'DELETE' });
     if (data.success) {
-      showToast('User deleted', 'success');
+      showToast(t('user_deleted'), 'success');
       loadUsers();
     } else {
-      showToast(data.error || 'Failed to delete user', 'error');
+      showToast(data.error || t('failed_delete_user'), 'error');
     }
   } catch (err) {
-    showToast('Failed to delete user', 'error');
+    showToast(t('failed_delete_user'), 'error');
   }
 }
 
@@ -1843,7 +2269,7 @@ async function addUser() {
   const username = document.getElementById('new-user-name').value.trim();
   const password = document.getElementById('new-user-pass').value;
   if (!username || !password) {
-    showToast('Username and password required', 'warning');
+    showToast(t('err_credentials_required'), 'warning');
     return;
   }
   try {
@@ -1852,15 +2278,15 @@ async function addUser() {
       body: JSON.stringify({ username, password }),
     });
     if (data.success) {
-      showToast('User created', 'success');
+      showToast(t('user_created'), 'success');
       document.getElementById('new-user-name').value = '';
       document.getElementById('new-user-pass').value = '';
       loadUsers();
     } else {
-      showToast(data.error || 'Failed to create user', 'error');
+      showToast(data.error || t('failed_create_user'), 'error');
     }
   } catch (err) {
-    showToast('Failed to create user', 'error');
+    showToast(t('failed_create_user'), 'error');
   }
 }
 
@@ -1872,7 +2298,7 @@ async function loadStats() {
     const data = await apiJson('/api/stats');
     const statsEl = document.getElementById('header-stats');
     if (data.total_items !== undefined) {
-      statsEl.textContent = `${data.total_items} items in library`;
+      statsEl.textContent = t('n_items_in_library', {n: data.total_items});
       statsEl.classList.remove('hidden');
     }
   } catch (err) {
@@ -1930,6 +2356,8 @@ async function init() {
     loadStats();
     // Show default tab
     document.getElementById('search-empty').classList.remove('hidden');
+    // Apply language on load
+    applyLanguage();
   } catch (err) {
     if (err.message === 'Unauthorized') {
       // Login modal already shown by api()
