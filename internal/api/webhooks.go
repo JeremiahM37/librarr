@@ -28,6 +28,8 @@ func (s *Server) handleGetWebhooks(w http.ResponseWriter, r *http.Request) {
 
 // handleCreateWebhook adds a new webhook configuration.
 func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	var cfg webhook.Config
 	if err := json.NewDecoder(r.Body).Decode(&cfg); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
@@ -42,14 +44,41 @@ func (s *Server) handleCreateWebhook(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if err := validateTestURL(cfg.URL); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false, "error": err.Error(),
+		})
+		return
+	}
 	if cfg.Type == "" {
 		cfg.Type = "generic"
+	} else {
+		// Validate webhook type
+		if err := ValidateEnumValue(cfg.Type, []string{"generic", "discord", "slack", "matrix"}); err != nil {
+			cfg.Type = "generic" // Default to generic if invalid
+		}
 	}
 	if cfg.Events == "" {
 		cfg.Events = "*"
+	} else {
+		// Validate events string - should be comma-separated or *
+		if cfg.Events != "*" && len(cfg.Events) > 200 {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false, "error": "Events string too long",
+			})
+			return
+		}
 	}
 	if cfg.Name == "" {
 		cfg.Name = cfg.Type + " webhook"
+	} else {
+		// Validate webhook name
+		if err := ValidateStringLength(cfg.Name, 1, 100); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false, "error": "Webhook name: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	id, err := s.db.CreateWebhookConfig(&cfg)
@@ -96,6 +125,8 @@ func (s *Server) handleDeleteWebhook(w http.ResponseWriter, r *http.Request) {
 
 // handleTestWebhook sends a test notification to a webhook URL.
 func (s *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
+	defer r.Body.Close()
+
 	var req struct {
 		URL  string `json:"url"`
 		Type string `json:"type"`
@@ -108,6 +139,12 @@ func (s *Server) handleTestWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.Type == "" {
 		req.Type = "generic"
+	}
+	if err := validateTestURL(req.URL); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false, "error": err.Error(),
+		})
+		return
 	}
 
 	if err := s.webhookSender.Test(req.URL, req.Type); err != nil {

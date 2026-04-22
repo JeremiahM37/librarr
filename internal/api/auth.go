@@ -5,17 +5,22 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
+	"golang.org/x/crypto/argon2"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -23,10 +28,100 @@ import (
 type contextKey string
 
 const (
-	ctxUserID   contextKey = "userID"
-	ctxUserRole contextKey = "userRole"
-	ctxUsername  contextKey = "username"
+	ctxUserID                          contextKey = "userID"
+	ctxUserRole                        contextKey = "userRole"
+	ctxUsername                        contextKey = "username"
+	ctxAPIKeyScope                     contextKey = "apiKeyScope"
+	apiKeyQueryParamDeprecationWarning            = "299 librarr \"?apikey=\" is deprecated; use the X-Api-Key header"
+
+	// loginMaxFailures is the number of consecutive failures before an IP is locked out.
+	loginMaxFailures = 5
+	// loginLockoutDuration is how long an IP is locked out after hitting loginMaxFailures.
+	loginLockoutDuration = 15 * time.Minute
+
+	// Argon2 defaults are intentionally conservative so low-power devices
+	// like Raspberry Pis can still handle auth without lag spikes.
+	argon2Time    uint32 = 1
+	argon2Memory  uint32 = 16 * 1024 // KiB (16 MiB)
+	argon2Threads uint8  = 1
+	argon2KeyLen  uint32 = 32
+	argon2SaltLen        = 16
 )
+
+// loginFailureEntry records consecutive auth failures for a single IP.
+type loginFailureEntry struct {
+	count       int
+	lockedUntil time.Time
+}
+
+// LoginThrottle tracks per-IP login failures and enforces lockout.
+type LoginThrottle struct {
+	mu      sync.Mutex
+	entries map[string]*loginFailureEntry
+}
+
+// NewLoginThrottle creates a LoginThrottle with periodic cleanup.
+func NewLoginThrottle() *LoginThrottle {
+	lt := &LoginThrottle{entries: make(map[string]*loginFailureEntry)}
+	go func() {
+		ticker := time.NewTicker(5 * time.Minute)
+		for range ticker.C {
+			now := time.Now()
+			lt.mu.Lock()
+			for ip, e := range lt.entries {
+				if now.After(e.lockedUntil) && e.count == 0 {
+					delete(lt.entries, ip)
+				}
+			}
+			lt.mu.Unlock()
+		}
+	}()
+	return lt
+}
+
+// Check returns (allowed, retryAfterSeconds). Call before checking credentials.
+func (lt *LoginThrottle) Check(ip string) (bool, int) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	e, ok := lt.entries[ip]
+	if !ok {
+		return true, 0
+	}
+	if e.count >= loginMaxFailures {
+		remaining := int(time.Until(e.lockedUntil).Seconds())
+		if remaining > 0 {
+			return false, remaining
+		}
+		// Lockout expired — reset.
+		delete(lt.entries, ip)
+	}
+	return true, 0
+}
+
+// Failure records a failed login attempt for an IP.
+func (lt *LoginThrottle) Failure(ip string) {
+	lt.mu.Lock()
+	defer lt.mu.Unlock()
+	e, ok := lt.entries[ip]
+	if !ok {
+		e = &loginFailureEntry{}
+		lt.entries[ip] = e
+	}
+	e.count++
+	if e.count >= loginMaxFailures {
+		e.lockedUntil = time.Now().Add(loginLockoutDuration)
+		slog.Warn("login throttle: IP locked out after repeated failures",
+			"ip", ip, "failures", e.count,
+			"locked_until", e.lockedUntil.UTC().Format(time.RFC3339))
+	}
+}
+
+// Success resets the failure counter for an IP on successful login.
+func (lt *LoginThrottle) Success(ip string) {
+	lt.mu.Lock()
+	delete(lt.entries, ip)
+	lt.mu.Unlock()
+}
 
 // SessionData holds session metadata.
 type SessionData struct {
@@ -44,16 +139,39 @@ type PendingTOTP struct {
 
 // SessionStore manages session-based authentication with user tracking.
 type SessionStore struct {
-	mu             sync.RWMutex
-	sessions       map[string]*SessionData
-	pendingTOTP    map[string]*PendingTOTP
+	mu          sync.RWMutex
+	sessions    map[string]*SessionData
+	pendingTOTP map[string]*PendingTOTP
+	db          *db.DB // optional — persists sessions across restarts
 }
 
-// NewSessionStore creates a new session store.
-func NewSessionStore() *SessionStore {
+var tokenFallbackCounter uint64
+
+func generateTokenHex(numBytes int) string {
+	b := make([]byte, numBytes)
+	if _, err := rand.Read(b); err == nil {
+		return hex.EncodeToString(b)
+	}
+
+	// Fallback is only used if crypto/rand fails unexpectedly.
+	seed := time.Now().UTC().Format(time.RFC3339Nano) + ":" + strconv.FormatUint(atomic.AddUint64(&tokenFallbackCounter, 1), 10)
+	h := sha256.Sum256([]byte(seed))
+	slog.Error("crypto random generation failed; using deterministic fallback token", "error", "rand.Read failed")
+	return hex.EncodeToString(h[:])
+}
+
+// NewSessionStore creates a new session store. The database argument is optional;
+// when non-nil, sessions are persisted to the database and survive restarts.
+func NewSessionStore(databases ...*db.DB) *SessionStore {
+	var database *db.DB
+	if len(databases) > 0 {
+		database = databases[0]
+	}
+
 	s := &SessionStore{
 		sessions:    make(map[string]*SessionData),
 		pendingTOTP: make(map[string]*PendingTOTP),
+		db:          database,
 	}
 
 	// Periodically clean up expired sessions and pending TOTP tokens.
@@ -73,6 +191,11 @@ func NewSessionStore() *SessionStore {
 				}
 			}
 			s.mu.Unlock()
+			if database != nil {
+				if err := database.DeleteExpiredSessions(now.Unix()); err != nil {
+					slog.Warn("failed to delete expired sessions from db", "err", err)
+				}
+			}
 		}
 	}()
 
@@ -81,27 +204,30 @@ func NewSessionStore() *SessionStore {
 
 // Create generates a new session token for a user, valid for 24 hours.
 func (s *SessionStore) Create(userID int64, username, role string) string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	token := hex.EncodeToString(b)
+	token := generateTokenHex(32)
 
+	expiry := time.Now().Add(24 * time.Hour)
 	s.mu.Lock()
 	s.sessions[token] = &SessionData{
 		UserID:   userID,
 		Username: username,
 		Role:     role,
-		Expiry:   time.Now().Add(24 * time.Hour),
+		Expiry:   expiry,
 	}
 	s.mu.Unlock()
+
+	if s.db != nil {
+		if err := s.db.CreateSession(token, userID, username, role, expiry.Unix()); err != nil {
+			slog.Warn("failed to persist session to db", "err", err)
+		}
+	}
 
 	return token
 }
 
 // CreatePendingTOTP creates a temporary token for TOTP verification (5 min expiry).
 func (s *SessionStore) CreatePendingTOTP(userID int64) string {
-	b := make([]byte, 32)
-	rand.Read(b)
-	token := hex.EncodeToString(b)
+	token := generateTokenHex(32)
 
 	s.mu.Lock()
 	s.pendingTOTP[token] = &PendingTOTP{
@@ -136,16 +262,43 @@ func (s *SessionStore) Get(token string) (*SessionData, bool) {
 	data, ok := s.sessions[token]
 	s.mu.RUnlock()
 
-	if !ok {
-		return nil, false
+	if ok {
+		if time.Now().After(data.Expiry) {
+			s.mu.Lock()
+			delete(s.sessions, token)
+			s.mu.Unlock()
+			if s.db != nil {
+				s.db.DeleteSession(token) //nolint:errcheck
+			}
+			return nil, false
+		}
+		return data, true
 	}
-	if time.Now().After(data.Expiry) {
+
+	// Cache miss — look up in DB (handles restart recovery).
+	if s.db != nil {
+		userID, username, role, expiresAt, found, err := s.db.GetSession(token)
+		if err != nil {
+			slog.Warn("failed to look up session from db", "err", err)
+			return nil, false
+		}
+		if !found {
+			return nil, false
+		}
+		expiry := time.Unix(expiresAt, 0)
+		if time.Now().After(expiry) {
+			s.db.DeleteSession(token) //nolint:errcheck
+			return nil, false
+		}
+		// Re-populate in-memory cache.
+		sd := &SessionData{UserID: userID, Username: username, Role: role, Expiry: expiry}
 		s.mu.Lock()
-		delete(s.sessions, token)
+		s.sessions[token] = sd
 		s.mu.Unlock()
-		return nil, false
+		return sd, true
 	}
-	return data, true
+
+	return nil, false
 }
 
 // Valid checks if a session token is valid and not expired (backward compat).
@@ -159,6 +312,11 @@ func (s *SessionStore) Delete(token string) {
 	s.mu.Lock()
 	delete(s.sessions, token)
 	s.mu.Unlock()
+	if s.db != nil {
+		if err := s.db.DeleteSession(token); err != nil {
+			slog.Warn("failed to delete session from db", "err", err)
+		}
+	}
 }
 
 // exemptPaths are paths that do not require authentication.
@@ -204,6 +362,41 @@ func isExempt(path string) bool {
 	return false
 }
 
+type apiKeyScope string
+
+const (
+	apiKeyScopeAdmin    apiKeyScope = "admin"
+	apiKeyScopeReadOnly apiKeyScope = "read"
+)
+
+// isReadOnlyMethod determines whether a scoped read-only API key can use the method.
+func isReadOnlyMethod(method string) bool {
+	switch method {
+	case http.MethodGet, http.MethodHead, http.MethodOptions:
+		return true
+	default:
+		return false
+	}
+}
+
+// resolveAPIKeyScope resolves API key scope for the incoming request.
+func resolveAPIKeyScope(cfg *config.Config, r *http.Request) (apiKeyScope, bool, bool) {
+	apiKey, usedQueryParam := apiKeyFromRequest(r)
+	if apiKey == "" {
+		return "", false, usedQueryParam
+	}
+
+	if cfg.APIKey != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(cfg.APIKey)) == 1 {
+		return apiKeyScopeAdmin, true, usedQueryParam
+	}
+
+	if cfg.APIKeyReadOnly != "" && subtle.ConstantTimeCompare([]byte(apiKey), []byte(cfg.APIKeyReadOnly)) == 1 {
+		return apiKeyScopeReadOnly, true, usedQueryParam
+	}
+
+	return "", false, usedQueryParam
+}
+
 // authMiddleware returns an HTTP middleware that enforces authentication.
 func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -223,16 +416,34 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 			return
 		}
 
-		// Check API key (header or query param) -- machine-to-machine auth.
+		// Check scoped API keys (header or query param) -- machine-to-machine auth.
 		if cfg.HasAPIKey() {
-			apiKey := r.Header.Get("X-Api-Key")
-			if apiKey == "" {
-				apiKey = r.URL.Query().Get("apikey")
-			}
-			if subtle.ConstantTimeCompare([]byte(apiKey), []byte(cfg.APIKey)) == 1 {
-				// API key users get admin-level access.
-				ctx := context.WithValue(r.Context(), ctxUserRole, "admin")
-				ctx = context.WithValue(ctx, ctxUsername, "api")
+			scope, ok, usedQueryParam := resolveAPIKeyScope(cfg, r)
+			if ok {
+				if usedQueryParam {
+					w.Header().Add("Warning", apiKeyQueryParamDeprecationWarning)
+					w.Header().Set("Deprecation", "true")
+				}
+
+				// Read-only keys are allowed to call safe read endpoints only.
+				if scope == apiKeyScopeReadOnly && !isReadOnlyMethod(r.Method) {
+					writeJSON(w, http.StatusForbidden, map[string]interface{}{
+						"success": false,
+						"error":   "Read-only API key cannot access write endpoints",
+					})
+					return
+				}
+
+				role := "admin"
+				username := "api-admin"
+				if scope == apiKeyScopeReadOnly {
+					role = "reader"
+					username = "api-readonly"
+				}
+
+				ctx := context.WithValue(r.Context(), ctxUserRole, role)
+				ctx = context.WithValue(ctx, ctxUsername, username)
+				ctx = context.WithValue(ctx, ctxAPIKeyScope, string(scope))
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
@@ -273,6 +484,15 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 	})
 }
 
+func apiKeyFromRequest(r *http.Request) (string, bool) {
+	apiKey := r.Header.Get("X-Api-Key")
+	if apiKey != "" {
+		return apiKey, false
+	}
+	apiKey = r.URL.Query().Get("apikey")
+	return apiKey, apiKey != ""
+}
+
 // requireAdmin is middleware that checks if the current user has admin role.
 func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -288,22 +508,112 @@ func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// isAdmin checks if the request context indicates an admin user.
+func isAdmin(r *http.Request) bool {
+	role, _ := r.Context().Value(ctxUserRole).(string)
+	return role == "admin"
+}
+
 // getUserIDFromContext extracts the user ID from the request context.
 func getUserIDFromContext(r *http.Request) int64 {
 	id, _ := r.Context().Value(ctxUserID).(int64)
 	return id
 }
 
-// hashPassword hashes a password using bcrypt.
+// hashPassword hashes a password using argon2id.
 func hashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	return string(bytes), err
+	salt := make([]byte, argon2SaltLen)
+	if _, err := rand.Read(salt); err != nil {
+		return "", fmt.Errorf("generate argon2 salt: %w", err)
+	}
+
+	threads := argon2Threads
+	if runtime.GOMAXPROCS(0) <= 0 {
+		threads = 1
+	}
+
+	hash := argon2.IDKey([]byte(password), salt, argon2Time, argon2Memory, threads, argon2KeyLen)
+	encodedSalt := base64.RawStdEncoding.EncodeToString(salt)
+	encodedHash := base64.RawStdEncoding.EncodeToString(hash)
+
+	return fmt.Sprintf("$argon2id$v=%d$m=%d,t=%d,p=%d$%s$%s",
+		argon2.Version,
+		argon2Memory,
+		argon2Time,
+		threads,
+		encodedSalt,
+		encodedHash,
+	), nil
 }
 
-// checkPassword verifies a password against a bcrypt hash.
+// checkPassword verifies a password against either argon2id (preferred)
+// or legacy bcrypt hashes.
 func checkPassword(password, hash string) bool {
+	if strings.HasPrefix(hash, "$argon2id$") {
+		ok, err := verifyArgon2Password(password, hash)
+		return err == nil && ok
+	}
+
+	// Legacy bcrypt support so existing users can still authenticate.
 	err := bcrypt.CompareHashAndPassword([]byte(hash), []byte(password))
 	return err == nil
+}
+
+func verifyArgon2Password(password, encoded string) (bool, error) {
+	parts := strings.Split(encoded, "$")
+	if len(parts) != 6 {
+		return false, fmt.Errorf("invalid argon2 hash format")
+	}
+
+	versionPart := parts[2]
+	if versionPart != fmt.Sprintf("v=%d", argon2.Version) {
+		return false, fmt.Errorf("unsupported argon2 version")
+	}
+
+	var memory uint32
+	var timeCost uint32
+	var parallelism uint8
+	if _, err := fmt.Sscanf(parts[3], "m=%d,t=%d,p=%d", &memory, &timeCost, &parallelism); err != nil {
+		return false, fmt.Errorf("invalid argon2 parameters")
+	}
+
+	salt, err := base64.RawStdEncoding.DecodeString(parts[4])
+	if err != nil {
+		return false, fmt.Errorf("invalid argon2 salt")
+	}
+
+	decodedHash, err := base64.RawStdEncoding.DecodeString(parts[5])
+	if err != nil {
+		return false, fmt.Errorf("invalid argon2 hash")
+	}
+
+	computed := argon2.IDKey([]byte(password), salt, timeCost, memory, parallelism, uint32(len(decodedHash)))
+	return subtle.ConstantTimeCompare(decodedHash, computed) == 1, nil
+}
+
+func isLegacyBcryptHash(hash string) bool {
+	return strings.HasPrefix(hash, "$2a$") || strings.HasPrefix(hash, "$2b$") || strings.HasPrefix(hash, "$2y$")
+}
+
+// migratePasswordHashIfNeeded upgrades legacy bcrypt hashes to argon2id
+// right after a successful password verification.
+func migratePasswordHashIfNeeded(database *db.DB, userID int64, plaintext, currentHash string) {
+	if !isLegacyBcryptHash(currentHash) {
+		return
+	}
+
+	newHash, err := hashPassword(plaintext)
+	if err != nil {
+		slog.Warn("password hash migration skipped: failed to generate argon2 hash", "user_id", userID, "error", err)
+		return
+	}
+
+	if err := database.UpdateUserPassword(userID, newHash); err != nil {
+		slog.Warn("password hash migration skipped: failed to persist argon2 hash", "user_id", userID, "error", err)
+		return
+	}
+
+	slog.Info("password hash upgraded to argon2id", "user_id", userID)
 }
 
 // hashBackupCode creates a SHA-256 hash of a backup code (not bcrypt for performance with 8 codes).
@@ -312,9 +622,31 @@ func hashBackupCode(code string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// remoteIP extracts the IP address from r.RemoteAddr (strips port).
+func remoteIP(r *http.Request) string {
+	addr := r.RemoteAddr
+	if i := strings.LastIndex(addr, ":"); i != -1 {
+		addr = addr[:i]
+	}
+	return strings.Trim(addr, "[]")
+}
+
 // handleLogin handles POST /api/login for session-based auth.
-func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) http.HandlerFunc {
+func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore, throttle *LoginThrottle) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		ip := remoteIP(r)
+
+		// Check lockout before touching credentials.
+		if allowed, retryAfter := throttle.Check(ip); !allowed {
+			w.Header().Set("Retry-After", strconv.Itoa(retryAfter))
+			writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+				"success":     false,
+				"error":       "Too many failed login attempts; try again later",
+				"retry_after": retryAfter,
+			})
+			return
+		}
+
 		var req struct {
 			Username string `json:"username"`
 			Password string `json:"password"`
@@ -335,6 +667,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 			// Multi-user login against DB.
 			user, err := database.GetUserByUsername(req.Username)
 			if err != nil || !checkPassword(req.Password, user.PasswordHash) {
+				throttle.Failure(ip)
 				writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 					"success": false,
 					"error":   "Invalid credentials",
@@ -342,8 +675,13 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 				return
 			}
 
+			// Seamless migration path: once a bcrypt user logs in successfully,
+			// upgrade their stored hash to argon2id.
+			migratePasswordHashIfNeeded(database, user.ID, req.Password, user.PasswordHash)
+
 			// If TOTP is enabled, return pending token.
 			if user.TOTPEnabled {
+				throttle.Success(ip) // credentials were valid; clear failure count
 				pendingToken := sessions.CreatePendingTOTP(user.ID)
 				writeJSON(w, http.StatusOK, map[string]interface{}{
 					"success":         true,
@@ -354,6 +692,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 			}
 
 			// No TOTP — create full session.
+			throttle.Success(ip)
 			database.UpdateLastLogin(user.ID)
 			token := sessions.Create(user.ID, user.Username, user.Role)
 			http.SetCookie(w, &http.Cookie{
@@ -386,6 +725,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 		}
 
 		if req.Username != cfg.AuthUsername || req.Password != cfg.AuthPassword {
+			throttle.Failure(ip)
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"success": false,
 				"error":   "Invalid credentials",
@@ -393,6 +733,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 			return
 		}
 
+		throttle.Success(ip)
 		token := sessions.Create(0, cfg.AuthUsername, "admin")
 		http.SetCookie(w, &http.Cookie{
 			Name:     "librarr_session",
@@ -483,10 +824,10 @@ func handleLoginTOTP(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 				SameSite: http.SameSiteLaxMode,
 			})
 			writeJSON(w, http.StatusOK, map[string]interface{}{
-				"success":       true,
-				"token":         token,
-				"username":      user.Username,
-				"role":          user.Role,
+				"success":          true,
+				"token":            token,
+				"username":         user.Username,
+				"role":             user.Role,
 				"backup_code_used": true,
 			})
 			return

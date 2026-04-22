@@ -3,10 +3,13 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -59,6 +62,8 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 
 	if cfg.OIDCRedirectURI != "" {
 		oauth2Cfg.RedirectURL = cfg.OIDCRedirectURI
+	} else {
+		slog.Warn("OIDC redirect URI not configured; login will be rejected until OIDC_REDIRECT_URI is set")
 	}
 
 	slog.Info("OIDC provider initialized", "issuer", cfg.OIDCIssuer, "provider_name", cfg.OIDCProviderName)
@@ -91,10 +96,29 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 	return h
 }
 
+func (h *OIDCHandler) configuredRedirectURL() (string, error) {
+	if h.oauth2.RedirectURL == "" {
+		return "", errors.New("OIDC redirect URI is not configured")
+	}
+	parsed, err := url.Parse(h.oauth2.RedirectURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "", errors.New("OIDC redirect URI is invalid")
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return "", errors.New("OIDC redirect URI must use http or https")
+	}
+	return parsed.String(), nil
+}
+
 // generateState creates a random state string for CSRF protection.
 func (h *OIDCHandler) generateState() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("failed to generate OIDC state token", "error", err)
+		seed := time.Now().UTC().Format(time.RFC3339Nano)
+		hash := sha256.Sum256([]byte(seed))
+		copy(b, hash[:16])
+	}
 	state := hex.EncodeToString(b)
 
 	h.mu.Lock()
@@ -117,6 +141,24 @@ func (h *OIDCHandler) validateState(state string) bool {
 	return time.Now().Before(expiry)
 }
 
+// validateAudienceClaim checks that the aud claim matches the configured client ID.
+// The aud claim can be a string or an array of strings, both must be supported.
+func validateAudienceClaim(aud interface{}, expectedClientID string) bool {
+	switch v := aud.(type) {
+	case string:
+		return v == expectedClientID
+	case []interface{}:
+		for _, audItem := range v {
+			if audStr, ok := audItem.(string); ok && audStr == expectedClientID {
+				return true
+			}
+		}
+		return false
+	default:
+		return false
+	}
+}
+
 // HandleLogin redirects to the OIDC provider.
 func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 	if h == nil {
@@ -127,16 +169,16 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-detect redirect URI from request if not set.
-	oauth2Cfg := h.oauth2
-	if oauth2Cfg.RedirectURL == "" {
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		host := r.Host
-		oauth2Cfg.RedirectURL = fmt.Sprintf("%s://%s/auth/oidc/callback", scheme, host)
+	redirectURL, err := h.configuredRedirectURL()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
 	}
+	oauth2Cfg := h.oauth2
+	oauth2Cfg.RedirectURL = redirectURL
 
 	state := h.generateState()
 	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state), http.StatusFound)
@@ -173,15 +215,16 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Auto-detect redirect URI for token exchange.
-	oauth2Cfg := h.oauth2
-	if oauth2Cfg.RedirectURL == "" {
-		scheme := "http"
-		if r.TLS != nil || r.Header.Get("X-Forwarded-Proto") == "https" {
-			scheme = "https"
-		}
-		oauth2Cfg.RedirectURL = fmt.Sprintf("%s://%s/auth/oidc/callback", scheme, r.Host)
+	redirectURL, err := h.configuredRedirectURL()
+	if err != nil {
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
+		return
 	}
+	oauth2Cfg := h.oauth2
+	oauth2Cfg.RedirectURL = redirectURL
 
 	// Exchange code for tokens.
 	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
@@ -210,16 +253,38 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Extract claims.
 	var claims struct {
-		Email             string `json:"email"`
-		EmailVerified     bool   `json:"email_verified"`
-		Name              string `json:"name"`
-		PreferredUsername string `json:"preferred_username"`
-		Sub               string `json:"sub"`
+		Email             string      `json:"email"`
+		EmailVerified     bool        `json:"email_verified"`
+		Name              string      `json:"name"`
+		PreferredUsername string      `json:"preferred_username"`
+		Sub               string      `json:"sub"`
+		Aud               interface{} `json:"aud"`
+		Iat               int64       `json:"iat"`
 	}
 	if err := idToken.Claims(&claims); err != nil {
 		slog.Error("failed to parse OIDC claims", "error", err)
 		http.Error(w, "Failed to parse user info", http.StatusInternalServerError)
 		return
+	}
+
+	// Enhanced security validations
+	// 1. Validate audience (aud) claim matches our client ID
+	if !validateAudienceClaim(claims.Aud, h.cfg.OIDCClientID) {
+		slog.Warn("OIDC audience claim mismatch", "expected", h.cfg.OIDCClientID, "got", claims.Aud)
+		http.Error(w, "Invalid audience claim in ID token", http.StatusForbidden)
+		return
+	}
+
+	// 2. Validate issued at (iat) timestamp - reject tokens from the future (clock skew tolerance ±1 min)
+	if claims.Iat > 0 {
+		iatTime := time.Unix(claims.Iat, 0)
+		now := time.Now()
+		clockSkewTolerance := 1 * time.Minute
+		if iatTime.After(now.Add(clockSkewTolerance)) {
+			slog.Warn("OIDC token issued in the future", "iat", iatTime, "now", now)
+			http.Error(w, "ID token appears to be from the future", http.StatusForbidden)
+			return
+		}
 	}
 
 	// Determine username from claims (prefer preferred_username, then email, then sub).
@@ -261,7 +326,11 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 		// Create user with a random password (OIDC users don't use password login).
 		randomPass := make([]byte, 32)
-		rand.Read(randomPass)
+		if _, err := rand.Read(randomPass); err != nil {
+			slog.Error("failed to generate random password for OIDC user", "error", err)
+			http.Error(w, "Failed to create user account", http.StatusInternalServerError)
+			return
+		}
 		passHash, _ := hashPassword(hex.EncodeToString(randomPass))
 
 		id, err := h.db.CreateUser(username, passHash, role)

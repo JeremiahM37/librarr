@@ -3,21 +3,35 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
+const (
+	maxRequestTitleLength       = 200
+	maxRequestAuthorLength      = 120
+	maxRequestDescriptionLength = 4000
+	maxRequestSeriesLength      = 200
+	maxRequestYearLength        = 16
+)
+
 // generateRequestID returns a random hex ID for a request.
 func generateRequestID() string {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		slog.Error("failed to generate request ID with crypto random", "error", err)
+		h := sha256.Sum256([]byte(time.Now().UTC().Format(time.RFC3339Nano)))
+		copy(b, h[:16])
+	}
 	return hex.EncodeToString(b)
 }
 
@@ -48,17 +62,124 @@ func (s *Server) handleCreateRequest(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	req.Title = strings.TrimSpace(req.Title)
+	req.Author = strings.TrimSpace(req.Author)
+	req.Description = strings.TrimSpace(req.Description)
+	req.SeriesName = strings.TrimSpace(req.SeriesName)
+	req.SeriesPosition = strings.TrimSpace(req.SeriesPosition)
+	req.Year = strings.TrimSpace(req.Year)
+	
+	// Validate all metadata fields with comprehensive checks
+	if err := ValidateStringLength(req.Title, 1, maxRequestTitleLength); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Title: " + err.Error(),
+		})
+		return
+	}
+	if err := ValidateMetadataString(req.Title, maxRequestTitleLength); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   "Title: " + err.Error(),
+		})
+		return
+	}
+	
+	if req.Author != "" {
+		if err := ValidateStringLength(req.Author, 1, maxRequestAuthorLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Author: " + err.Error(),
+			})
+			return
+		}
+		if err := ValidateMetadataString(req.Author, maxRequestAuthorLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Author: " + err.Error(),
+			})
+			return
+		}
+	}
+	
+	if len(req.Description) > maxRequestDescriptionLength {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+			"success": false,
+			"error":   fmt.Sprintf("Description too long (max %d characters)", maxRequestDescriptionLength),
+		})
+		return
+	}
+	if req.Description != "" {
+		if err := ValidateMetadataString(req.Description, maxRequestDescriptionLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Description: " + err.Error(),
+			})
+			return
+		}
+	}
+	
+	// Validate series and year fields
+	if req.SeriesName != "" {
+		if err := ValidateStringLength(req.SeriesName, 1, maxRequestSeriesLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Series name: " + err.Error(),
+			})
+			return
+		}
+		if err := ValidateMetadataString(req.SeriesName, maxRequestSeriesLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Series name: " + err.Error(),
+			})
+			return
+		}
+	}
+	
+	if req.SeriesPosition != "" {
+		if err := ValidateStringLength(req.SeriesPosition, 1, maxRequestSeriesLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Series position: " + err.Error(),
+			})
+			return
+		}
+	}
+	
+	if req.Year != "" {
+		if err := ValidateStringLength(req.Year, 1, maxRequestYearLength); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Year: " + err.Error(),
+			})
+			return
+		}
+	}
 
 	bookType := req.BookType
 	if bookType == "" {
 		bookType = "ebook"
 	}
-	if bookType != "ebook" && bookType != "audiobook" && bookType != "manga" {
+	
+	// Validate book type enum
+	if err := ValidateEnumValue(bookType, []string{"ebook", "audiobook", "manga"}); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 			"success": false,
 			"error":   "book_type must be ebook, audiobook, or manga",
 		})
 		return
+	}
+	
+	// Validate cover URL if provided
+	if req.CoverURL != "" {
+		if err := ValidateURLSafety(req.CoverURL, DefaultURLValidationConfig()); err != nil {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Invalid cover URL: " + err.Error(),
+			})
+			return
+		}
 	}
 
 	userID := getUserIDFromContext(r)
@@ -107,18 +228,8 @@ func (s *Server) handleListRequests(w http.ResponseWriter, r *http.Request) {
 	userID := getUserIDFromContext(r)
 
 	status := r.URL.Query().Get("status")
-	limit := 50
-	offset := 0
-	if l := r.URL.Query().Get("limit"); l != "" {
-		if v, err := strconv.Atoi(l); err == nil && v > 0 && v <= 200 {
-			limit = v
-		}
-	}
-	if o := r.URL.Query().Get("offset"); o != "" {
-		if v, err := strconv.Atoi(o); err == nil && v >= 0 {
-			offset = v
-		}
-	}
+	limit := QueryIntBounded(r, "limit", 50, 1, 200)
+	offset := QueryIntBounded(r, "offset", 0, 0, 10000)
 
 	// Admins see all requests; regular users see only their own.
 	filterUserID := userID

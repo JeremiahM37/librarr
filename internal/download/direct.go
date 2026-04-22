@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/organize"
@@ -39,11 +40,21 @@ var libgenMirrors = []string{
 	"https://libgen.vg",
 }
 
+func readLimitedBodyAndClose(resp *http.Response, limit int64) ([]byte, error) {
+	defer resp.Body.Close()
+	return io.ReadAll(io.LimitReader(resp.Body, limit))
+}
+
 // DownloadFromAnnas downloads a file from Anna's Archive via libgen.
 // Returns the local file path and size, or an error.
 func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, error) {
 	if progressFn != nil {
 		progressFn("Fetching download link from Anna's Archive...")
+	}
+
+	// Validate libgen mirrors on first use (security: ensure whitelisted hosts only)
+	if err := d.validateMirrorWhitelist(); err != nil {
+		return "", 0, fmt.Errorf("mirror configuration invalid: %w", err)
 	}
 
 	// Step 1: Try each libgen mirror to get the download key.
@@ -69,6 +80,30 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 
 	// Step 2: Download the file.
 	return d.downloadFile(downloadURL, title, progressFn)
+}
+
+// validateMirrorWhitelist ensures all configured libgen mirrors are whitelisted domains.
+// This prevents SSRF attacks by allowing downloads only from trusted sources.
+func (d *DirectDownloader) validateMirrorWhitelist() error {
+	allowedLibgenHosts := []string{
+		"libgen.li",
+		"libgen.la",
+		"libgen.bz",
+		"libgen.gl",
+		"libgen.vg",
+	}
+
+	for _, mirror := range libgenMirrors {
+		cfg := URLValidationConfig{
+			AllowedHosts:  allowedLibgenHosts,
+			BlockPrivate:  true,
+			BlockMetadata: true,
+		}
+		if err := validateURLSafety(mirror, cfg); err != nil {
+			return fmt.Errorf("mirror %s failed validation: %w", mirror, err)
+		}
+	}
+	return nil
 }
 
 // fetchLibgenDownloadURL tries each libgen mirror to find a valid get.php
@@ -97,8 +132,11 @@ func (d *DirectDownloader) fetchLibgenDownloadURL(md5 string, progressFn func(st
 			continue
 		}
 
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
+		body, err := readLimitedBodyAndClose(resp, 2*1024*1024)
+		if err != nil {
+			lastErr = fmt.Errorf("%s: read response body: %w", mirror, err)
+			continue
+		}
 
 		if resp.StatusCode != 200 {
 			lastErr = fmt.Errorf("%s HTTP %d", mirror, resp.StatusCode)
@@ -118,6 +156,9 @@ func (d *DirectDownloader) fetchLibgenDownloadURL(md5 string, progressFn func(st
 
 // DownloadFromURL downloads a file from any direct URL.
 func (d *DirectDownloader) DownloadFromURL(fileURL, title string, progressFn func(string)) (string, int64, error) {
+	if err := validateURLSafety(fileURL, defaultURLValidationConfig()); err != nil {
+		return "", 0, fmt.Errorf("unsafe download URL: %w", err)
+	}
 	return d.downloadFile(fileURL, title, progressFn)
 }
 
@@ -155,7 +196,13 @@ func (d *DirectDownloader) downloadFile(fileURL, title string, progressFn func(s
 			if len(fileLink) < 2 {
 				return "", 0, fmt.Errorf("no download link found in HTML response")
 			}
+			if err := validateURLSafety(fileLink[1], defaultURLValidationConfig()); err != nil {
+				return "", 0, fmt.Errorf("unsafe redirected download URL: %w", err)
+			}
 			return d.downloadFile(fileLink[1], title, progressFn)
+		}
+		if err := validateURLSafety(getLink[1], defaultURLValidationConfig()); err != nil {
+			return "", 0, fmt.Errorf("unsafe redirected download URL: %w", err)
 		}
 		return d.downloadFile(getLink[1], title, progressFn)
 	}
@@ -275,7 +322,8 @@ func (d *DirectDownloader) verifyEPUB(filePath, expectedTitle string) error {
 
 // tryAltMD5 searches Anna's Archive for alternative MD5 hashes and tries them.
 func (d *DirectDownloader) tryAltMD5(title, originalMD5 string, progressFn func(string)) (string, error) {
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
 	annas := &annasSearchHelper{cfg: d.cfg, client: d.client}
 	results, err := annas.searchForTitle(ctx, title)
 	if err != nil {
@@ -307,8 +355,10 @@ func (d *DirectDownloader) tryAltMD5(title, originalMD5 string, progressFn func(
 		if err != nil {
 			continue
 		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
+		body, err := readLimitedBodyAndClose(resp, 2*1024*1024)
+		if err != nil {
+			continue
+		}
 
 		if resp.StatusCode != 200 {
 			continue

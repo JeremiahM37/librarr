@@ -66,9 +66,10 @@ type Config struct {
 	ABSEbookLibraryID       string
 
 	// Authentication
-	AuthUsername string
-	AuthPassword string
-	APIKey       string
+	AuthUsername   string
+	AuthPassword   string
+	APIKey         string
+	APIKeyReadOnly string
 
 	// Komga
 	KomgaURL         string
@@ -224,9 +225,10 @@ func Load() *Config {
 		ABSLibraryID:           getEnv("ABS_LIBRARY_ID", ""),
 		ABSEbookLibraryID:      getEnv("ABS_EBOOK_LIBRARY_ID", ""),
 
-		AuthUsername: getEnv("AUTH_USERNAME", ""),
-		AuthPassword: getEnv("AUTH_PASSWORD", ""),
-		APIKey:       getEnv("API_KEY", ""),
+		AuthUsername:   getEnv("AUTH_USERNAME", ""),
+		AuthPassword:   getEnv("AUTH_PASSWORD", ""),
+		APIKey:         getEnv("API_KEY", ""),
+		APIKeyReadOnly: getEnv("API_KEY_READ_ONLY", ""),
 
 		KomgaURL:         getEnv("KOMGA_URL", ""),
 		KomgaUser:        getEnv("KOMGA_USER", ""),
@@ -354,9 +356,9 @@ func (c *Config) HasSABnzbd() bool {
 	return c.SABnzbdURL != "" && c.SABnzbdAPIKey != ""
 }
 
-// HasAPIKey returns true if API key auth is configured.
+// HasAPIKey returns true if any API key auth is configured.
 func (c *Config) HasAPIKey() bool {
-	return c.APIKey != ""
+	return c.APIKey != "" || c.APIKeyReadOnly != ""
 }
 
 // HasDeluge returns true if Deluge is configured.

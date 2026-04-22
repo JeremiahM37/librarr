@@ -2,7 +2,6 @@ package api
 
 import (
 	"encoding/json"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
@@ -146,27 +145,8 @@ func (s *Server) loadSettings() map[string]interface{} {
 // validateTestURL checks that a URL provided for connection testing is safe
 // (not targeting internal metadata services, localhost, etc.).
 func validateTestURL(rawURL string) error {
-	if rawURL == "" {
-		return fmt.Errorf("URL is required")
-	}
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		return fmt.Errorf("URL must start with http:// or https://")
-	}
-	lower := strings.ToLower(rawURL)
-	// Block cloud metadata endpoints and link-local addresses.
-	blockedPrefixes := []string{
-		"http://169.254.",
-		"http://[fd",
-		"http://[fe80:",
-		"http://metadata.",
-		"http://metadata",
-	}
-	for _, prefix := range blockedPrefixes {
-		if strings.HasPrefix(lower, prefix) {
-			return fmt.Errorf("URL targets a restricted address")
-		}
-	}
-	return nil
+	cfg := DefaultURLValidationConfig()
+	return ValidateURLSafety(rawURL, cfg)
 }
 
 // handleTestProwlarr actually tests the Prowlarr API connection.

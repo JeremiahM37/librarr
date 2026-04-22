@@ -42,11 +42,12 @@ type Server struct {
 	scheduler      *scheduler.Scheduler
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
+	passwordResetMgr *PasswordResetManager
 }
 
 // NewServer creates the HTTP API server.
 func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets) *Server {
-	sessions := NewSessionStore()
+	sessions := NewSessionStore(database)
 
 	// Initialize webhook sender.
 	ws := webhook.NewSender()
@@ -108,6 +109,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		scheduler:      sched,
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
+		passwordResetMgr: NewPasswordResetManager(database),
 	}
 
 	// Initialize OIDC handler if configured.
@@ -184,11 +186,14 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/health", s.handleHealth)
 
 	// Authentication.
-	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions))
+	loginThrottle := NewLoginThrottle()
+	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions, loginThrottle))
 	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.db, s.sessions))
 	s.mux.HandleFunc("POST /api/register", handleRegister(s.db, s.sessions))
 	s.mux.HandleFunc("POST /api/logout", handleLogout(s.sessions, s.db))
 	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.db, s.sessions))
+	s.mux.HandleFunc("POST /api/password-reset/request", s.HandlePasswordResetRequest)
+	s.mux.HandleFunc("POST /api/password-reset/complete", s.HandlePasswordResetComplete)
 
 	// User management (admin only).
 	s.mux.HandleFunc("GET /api/users", requireAdmin(handleListUsers(s.db)))

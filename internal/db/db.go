@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -287,6 +288,28 @@ func (d *DB) migrate() error {
 		check_interval_days INTEGER NOT NULL DEFAULT 7
 	)`)
 
+	// Sessions table for persisting user sessions across restarts.
+	migrations = append(migrations, `CREATE TABLE IF NOT EXISTS sessions (
+		token TEXT PRIMARY KEY,
+		user_id INTEGER NOT NULL,
+		username TEXT NOT NULL DEFAULT '',
+		role TEXT NOT NULL DEFAULT '',
+		expires_at REAL NOT NULL,
+		created_at REAL NOT NULL DEFAULT (strftime('%s','now')),
+		FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+	)`)
+	migrations = append(migrations, `CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON sessions(user_id)`)
+	migrations = append(migrations, `CREATE INDEX IF NOT EXISTS idx_sessions_expires_at ON sessions(expires_at)`)
+
+	// Runtime settings table.
+	migrations = append(migrations, `CREATE TABLE IF NOT EXISTS app_settings (
+		key TEXT PRIMARY KEY,
+		value TEXT NOT NULL DEFAULT '',
+		updated_by TEXT NOT NULL DEFAULT '',
+		updated_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+	)`)
+	migrations = append(migrations, `CREATE INDEX IF NOT EXISTS idx_app_settings_updated_at ON app_settings(updated_at)`)
+
 	// Additive migrations — add columns that may not exist yet.
 	addColumns := []string{
 		`ALTER TABLE download_jobs ADD COLUMN status_history TEXT NOT NULL DEFAULT '[]'`,
@@ -385,6 +408,30 @@ func (d *DB) UpdateUserPassword(id int64, passwordHash string) error {
 	return err
 }
 
+// SetUserPassword updates a user's password hash by a string user ID.
+func (d *DB) SetUserPassword(userID, passwordHash string) error {
+	id, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user ID: %w", err)
+	}
+	return d.UpdateUserPassword(id, passwordHash)
+}
+
+// GetUserIDByEmail returns a user ID for the given email/username input.
+// The current users schema does not require an email column, so this performs
+// a case-insensitive username lookup as a compatible fallback.
+func (d *DB) GetUserIDByEmail(email string) (string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var userID int64
+	err := d.db.QueryRow(`SELECT id FROM users WHERE username = ? COLLATE NOCASE`, strings.TrimSpace(email)).Scan(&userID)
+	if err != nil {
+		return "", err
+	}
+	return strconv.FormatInt(userID, 10), nil
+}
+
 // DeleteUser removes a user by ID.
 func (d *DB) DeleteUser(id int64) error {
 	d.mu.Lock()
@@ -399,6 +446,20 @@ func (d *DB) DeleteUser(id int64) error {
 		return fmt.Errorf("user not found")
 	}
 	return nil
+}
+
+// InvalidateAllUserSessions removes all active sessions for a user.
+func (d *DB) InvalidateAllUserSessions(userID string) error {
+	id, err := strconv.ParseInt(strings.TrimSpace(userID), 10, 64)
+	if err != nil {
+		return fmt.Errorf("invalid user ID: %w", err)
+	}
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err = d.db.Exec(`DELETE FROM sessions WHERE user_id = ?`, id)
+	return err
 }
 
 // SetTOTPSecret stores the TOTP secret for a user (does not enable it yet).
@@ -511,6 +572,157 @@ func scanUserFromRows(rows *sql.Rows) (*models.User, error) {
 		u.TOTPSecret = totpSecret.String
 	}
 	return &u, nil
+}
+
+// --- Sessions ---
+
+// CreateSession inserts a new session token into the database.
+func (d *DB) CreateSession(token string, userID int64, username, role string, expiresAt int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(
+		`INSERT INTO sessions (token, user_id, username, role, expires_at, created_at)
+		 VALUES (?, ?, ?, ?, ?, ?)`,
+		token, userID, username, role, expiresAt, float64(time.Now().Unix()),
+	)
+	return err
+}
+
+// GetSession retrieves a session by token. Returns userID, username, role, expiresAt, found, and error.
+func (d *DB) GetSession(token string) (int64, string, string, int64, bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	row := d.db.QueryRow(
+		`SELECT user_id, username, role, expires_at FROM sessions WHERE token = ?`,
+		token,
+	)
+
+	var userID int64
+	var username, role string
+	var expiresAt int64
+
+	err := row.Scan(&userID, &username, &role, &expiresAt)
+	if err == sql.ErrNoRows {
+		return 0, "", "", 0, false, nil
+	}
+	if err != nil {
+		return 0, "", "", 0, false, err
+	}
+
+	return userID, username, role, expiresAt, true, nil
+}
+
+// DeleteSession removes a session token from the database.
+func (d *DB) DeleteSession(token string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`DELETE FROM sessions WHERE token = ?`, token)
+	return err
+}
+
+// DeleteExpiredSessions removes all expired sessions from the database.
+func (d *DB) DeleteExpiredSessions(now int64) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	_, err := d.db.Exec(`DELETE FROM sessions WHERE expires_at <= ?`, now)
+	return err
+}
+
+// HasAnySettings returns whether at least one runtime setting exists.
+func (d *DB) HasAnySettings() (bool, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	var count int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM app_settings`).Scan(&count)
+	if err != nil {
+		return false, err
+	}
+	return count > 0, nil
+}
+
+// GetAllSettings returns all runtime settings as key/value strings.
+func (d *DB) GetAllSettings() (map[string]string, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	rows, err := d.db.Query(`SELECT key, value FROM app_settings`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	settings := make(map[string]string)
+	for rows.Next() {
+		var key, value string
+		if err := rows.Scan(&key, &value); err != nil {
+			return nil, err
+		}
+		settings[key] = value
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	return settings, nil
+}
+
+// BulkSetSettings upserts multiple settings in a single transaction.
+func (d *DB) BulkSetSettings(settings map[string]interface{}, updatedBy string, sensitiveKeys map[string]bool) error {
+	_ = sensitiveKeys // caller already handles masking semantics before persistence.
+
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	stmt, err := tx.Prepare(`
+		INSERT INTO app_settings (key, value, updated_by, updated_at)
+		VALUES (?, ?, ?, ?)
+		ON CONFLICT(key) DO UPDATE SET
+			value = excluded.value,
+			updated_by = excluded.updated_by,
+			updated_at = excluded.updated_at`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+
+	now := float64(time.Now().Unix())
+	for key, raw := range settings {
+		value, err := settingValueToString(raw)
+		if err != nil {
+			return fmt.Errorf("serialize setting %q: %w", key, err)
+		}
+		if _, err := stmt.Exec(key, value, updatedBy, now); err != nil {
+			return err
+		}
+	}
+
+	return tx.Commit()
+}
+
+func settingValueToString(v interface{}) (string, error) {
+	switch t := v.(type) {
+	case nil:
+		return "", nil
+	case string:
+		return t, nil
+	default:
+		b, err := json.Marshal(t)
+		if err != nil {
+			return "", err
+		}
+		return string(b), nil
+	}
 }
 
 // --- Library Items ---
