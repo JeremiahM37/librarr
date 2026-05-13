@@ -2,7 +2,9 @@ package config
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
+	"path/filepath"
 	"strconv"
 
 	"github.com/JeremiahM37/librarr/internal/sources"
@@ -187,7 +189,56 @@ type Config struct {
 func Load() *Config {
 	cfg := buildFromEnv()
 	cfg.applySettingsFileOverrides()
+	cfg.probeSettingsFileWritable()
 	return cfg
+}
+
+// deriveSettingsFile resolves the path the binary will read+write for UI-saved
+// settings. If SETTINGS_FILE is explicitly set, that wins. Otherwise we
+// co-locate settings.json next to the SQLite database so deployments that mount
+// their data volume at a non-default path (e.g. /data/librarr/ instead of
+// /data/) don't silently fail on every "Save Settings" click.
+//
+// The historical default of /data/settings.json is preserved when
+// LIBRARR_DB_PATH is also at the default /data/librarr.db — so existing
+// deployments with no env-var changes behave identically.
+func deriveSettingsFile(explicit, dbPath string) string {
+	if explicit != "" {
+		return explicit
+	}
+	dir := filepath.Dir(dbPath)
+	if dir == "" || dir == "." {
+		dir = "/data"
+	}
+	return filepath.Join(dir, "settings.json")
+}
+
+// probeSettingsFileWritable logs a clear error at startup if the binary can't
+// write SettingsFile. The previous behaviour was to discover this on the first
+// /api/settings POST, hours after boot, which silently broke the UI's Save
+// Settings button.
+func (c *Config) probeSettingsFileWritable() {
+	if c.SettingsFile == "" {
+		return
+	}
+	dir := filepath.Dir(c.SettingsFile)
+	if dir == "" {
+		return
+	}
+	probe := filepath.Join(dir, ".librarr-settings-write-probe")
+	f, err := os.OpenFile(probe, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		slog.Error(
+			"settings file location is not writable — UI 'Save Settings' will fail until this is fixed",
+			"path", c.SettingsFile,
+			"parent_dir", dir,
+			"error", err,
+			"hint", "set SETTINGS_FILE to a path inside a writable volume, or mount your data dir at the SettingsFile parent",
+		)
+		return
+	}
+	_ = f.Close()
+	_ = os.Remove(probe)
 }
 
 // buildFromEnv returns a Config populated from environment variables and defaults.
@@ -300,7 +351,7 @@ func buildFromEnv() *Config {
 
 		LNCrawlContainer: getEnv("LNCRAWL_CONTAINER", ""),
 
-		SettingsFile: getEnv("SETTINGS_FILE", "/data/settings.json"),
+		SettingsFile: deriveSettingsFile(os.Getenv("SETTINGS_FILE"), getEnv("LIBRARR_DB_PATH", "/data/librarr.db")),
 
 		OIDCEnabled:         getEnvBool("OIDC_ENABLED", false),
 		OIDCProviderName:    getEnv("OIDC_PROVIDER_NAME", "SSO"),
