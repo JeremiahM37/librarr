@@ -2602,7 +2602,12 @@ async function showChangePasswordIfMultiUser() {
   } catch (err) {}
 }
 
-document.getElementById('change-password-form').addEventListener('submit', async (e) => {
+// Guard with optional chaining: the change-password card is only present for
+// DB-backed accounts, so this element is absent on env-credential / no-auth
+// installs. Without the guard, the null deref threw at the top level and
+// aborted the rest of this script — leaving later `const` declarations (e.g.
+// INTEGRATION_FIELDS) uninitialized and breaking the integration Save button.
+document.getElementById('change-password-form')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const errEl = document.getElementById('cp-error');
   errEl.classList.add('hidden');
