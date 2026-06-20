@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/librarr/internal/download"
 	"github.com/JeremiahM37/librarr/internal/organize"
 	"github.com/JeremiahM37/librarr/internal/search"
+	"github.com/JeremiahM37/librarr/internal/version"
 )
 
 func main() {
@@ -24,7 +25,7 @@ func main() {
 		Level: slog.LevelInfo,
 	})))
 
-	slog.Info("starting Librarr", "version", "1.0.0")
+	slog.Info("starting Librarr", "version", version.Version)
 
 	// Load configuration.
 	cfg := config.Load()

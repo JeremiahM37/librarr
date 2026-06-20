@@ -6,11 +6,14 @@ import (
 	"net/http"
 	"runtime"
 	"time"
+
+	"github.com/JeremiahM37/librarr/internal/version"
 )
 
-// Set at build time via -ldflags
+// Version comes from the embedded VERSION file (see internal/version).
+// BuildTime may still be injected at build time via -ldflags.
 var (
-	Version   = "1.0.0"
+	Version   = version.Version
 	BuildTime = "unknown"
 	GoVersion = runtime.Version()
 )
