@@ -2859,22 +2859,27 @@ async function testConnection(service) {
 // TOTP SETTINGS
 // ============================================================
 async function loadTOTPStatus() {
+  // The TOTP settings block is only rendered for DB-backed accounts, so on
+  // env-credential / no-auth installs these elements are absent. Guard every
+  // access with optional chaining: otherwise /api/totp/status rejecting in
+  // single-user mode runs the catch below, which then threw an uncaught
+  // "Cannot read properties of null (reading 'classList')" on the null section.
   const section = document.getElementById('totp-settings');
   try {
     const data = await apiJson('/api/totp/status');
-    section.classList.remove('hidden');
+    section?.classList.remove('hidden');
     if (data.enabled) {
-      document.getElementById('totp-disabled-section').classList.add('hidden');
-      document.getElementById('totp-enabled-section').classList.remove('hidden');
+      document.getElementById('totp-disabled-section')?.classList.add('hidden');
+      document.getElementById('totp-enabled-section')?.classList.remove('hidden');
     } else {
-      document.getElementById('totp-disabled-section').classList.remove('hidden');
-      document.getElementById('totp-enabled-section').classList.add('hidden');
+      document.getElementById('totp-disabled-section')?.classList.remove('hidden');
+      document.getElementById('totp-enabled-section')?.classList.add('hidden');
     }
-    document.getElementById('totp-setup-section').classList.add('hidden');
-    document.getElementById('totp-disable-section').classList.add('hidden');
+    document.getElementById('totp-setup-section')?.classList.add('hidden');
+    document.getElementById('totp-disable-section')?.classList.add('hidden');
   } catch (err) {
     // Not in multi-user mode — hide TOTP settings.
-    section.classList.add('hidden');
+    section?.classList.add('hidden');
   }
 }
 
