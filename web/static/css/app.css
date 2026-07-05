@@ -1,0 +1,98 @@
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-track { background: #0f172a; }
+  ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+  ::-webkit-scrollbar-thumb:hover { background: #475569; }
+
+  /* Tab transitions */
+  .tab-content { display: none; animation: fadeIn 0.2s ease-out; }
+  .tab-content.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* Card hover */
+  .book-card { transition: transform 0.15s ease, box-shadow 0.15s ease; }
+  .book-card:hover { transform: translateY(-2px); box-shadow: 0 8px 25px rgba(0,0,0,0.3); }
+
+  /* Skeleton shimmer */
+  .skeleton { background: linear-gradient(90deg, #1e293b 25%, #334155 50%, #1e293b 75%); background-size: 200% 100%; animation: shimmer 1.5s infinite; }
+  @keyframes shimmer { 0% { background-position: 200% 0; } 100% { background-position: -200% 0; } }
+
+  /* Toast animation */
+  .toast-enter { animation: toastIn 0.3s ease-out; }
+  .toast-exit { animation: toastOut 0.3s ease-in forwards; }
+  @keyframes toastIn { from { opacity: 0; transform: translateX(100%); } to { opacity: 1; transform: translateX(0); } }
+  @keyframes toastOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(100%); } }
+
+  /* Progress bar */
+  .progress-bar { transition: width 0.5s ease; }
+
+  /* Active nav indicator */
+  .nav-tab.active { border-color: #6366f1; color: #e0e7ff; }
+  .sub-tab.active { background: #312e81; color: #c7d2fe; }
+
+  /* Cover placeholder gradients */
+  .cover-placeholder { display: flex; align-items: center; justify-content: center; font-size: 2rem; font-weight: 700; color: rgba(255,255,255,0.7); }
+
+  /* Login modal backdrop */
+  .modal-backdrop { background: rgba(0,0,0,0.7); backdrop-filter: blur(4px); }
+
+  /* Spin animation for loading */
+  .spin { animation: spin 1s linear infinite; }
+  @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+  /* Download button pulse */
+  .dl-active { animation: pulse 2s infinite; }
+  @keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.7; } }
+
+  /* Hamburger menu */
+  .hamburger-btn { display: none; }
+  .mobile-nav-overlay { display: none; }
+
+  /* Russian locale adjustments */
+  html[lang="ru"] .sub-tab { font-size: 0.75rem; }
+  html[lang="ru"] #tab-settings h3 { letter-spacing: 0.02em; }
+
+  /* Mobile responsive */
+  @media (max-width: 640px) {
+    /* Hamburger menu toggle */
+    .hamburger-btn { display: flex; align-items: center; justify-content: center; padding: 0.5rem; }
+    #main-nav { display: none; flex-direction: column; position: absolute; top: 100%; left: 0; right: 0; background: #0f172a; border-bottom: 1px solid #1e293b; padding: 0.5rem; z-index: 40; gap: 0; }
+    #main-nav.mobile-open { display: flex; }
+    #main-nav .nav-tab { border-bottom: none; border-left: 3px solid transparent; padding: 0.75rem 1rem; width: 100%; text-align: left; font-size: 0.95rem; }
+    #main-nav .nav-tab.active { border-left-color: #6366f1; border-bottom: none; }
+
+    /* Header adjustments */
+    header .max-w-7xl { position: relative; }
+    #header-stats { display: none !important; }
+
+    /* Search bar */
+    #search-input { font-size: 16px; } /* Prevent iOS zoom on focus */
+
+    /* Results grid — stack vertically */
+    #search-results { grid-template-columns: 1fr 1fr !important; gap: 0.5rem; }
+
+    /* Sub-tabs scroll */
+    .sub-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
+
+    /* Sort bar */
+    #search-sort-bar { flex-direction: column; gap: 0.5rem; }
+
+    /* Larger touch targets for buttons */
+    button, a.sub-tab, .nav-tab { min-height: 44px; }
+
+    /* Full width cards on very small screens */
+    @media (max-width: 400px) {
+      #search-results { grid-template-columns: 1fr !important; }
+    }
+
+    /* Library and download list items */
+    .book-card { margin-bottom: 0.5rem; }
+
+    /* Main content padding */
+    main.flex-1 { padding-left: 0.75rem; padding-right: 0.75rem; }
+  }
+
+  @media (max-width: 768px) {
+    /* Slightly smaller grid for tablets */
+    #search-results { grid-template-columns: repeat(3, 1fr) !important; }
+  }
