@@ -83,3 +83,25 @@ jobs:
       - uses: actions/checkout@v4
       - name: docker build
         run: docker build -t librarr:ci .
+
+  e2e:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x', cache: false, check-latest: true}
+      - name: build binary
+        run: go build -o /tmp/librarr ./cmd/librarr/
+      - uses: actions/setup-python@v5
+        with: {python-version: '3.12'}
+      - name: install e2e deps
+        run: |
+          pip install -r e2e/requirements.txt
+          playwright install --with-deps chromium
+      - name: e2e user journey (hermetic — stubbed sources, real browser)
+        env:
+          LIBRARR_E2E_BIN: /tmp/librarr
+        run: pytest e2e/ -v
+      - name: server log on failure
+        if: failure()
+        run: cat /tmp/pytest-of-*/pytest-*/data*/librarr.log 2>/dev/null || true
