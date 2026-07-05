@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -189,6 +190,10 @@ func (s *Server) Handler() http.Handler {
 func (s *Server) registerRoutes() {
 	// Root -- API info page.
 	s.mux.HandleFunc("GET /{$}", s.handleRoot)
+
+	// Frontend assets (CSS/JS/fonts), embedded in the binary. Served without
+	// auth (isExempt allows /static/) — the login screen needs them too.
+	s.mux.Handle("GET /static/", s.handleStatic())
 
 	// Health checks.
 	s.mux.HandleFunc("GET /health", s.handleHealth)
@@ -451,7 +456,34 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 		w.Header().Set("X-Frame-Options", "DENY")
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
 		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		// Strict CSP: no inline scripts anywhere (the UI uses external files +
+		// event delegation, and Tailwind/Inter are vendored under /static/).
+		//   style-src 'unsafe-inline' — the Tailwind Play runtime injects a
+		//     <style> element at load; style injection, unlike script, is not
+		//     an XSS vector on its own.
+		//   img-src https: data: — book/audiobook cover art is hotlinked from
+		//     external sources (Open Library, Anna's Archive, indexers).
+		w.Header().Set("Content-Security-Policy",
+			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
+				"img-src 'self' data: https:; font-src 'self'; connect-src 'self'; "+
+				"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
+	})
+}
+
+// handleStatic serves the embedded frontend assets under /static/.
+func (s *Server) handleStatic() http.Handler {
+	sub, err := fs.Sub(web.StaticFS, "static")
+	if err != nil {
+		// Impossible with a well-formed embed; fail loudly at startup if not.
+		panic("web static assets missing from binary: " + err.Error())
+	}
+	fileServer := http.StripPrefix("/static/", http.FileServer(http.FS(sub)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Assets aren't content-hashed, so keep the client cache short: an
+		// upgraded binary must be able to push new css/js within the hour.
+		w.Header().Set("Cache-Control", "public, max-age=3600")
+		fileServer.ServeHTTP(w, r)
 	})
 }
 

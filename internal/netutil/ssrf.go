@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net"
 	"net/url"
+	"os"
 	"strings"
 )
 
@@ -54,8 +55,19 @@ func ValidateIntegrationURL(rawURL string) error {
 	return nil
 }
 
+// allowPrivateOutbound reports whether the operator has explicitly opted out
+// of the private/loopback-address SSRF guard. Some self-hosted setups serve
+// downloads from LAN mirrors (a NAS libgen mirror, an internal cache); the
+// hermetic e2e suite also relies on it to download from a 127.0.0.1 stub.
+// Cloud-metadata addresses stay blocked even with the override — there is no
+// legitimate reason for a book download to come from 169.254.169.254.
+func allowPrivateOutbound() bool {
+	return os.Getenv("LIBRARR_INSECURE_ALLOW_PRIVATE_URLS") == "1"
+}
+
 // ValidateOutboundURL checks that rawURL is a safe http(s) target for server-side
-// requests. It rejects loopback, private, link-local, and metadata addresses.
+// requests. It rejects loopback, private, link-local, and metadata addresses
+// (see LIBRARR_INSECURE_ALLOW_PRIVATE_URLS for the LAN-mirror escape hatch).
 func ValidateOutboundURL(rawURL string) error {
 	u, err := parseHTTPURL(rawURL)
 	if err != nil {
@@ -72,7 +84,10 @@ func ValidateOutboundURL(rawURL string) error {
 	}
 
 	if ip := net.ParseIP(host); ip != nil {
-		if isRestrictedIP(ip) {
+		if isCloudMetadataIP(ip) {
+			return fmt.Errorf("URL targets a restricted address")
+		}
+		if isRestrictedIP(ip) && !allowPrivateOutbound() {
 			return fmt.Errorf("URL targets a restricted address")
 		}
 		return nil
@@ -85,6 +100,12 @@ func ValidateOutboundURL(rawURL string) error {
 		return nil
 	}
 	for _, ip := range ips {
+		if isCloudMetadataIP(ip) {
+			return fmt.Errorf("URL resolves to a restricted address")
+		}
+		if allowPrivateOutbound() {
+			continue
+		}
 		if isRestrictedIP(ip) {
 			return fmt.Errorf("URL targets a restricted address")
 		}

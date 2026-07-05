@@ -6,7 +6,11 @@
 .env
 /data/
 /tmp/
-vendor/
+/vendor/
 node_modules/
 package-lock.json
 package.json
+
+# e2e test artifacts
+.pytest_cache/
+__pycache__/
