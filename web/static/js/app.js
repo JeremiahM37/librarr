@@ -981,6 +981,7 @@ document.getElementById('search-input').addEventListener('keydown', (e) => {
 async function doSearch(query) {
   const endpoints = { ebooks: '/api/search', audiobooks: '/api/search/audiobooks', manga: '/api/search/manga' };
   const endpoint = endpoints[state.searchTab] || '/api/search';
+  const streamEndpoint = `${endpoint}/stream`;
 
   // Abort any in-flight search — prevents stale results from overwriting
   // the new search when the old request finishes after the new one starts.
@@ -997,34 +998,102 @@ async function doSearch(query) {
   document.getElementById('search-spinner').classList.remove('hidden');
 
   try {
-    const data = await apiJson(`${endpoint}?q=${encodeURIComponent(query)}`, {
-      signal: searchAbort.signal,
-    });
-
-    // Discard if a newer search was started while we were waiting.
-    if (gen !== searchGeneration) return;
-
-    state.searchResults = data.results || [];
-    document.getElementById('search-spinner').classList.add('hidden');
-    hideSearchSkeleton();
-
-    if (state.searchResults.length === 0) {
-      document.getElementById('search-no-results').classList.remove('hidden');
-      document.getElementById('search-sort-bar').classList.add('hidden');
-    } else {
-      document.getElementById('search-sort-bar').classList.remove('hidden');
-      document.getElementById('search-result-count').textContent = t('n_results', {n: state.searchResults.length});
-      renderSearchResults();
-    }
+    await doStreamingSearch(streamEndpoint, query, gen, searchAbort.signal);
   } catch (err) {
     if (err.name === 'AbortError') return; // expected — new search superseded this one
     if (gen !== searchGeneration) return;
-    document.getElementById('search-spinner').classList.add('hidden');
-    hideSearchSkeleton();
-    if (err.message !== 'Unauthorized') {
-      showToast(t('search_failed', {msg: err.message}), 'error');
+    try {
+      await doJsonSearch(endpoint, query, gen, searchAbort.signal);
+    } catch (fallbackErr) {
+      if (fallbackErr.name === 'AbortError') return;
+      if (gen !== searchGeneration) return;
+      document.getElementById('search-spinner').classList.add('hidden');
+      hideSearchSkeleton();
+      if (fallbackErr.message !== 'Unauthorized') {
+        showToast(t('search_failed', {msg: fallbackErr.message}), 'error');
+      }
     }
   }
+}
+
+async function doJsonSearch(endpoint, query, gen, signal) {
+  const data = await apiJson(`${endpoint}?q=${encodeURIComponent(query)}`, { signal });
+  if (gen !== searchGeneration) return;
+  updateSearchResults(data.results || [], false);
+}
+
+async function doStreamingSearch(endpoint, query, gen, signal) {
+  const resp = await api(`${endpoint}?q=${encodeURIComponent(query)}`, {
+    signal,
+    headers: { Accept: 'text/event-stream' },
+  });
+  if (!resp.ok || !resp.body) throw new Error(`API error: ${resp.status}`);
+
+  const reader = resp.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = '';
+  let completed = false;
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const frames = buffer.split('\n\n');
+    buffer = frames.pop() || '';
+    for (const frame of frames) {
+      const evt = parseSSEFrame(frame);
+      if (!evt || gen !== searchGeneration) continue;
+      if (evt.event === 'results' || evt.event === 'complete') {
+        updateSearchResults(evt.data.results || [], evt.event !== 'complete');
+        completed = evt.event === 'complete';
+      }
+    }
+  }
+
+  if (gen === searchGeneration && !completed) {
+    document.getElementById('search-spinner').classList.add('hidden');
+    if (state.searchResults.length === 0) {
+      hideSearchSkeleton();
+      document.getElementById('search-no-results').classList.remove('hidden');
+    }
+  }
+}
+
+function parseSSEFrame(frame) {
+  let event = 'message';
+  const dataLines = [];
+  frame.split('\n').forEach(line => {
+    if (line.startsWith('event:')) event = line.slice(6).trim();
+    if (line.startsWith('data:')) dataLines.push(line.slice(5).trimStart());
+  });
+  if (dataLines.length === 0) return null;
+  try {
+    return { event, data: JSON.parse(dataLines.join('\n')) };
+  } catch {
+    return null;
+  }
+}
+
+function updateSearchResults(results, searching) {
+  state.searchResults = results || [];
+  document.getElementById('search-spinner').classList.toggle('hidden', !searching);
+
+  if (state.searchResults.length === 0) {
+    document.getElementById('search-sort-bar').classList.add('hidden');
+    if (searching) {
+      document.getElementById('search-no-results').classList.add('hidden');
+      return;
+    }
+    hideSearchSkeleton();
+    document.getElementById('search-no-results').classList.toggle('hidden', searching);
+    return;
+  }
+
+  hideSearchSkeleton();
+  document.getElementById('search-no-results').classList.add('hidden');
+  document.getElementById('search-sort-bar').classList.remove('hidden');
+  document.getElementById('search-result-count').textContent = t('n_results', {n: state.searchResults.length});
+  renderSearchResults();
 }
 
 function showSearchSkeleton() {

@@ -240,6 +240,9 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/search/audiobooks", s.handleSearchAudiobooks)
 	s.mux.HandleFunc("GET /api/search/manga", s.handleSearchManga)
+	s.mux.HandleFunc("GET /api/search/stream", s.handleSearchStream)
+	s.mux.HandleFunc("GET /api/search/audiobooks/stream", s.handleSearchAudiobooksStream)
+	s.mux.HandleFunc("GET /api/search/manga/stream", s.handleSearchMangaStream)
 
 	// Downloads.
 	s.mux.HandleFunc("POST /api/download", s.handleDownload)
@@ -542,4 +545,10 @@ type statusWriter struct {
 func (w *statusWriter) WriteHeader(status int) {
 	w.status = status
 	w.ResponseWriter.WriteHeader(status)
+}
+
+func (w *statusWriter) Flush() {
+	if flusher, ok := w.ResponseWriter.(http.Flusher); ok {
+		flusher.Flush()
+	}
 }
