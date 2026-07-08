@@ -36,6 +36,16 @@ type Manager struct {
 	foreignLangFilter bool // runtime-configurable via UI; initialised from config
 }
 
+// SourceSearchUpdate reports one source's contribution to a streaming search.
+type SourceSearchUpdate struct {
+	Source       string
+	Results      []models.SearchResult
+	Err          error
+	CircuitOpen  bool
+	Done         bool
+	ElapsedMilli int64
+}
+
 // NewManager creates a search manager with the given sources.
 func NewManager(cfg *config.Config, sources []Searcher, health *HealthTracker) *Manager {
 	return &Manager{
@@ -119,15 +129,99 @@ func (m *Manager) SearchWithAuthor(ctx context.Context, tab, query, author strin
 
 	wg.Wait()
 
-	// Apply relevance and foreign-language filtering.
+	results = m.processResults(results, query, author)
+
+	elapsed := time.Since(start).Milliseconds()
+	return results, elapsed
+}
+
+// SearchStream runs a query and emits an update when each source finishes.
+func (m *Manager) SearchStream(ctx context.Context, tab, query, author string) <-chan SourceSearchUpdate {
+	start := time.Now()
+	updates := make(chan SourceSearchUpdate, len(m.sources))
+
+	go func() {
+		defer close(updates)
+		var wg sync.WaitGroup
+		sendUpdate := func(update SourceSearchUpdate) bool {
+			select {
+			case updates <- update:
+				return true
+			case <-ctx.Done():
+				return false
+			}
+		}
+
+		for _, s := range m.sources {
+			if !s.Enabled() || s.SearchTab() != tab {
+				continue
+			}
+			if !m.health.CanSearch(s.Name()) {
+				slog.Warn("source circuit open, skipping", "source", s.Name())
+				if !sendUpdate(SourceSearchUpdate{
+					Source:       s.Name(),
+					CircuitOpen:  true,
+					Done:         true,
+					ElapsedMilli: time.Since(start).Milliseconds(),
+				}) {
+					return
+				}
+				continue
+			}
+
+			wg.Add(1)
+			go func(src Searcher) {
+				defer wg.Done()
+
+				searchCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+				defer cancel()
+
+				res, err := src.Search(searchCtx, query)
+				if err != nil {
+					if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+						slog.Debug("search canceled by client", "source", src.Name())
+						return
+					}
+					slog.Error("search failed", "source", src.Name(), "error", err)
+					m.health.RecordFailure(src.Name(), err.Error(), "search")
+					sendUpdate(SourceSearchUpdate{
+						Source:       src.Name(),
+						Err:          err,
+						Done:         true,
+						ElapsedMilli: time.Since(start).Milliseconds(),
+					})
+					return
+				}
+
+				m.health.RecordSuccess(src.Name(), "search")
+				for i := range res {
+					if res[i].Source == "" {
+						res[i].Source = src.Name()
+					}
+				}
+				sendUpdate(SourceSearchUpdate{
+					Source:       src.Name(),
+					Results:      res,
+					Done:         true,
+					ElapsedMilli: time.Since(start).Milliseconds(),
+				})
+			}(s)
+		}
+		wg.Wait()
+	}()
+
+	return updates
+}
+
+// ProcessResults applies the same post-processing used by normal searches.
+func (m *Manager) ProcessResults(results []models.SearchResult, query, author string) []models.SearchResult {
+	return m.processResults(results, query, author)
+}
+
+func (m *Manager) processResults(results []models.SearchResult, query, author string) []models.SearchResult {
 	results = FilterResults(results, query, m.ForeignLangFilterEnabled())
-	// Apply suspicious keyword, seed, size, dedup, and sorting filters.
 	results = FilterAndSortResults(results, query, m.cfg.MinTorrentSizeBytes, m.cfg.MaxTorrentSizeBytes)
-
-	// Score all results.
 	results = ScoreResults(results, query, author)
-
-	// Re-sort by score (highest first), preserving filter order as tiebreaker.
 	for i := 0; i < len(results); i++ {
 		for j := i + 1; j < len(results); j++ {
 			if results[j].Score > results[i].Score {
@@ -135,9 +229,7 @@ func (m *Manager) SearchWithAuthor(ctx context.Context, tab, query, author strin
 			}
 		}
 	}
-
-	elapsed := time.Since(start).Milliseconds()
-	return results, elapsed
+	return results
 }
 
 // GetSources returns all registered sources.

@@ -1,10 +1,28 @@
 package search
 
 import (
+	"context"
 	"testing"
 
+	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
+
+type stubSearcher struct {
+	name    string
+	tab     string
+	results []models.SearchResult
+	err     error
+}
+
+func (s stubSearcher) Name() string         { return s.name }
+func (s stubSearcher) Label() string        { return s.name }
+func (s stubSearcher) Enabled() bool        { return true }
+func (s stubSearcher) SearchTab() string    { return s.tab }
+func (s stubSearcher) DownloadType() string { return "direct" }
+func (s stubSearcher) Search(context.Context, string) ([]models.SearchResult, error) {
+	return s.results, s.err
+}
 
 func TestIsMultilangSource(t *testing.T) {
 	tests := []struct {
@@ -28,6 +46,45 @@ func TestIsMultilangSource(t *testing.T) {
 				t.Errorf("isMultilangSource(%q) = %v, want %v", tt.source, got, tt.expected)
 			}
 		})
+	}
+}
+
+func TestSearchStreamEmitsSourceUpdates(t *testing.T) {
+	mgr := NewManager(&config.Config{}, []Searcher{
+		stubSearcher{
+			name: "one",
+			tab:  "main",
+			results: []models.SearchResult{{
+				Title:  "Project Hail Mary",
+				Source: "one",
+			}},
+		},
+		stubSearcher{
+			name: "two",
+			tab:  "main",
+			results: []models.SearchResult{{
+				Title:  "Project Hail Mary Audiobook",
+				Source: "two",
+			}},
+		},
+	}, NewHealthTracker(3, 300))
+
+	var all []models.SearchResult
+	seen := map[string]bool{}
+	for update := range mgr.SearchStream(context.Background(), "main", "Project Hail Mary", "") {
+		if update.Err != nil {
+			t.Fatalf("unexpected stream error: %v", update.Err)
+		}
+		seen[update.Source] = true
+		all = append(all, update.Results...)
+	}
+
+	if !seen["one"] || !seen["two"] {
+		t.Fatalf("stream updates = %#v, want one and two", seen)
+	}
+	processed := mgr.ProcessResults(all, "Project Hail Mary", "")
+	if len(processed) != 2 {
+		t.Fatalf("processed results = %d, want 2", len(processed))
 	}
 }
 

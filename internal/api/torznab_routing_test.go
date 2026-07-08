@@ -85,3 +85,18 @@ func TestTorznabAliasHandlesTrailingSlashCorrectly(t *testing.T) {
 		t.Errorf("expected 404 for unregistered /api/, got %d", w.Code)
 	}
 }
+
+func TestStatusWriterPreservesFlusher(t *testing.T) {
+	rr := httptest.NewRecorder()
+	wrapped := &statusWriter{ResponseWriter: rr, status: http.StatusOK}
+
+	flusher, ok := interface{}(wrapped).(http.Flusher)
+	if !ok {
+		t.Fatal("statusWriter should implement http.Flusher")
+	}
+	flusher.Flush()
+
+	if !rr.Flushed {
+		t.Fatal("Flush did not reach the underlying response writer")
+	}
+}
