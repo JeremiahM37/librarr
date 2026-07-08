@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -92,6 +93,10 @@ func (m *Manager) SearchWithAuthor(ctx context.Context, tab, query, author strin
 
 			res, err := src.Search(searchCtx, query)
 			if err != nil {
+				if errors.Is(err, context.Canceled) && ctx.Err() != nil {
+					slog.Debug("search canceled by client", "source", src.Name())
+					return
+				}
 				slog.Error("search failed", "source", src.Name(), "error", err)
 				m.health.RecordFailure(src.Name(), err.Error(), "search")
 				return
