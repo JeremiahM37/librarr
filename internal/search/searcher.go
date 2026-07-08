@@ -2,6 +2,7 @@ package search
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"regexp"
 	"strings"
@@ -133,7 +134,7 @@ func (m *Manager) SearchWithAuthor(ctx context.Context, tab, query, author strin
 // SearchStream runs a query and emits an update when each source finishes.
 func (m *Manager) SearchStream(ctx context.Context, tab, query, author string) <-chan SourceSearchUpdate {
 	start := time.Now()
-	updates := make(chan SourceSearchUpdate)
+	updates := make(chan SourceSearchUpdate, len(m.sources))
 
 	go func() {
 		defer close(updates)
