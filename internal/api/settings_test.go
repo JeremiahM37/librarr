@@ -92,6 +92,18 @@ func TestSaveSettings_EmptyStringDeletesKey(t *testing.T) {
 	}
 }
 
+func TestSaveSettings_NormalizesAnnasDomain(t *testing.T) {
+	s, path := settingsTestServer(t)
+
+	saveSettings(t, s, map[string]interface{}{
+		"annas_archive_domain": " https://Annas-Archive.GD/search/ ",
+	})
+
+	if got := readSettingsFile(t, path)["annas_archive_domain"]; got != "annas-archive.gd" {
+		t.Errorf("expected normalized domain, got %v", got)
+	}
+}
+
 // TestSaveSettings_FalseBoolPersists — the empty-string-delete rule must NOT
 // drop legitimate falsy values like bool false. Toggles depend on this.
 func TestSaveSettings_FalseBoolPersists(t *testing.T) {

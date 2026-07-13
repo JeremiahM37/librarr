@@ -84,7 +84,7 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	os.Setenv("LIBRARR_DB_PATH", "/tmp/test.db")
 	os.Setenv("QB_URL", "http://localhost:9090")
 	os.Setenv("FILE_ORG_ENABLED", "false")
-	os.Setenv("ANNAS_ARCHIVE_DOMAIN", "annas-archive.org")
+	os.Setenv("ANNAS_ARCHIVE_DOMAIN", "https://annas-archive.org/search/")
 	os.Setenv("MIN_TORRENT_SIZE_BYTES", "50000")
 	os.Setenv("OIDC_PROXY_HEADERS_ENABLED", "true")
 	defer func() {
@@ -119,6 +119,20 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	}
 	if !cfg.OIDCProxyHeaders {
 		t.Error("expected OIDCProxyHeaders=true with env override")
+	}
+}
+
+func TestLoad_NormalizesSettingsFileDomain(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := dir + "/settings.json"
+	if err := os.WriteFile(settingsPath, []byte(`{"annas_archive_domain":"https://Annas-Archive.GD/search/"}`), 0600); err != nil {
+		t.Fatalf("write settings file: %v", err)
+	}
+	t.Setenv("SETTINGS_FILE", settingsPath)
+
+	cfg := Load()
+	if cfg.AnnasArchiveDomain != "annas-archive.gd" {
+		t.Errorf("AnnasArchiveDomain = %q, want annas-archive.gd", cfg.AnnasArchiveDomain)
 	}
 }
 

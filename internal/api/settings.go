@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/netutil"
+	"github.com/JeremiahM37/librarr/internal/sources"
 )
 
 const maskedValue = "--------"
@@ -107,6 +108,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			"success": false, "error": "No data provided",
 		})
 		return
+	}
+	if value, ok := data["annas_archive_domain"].(string); ok && value != "" {
+		data["annas_archive_domain"] = sources.NormalizeDomain(value)
 	}
 
 	// Don't save masked values (user didn't change them).

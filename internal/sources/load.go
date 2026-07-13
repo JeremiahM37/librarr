@@ -103,7 +103,7 @@ func decode(data []byte) (*Registry, error) {
 	if err := json.Unmarshal(data, &r); err != nil {
 		return nil, err
 	}
-	return &r, nil
+	return r.Normalize(), nil
 }
 
 // writeCache persists a successful registry fetch to disk. Failures are logged
@@ -129,5 +129,5 @@ func (r *Registry) ApplyEnvOverrides(getenv func(string) string) *Registry {
 	if v := getenv("ANNAS_ARCHIVE_DOMAIN"); v != "" {
 		r.Annas.Domain = v
 	}
-	return r
+	return r.Normalize()
 }
