@@ -206,6 +206,7 @@ type Config struct {
 func Load() *Config {
 	cfg := buildFromEnv()
 	cfg.applySettingsFileOverrides()
+	cfg.AnnasArchiveDomain = sources.NormalizeDomain(cfg.AnnasArchiveDomain)
 	cfg.probeSettingsFileWritable()
 	return cfg
 }

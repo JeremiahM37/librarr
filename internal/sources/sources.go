@@ -15,6 +15,11 @@
 // take precedence over the registry value when they are set.
 package sources
 
+import (
+	"net/url"
+	"strings"
+)
+
 // Registry is the in-memory representation of the indexer registry.
 type Registry struct {
 	Version         int              `json:"version"`
@@ -77,4 +82,31 @@ func (r *Registry) WebNovel(id string) *WebNovelSite {
 		}
 	}
 	return nil
+}
+
+// NormalizeDomain accepts either a hostname or URL and returns only the host.
+// Source drivers that consume domain fields add their own scheme and paths.
+func NormalizeDomain(value string) string {
+	value = strings.TrimSpace(value)
+	if value == "" {
+		return ""
+	}
+
+	if !strings.Contains(value, "://") {
+		value = "//" + value
+	}
+	parsed, err := url.Parse(value)
+	if err != nil || parsed.Host == "" || parsed.User != nil {
+		return ""
+	}
+	return strings.ToLower(parsed.Host)
+}
+
+// Normalize canonicalizes host-only fields after any registry or env load.
+func (r *Registry) Normalize() *Registry {
+	r.Annas.Domain = NormalizeDomain(r.Annas.Domain)
+	for i := range r.AudioBookBay.Mirrors {
+		r.AudioBookBay.Mirrors[i] = NormalizeDomain(r.AudioBookBay.Mirrors[i])
+	}
+	return r
 }

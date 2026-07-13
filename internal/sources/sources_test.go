@@ -162,7 +162,7 @@ func TestApplyEnvOverrides(t *testing.T) {
 		want    string
 	}{
 		{"unset leaves value", nil, "starting.test", "starting.test"},
-		{"ANNAS_ARCHIVE_DOMAIN overrides", map[string]string{"ANNAS_ARCHIVE_DOMAIN": "override.test"}, "starting.test", "override.test"},
+		{"ANNAS_ARCHIVE_DOMAIN overrides", map[string]string{"ANNAS_ARCHIVE_DOMAIN": "https://Override.Test/search/"}, "starting.test", "override.test"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -172,6 +172,50 @@ func TestApplyEnvOverrides(t *testing.T) {
 				t.Errorf("Annas.Domain = %q, want %q", r.Annas.Domain, tc.want)
 			}
 		})
+	}
+}
+
+func TestNormalizeDomain(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{"hostname", "annas-archive.gl", "annas-archive.gl"},
+		{"URL", "https://Annas-Archive.GL/search?q=test", "annas-archive.gl"},
+		{"surrounding whitespace", "  audiobookbay.lu/  ", "audiobookbay.lu"},
+		{"host with port", "http://localhost:8080/path", "localhost:8080"},
+		{"invalid URL", "https://", ""},
+		{"userinfo rejected", "https://user@example.test", ""},
+		{"empty", "  ", ""},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sources.NormalizeDomain(tc.input); got != tc.want {
+				t.Errorf("NormalizeDomain(%q) = %q, want %q", tc.input, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestRegistryNormalizeHostFields(t *testing.T) {
+	r := (&sources.Registry{
+		Annas: sources.AnnasSpec{Domain: "https://annas.example/search"},
+		AudioBookBay: sources.AudioBookBaySpec{Mirrors: []string{
+			"https://abb-one.example/",
+			"ABB-TWO.EXAMPLE/path",
+		}},
+	}).Normalize()
+
+	if r.Annas.Domain != "annas.example" {
+		t.Errorf("Annas.Domain = %q", r.Annas.Domain)
+	}
+	wantMirrors := []string{"abb-one.example", "abb-two.example"}
+	for i, want := range wantMirrors {
+		if r.AudioBookBay.Mirrors[i] != want {
+			t.Errorf("AudioBookBay.Mirrors[%d] = %q, want %q", i, r.AudioBookBay.Mirrors[i], want)
+		}
 	}
 }
 
