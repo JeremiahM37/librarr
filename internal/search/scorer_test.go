@@ -216,6 +216,10 @@ func TestExtractFormatFromTitle(t *testing.T) {
 		{"Book Title [EPUB]", "epub"},
 		{"Book Title (PDF)", "pdf"},
 		{"book.mobi", "mobi"},
+		{"Audiobook-WEB-MP3-DE", "mp3"},
+		{"Audiobook [M4B]", "m4b"},
+		{"Audiobook MP3.zip", "mp3"},
+		{"A Magnum Opus", ""},
 		{"No format here", ""},
 	}
 	for _, tt := range tests {

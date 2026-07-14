@@ -127,6 +127,7 @@ func (s *StandardEbooks) Search(ctx context.Context, query string) ([]models.Sea
 			SourceID:    fmt.Sprintf("standardebooks-%s", path),
 			EpubURL:     epubURL,
 			DownloadURL: epubURL,
+			Format:      "epub",
 		})
 	}
 

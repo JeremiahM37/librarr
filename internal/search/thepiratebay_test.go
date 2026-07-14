@@ -24,7 +24,7 @@ func testCfgWithSourcesURL(tpbURL string) *config.Config {
 // and should be filtered out. The third entry is a duplicate info_hash
 // that should also be dropped.
 const apibayFixture = `[
-  {"id":"1","name":"Programming Go","info_hash":"AABBCCDD0011","leechers":"4","seeders":"17","size":"4194304","num_files":"1","username":"anon","added":"1700000000","category":"601"},
+  {"id":"1","name":"Programming Go EPUB","info_hash":"AABBCCDD0011","leechers":"4","seeders":"17","size":"4194304","num_files":"1","username":"anon","added":"1700000000","category":"601"},
   {"id":"2","name":"Dead Torrent","info_hash":"11223344DEAD","leechers":"0","seeders":"0","size":"1024","num_files":"1","username":"anon","added":"1700000000","category":"601"},
   {"id":"3","name":"Programming Go (dup)","info_hash":"AABBCCDD0011","leechers":"2","seeders":"5","size":"4194304","num_files":"1","username":"anon","added":"1700000000","category":"601"}
 ]`
@@ -74,6 +74,9 @@ func TestThePirateBaySearch(t *testing.T) {
 	}
 	if r.InfoHash != "AABBCCDD0011" {
 		t.Errorf("InfoHash = %q", r.InfoHash)
+	}
+	if r.Format != "epub" {
+		t.Errorf("Format = %q, want epub", r.Format)
 	}
 	if !strings.HasPrefix(r.MagnetURL, "magnet:?xt=urn:btih:AABBCCDD0011") {
 		t.Errorf("MagnetURL missing info_hash: %q", r.MagnetURL)

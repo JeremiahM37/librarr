@@ -191,6 +191,7 @@ func (p *Prowlarr) doSearch(ctx context.Context, params prowlarrSearchParams) ([
 			InfoHash:         item.InfoHash,
 			GUID:             item.GUID,
 			DownloadProtocol: protocol,
+			Format:           extractFormatFromTitle(item.Title),
 		})
 	}
 
