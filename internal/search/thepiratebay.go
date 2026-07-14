@@ -202,6 +202,7 @@ func (t *ThePirateBay) searchCategory(ctx context.Context, query, category strin
 			SizeHuman:   sizeHuman,
 			Indexer:     "ThePirateBay",
 			MediaType:   mediaType,
+			Format:      extractFormatFromTitle(name),
 		})
 	}
 

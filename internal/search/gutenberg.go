@@ -85,6 +85,7 @@ func (g *Gutenberg) Search(ctx context.Context, query string) ([]models.SearchRe
 			SourceID:      fmt.Sprintf("gutenberg-%d", book.ID),
 			GutenbergID:   book.ID,
 			EpubURL:       epubURL,
+			Format:        "epub",
 			CoverURL:      coverURL,
 			SizeHuman:     "Public Domain",
 			DownloadCount: book.DownloadCount,

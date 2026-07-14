@@ -1,7 +1,7 @@
 package search
 
 import (
-	"path/filepath"
+	"regexp"
 	"strings"
 
 	"github.com/JeremiahM37/librarr/internal/models"
@@ -237,26 +237,14 @@ func extractContentWords(s string) []string {
 	return words
 }
 
-// extractFormatFromTitle tries to find a file extension in the title.
+var formatTokenRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(epub|mobi|pdf|azw3|cbz|cbr|djvu|fb2|m4b|mp3|m4a|aac|flac|ogg|zip)(?:$|[^a-z0-9])`)
+
+// extractFormatFromTitle finds a standalone file format token in a release title.
 func extractFormatFromTitle(title string) string {
-	lower := strings.ToLower(title)
-
-	// Check for extension in brackets like [EPUB] or (PDF).
-	formats := []string{"epub", "mobi", "pdf", "azw3", "cbz", "cbr", "djvu", "fb2"}
-	for _, f := range formats {
-		if strings.Contains(lower, f) {
-			return f
-		}
+	match := formatTokenRe.FindStringSubmatch(title)
+	if len(match) > 1 {
+		return strings.ToLower(match[1])
 	}
-
-	// Check file extension.
-	ext := strings.TrimPrefix(filepath.Ext(lower), ".")
-	for _, f := range formats {
-		if ext == f {
-			return f
-		}
-	}
-
 	return ""
 }
 

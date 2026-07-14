@@ -15,6 +15,8 @@ import (
 	"github.com/PuerkitoBio/goquery"
 )
 
+var annasMetadataFormatRe = regexp.MustCompile(`(?i)·\s*([a-z0-9]+)\s*·`)
+
 // AnnasArchive searches Anna's Archive by scraping HTML results.
 type AnnasArchive struct {
 	cfg    *config.Config
@@ -111,7 +113,6 @@ func (a *AnnasArchive) doSearch(ctx context.Context, query, ext string, seenMD5 
 			metadataSizes = append(metadataSizes, m[1])
 		}
 	}
-
 	// Collect title links (the ones with text, not image wrappers).
 	resultIdx := 0
 	doc.Find("a[href*='/md5/']").Each(func(_ int, s *goquery.Selection) {
@@ -138,6 +139,13 @@ func (a *AnnasArchive) doSearch(ctx context.Context, query, ext string, seenMD5 
 		if resultIdx < len(metadataSizes) {
 			sizeHuman = metadataSizes[resultIdx]
 		}
+		format := ext
+		metadataText := s.Closest("div.flex").Find("div.font-semibold").Last().Text()
+		if match := annasMetadataFormatRe.FindStringSubmatch(metadataText); len(match) > 1 {
+			format = strings.ToLower(match[1])
+		} else if format == "" {
+			format = extractFormatFromTitle(title)
+		}
 		resultIdx++
 
 		// Extract author from "LastName, FirstName - Title" format.
@@ -155,6 +163,7 @@ func (a *AnnasArchive) doSearch(ctx context.Context, query, ext string, seenMD5 
 			Title:     title,
 			Author:    author,
 			SizeHuman: sizeHuman,
+			Format:    format,
 			MD5:       md5,
 			URL:       fmt.Sprintf("https://%s/md5/%s", a.cfg.AnnasArchiveDomain, md5),
 		})

@@ -93,6 +93,9 @@ func TestAnnasArchive_DoSearchParsesHTML(t *testing.T) {
 	if results[0].Source != "annas" {
 		t.Errorf("expected source annas, got %s", results[0].Source)
 	}
+	if results[0].Format != "epub" {
+		t.Errorf("expected format epub, got %s", results[0].Format)
+	}
 }
 
 // rewriteTransport redirects all HTTPS requests to the test server.
@@ -154,6 +157,32 @@ func TestAnnasArchive_SeenMD5Dedup(t *testing.T) {
 	}
 	if len(results) != 0 {
 		t.Errorf("expected 0 results (already seen MD5), got %d", len(results))
+	}
+}
+
+func TestAnnasArchive_FormatStaysWithResultCard(t *testing.T) {
+	htmlContent := `<html><body>
+		<div class="flex"><div class="flex"><a href="/md5/11111111111111111111111111111111">No Metadata</a></div></div>
+		<div class="flex"><div class="flex"><a href="/md5/22222222222222222222222222222222">PDF Book</a><div class="font-semibold">English [en] · PDF · 1.2MB</div></div></div>
+	</body></html>`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(htmlContent))
+	}))
+	defer server.Close()
+
+	a := &AnnasArchive{
+		cfg:    &config.Config{AnnasArchiveDomain: "example.com", UserAgent: "test"},
+		client: &http.Client{Transport: &rewriteTransport{serverURL: server.URL}},
+	}
+	results, err := a.doSearch(context.Background(), "book", "", make(map[string]bool))
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+	if results[0].Format != "" || results[1].Format != "pdf" {
+		t.Errorf("formats = [%q, %q], want [\"\", \"pdf\"]", results[0].Format, results[1].Format)
 	}
 }
 

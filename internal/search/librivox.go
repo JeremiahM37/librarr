@@ -118,6 +118,7 @@ func (l *Librivox) Search(ctx context.Context, query string) ([]models.SearchRes
 				CoverURL:    cover,
 				SizeHuman:   sizeHuman,
 				MediaType:   "audiobook",
+				Format:      "zip",
 			})
 		}
 

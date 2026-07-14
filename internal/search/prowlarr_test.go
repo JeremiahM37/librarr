@@ -70,7 +70,7 @@ func TestProwlarr_Enabled(t *testing.T) {
 func TestProwlarr_Search(t *testing.T) {
 	items := []prowlarrItem{
 		{
-			Title:       "Test Book",
+			Title:       "Test Book [EPUB]",
 			Size:        1000000,
 			Seeders:     5,
 			Leechers:    2,
@@ -117,8 +117,11 @@ func TestProwlarr_Search(t *testing.T) {
 	if r0.Source != "torrent" {
 		t.Errorf("expected source torrent, got %s", r0.Source)
 	}
-	if r0.Title != "Test Book" {
-		t.Errorf("expected title Test Book, got %s", r0.Title)
+	if r0.Title != "Test Book [EPUB]" {
+		t.Errorf("expected title Test Book [EPUB], got %s", r0.Title)
+	}
+	if r0.Format != "epub" {
+		t.Errorf("expected format epub, got %s", r0.Format)
 	}
 	if r0.DownloadProtocol != "torrent" {
 		t.Errorf("expected protocol torrent, got %s", r0.DownloadProtocol)

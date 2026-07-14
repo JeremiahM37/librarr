@@ -110,6 +110,7 @@ func (n *NyaaManga) Search(ctx context.Context, query string) ([]models.SearchRe
 			SizeHuman:   item.Size,
 			Indexer:     "Nyaa",
 			MediaType:   "manga",
+			Format:      extractFormatFromTitle(title),
 		})
 	}
 
