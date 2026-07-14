@@ -198,10 +198,21 @@ func (d *DirectDownloader) downloadFileWithClient(client *http.Client, fileURL, 
 }
 
 func (d *DirectDownloader) downloadFileWithClientAndUserAgent(client *http.Client, fileURL, title string, progressFn func(string), userAgent string) (string, int64, error) {
-	return d.downloadFileAttempt(client, fileURL, title, progressFn, true, userAgent)
+	return d.downloadFileAttempt(client, fileURL, title, progressFn, true, userAgent, 0)
 }
 
-func (d *DirectDownloader) downloadFileAttempt(client *http.Client, fileURL, title string, progressFn func(string), allowChallenge bool, userAgent string) (string, int64, error) {
+// maxDownloadHops bounds how many times downloadFileAttempt will follow an HTML
+// "GET" page (or retry after a browser challenge) before giving up. Without it,
+// a malicious or misconfigured mirror can serve an HTML page whose download
+// link points at another HTML page, recursing until the goroutine stack is
+// exhausted and the download job wedges.
+const maxDownloadHops = 5
+
+func (d *DirectDownloader) downloadFileAttempt(client *http.Client, fileURL, title string, progressFn func(string), allowChallenge bool, userAgent string, depth int) (string, int64, error) {
+	if depth > maxDownloadHops {
+		return "", 0, fmt.Errorf("too many download hops (exceeded %d): mirror kept returning HTML instead of a file", maxDownloadHops)
+	}
+
 	// Re-validate on every hop. This is the single chokepoint every download
 	// request funnels through, including URLs scraped from HTML "GET" pages,
 	// which are attacker-influenced and never pass the entry-point guard.
@@ -232,7 +243,7 @@ func (d *DirectDownloader) downloadFileAttempt(client *http.Client, fileURL, tit
 				return "", 0, err
 			}
 			_ = addCookie(client, fileURL, "c_time", "0.1")
-			return d.downloadFileAttempt(client, fileURL, title, progressFn, false, userAgent)
+			return d.downloadFileAttempt(client, fileURL, title, progressFn, false, userAgent, depth+1)
 		}
 		return "", 0, fmt.Errorf("zlibrary browser challenge changed or could not be solved")
 	}
@@ -256,13 +267,13 @@ func (d *DirectDownloader) downloadFileAttempt(client *http.Client, fileURL, tit
 			fileLink := regexp.MustCompile(`href="(https?://[^"]*\.(epub|pdf|mobi)[^"]*)"`).FindStringSubmatch(bodyStr)
 			if len(fileLink) < 2 {
 				if dlLink := zlibraryparse.FindDownloadLinkInHTML(fileURL, body); dlLink != "" {
-					return d.downloadFileWithClientAndUserAgent(client, dlLink, title, progressFn, userAgent)
+					return d.downloadFileAttempt(client, dlLink, title, progressFn, true, userAgent, depth+1)
 				}
 				return "", 0, fmt.Errorf("no download link found in HTML response")
 			}
-			return d.downloadFileWithClientAndUserAgent(client, fileLink[1], title, progressFn, userAgent)
+			return d.downloadFileAttempt(client, fileLink[1], title, progressFn, true, userAgent, depth+1)
 		}
-		return d.downloadFileWithClientAndUserAgent(client, getLink[1], title, progressFn, userAgent)
+		return d.downloadFileAttempt(client, getLink[1], title, progressFn, true, userAgent, depth+1)
 	}
 
 	// Save to incoming directory.

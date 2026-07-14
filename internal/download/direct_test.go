@@ -1,6 +1,7 @@
 package download
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/cookiejar"
@@ -8,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
@@ -260,6 +262,36 @@ func TestDownloadFile_TooSmallRejected(t *testing.T) {
 	files, _ := os.ReadDir(dir)
 	if len(files) > 0 {
 		t.Errorf("file should have been cleaned up, found: %v", files[0].Name())
+	}
+}
+
+// TestDownloadFile_HTMLLoopIsBounded verifies that a mirror which keeps serving
+// an HTML page whose "GET" link points at another HTML page cannot recurse
+// forever. The hop limit must turn it into a clean error instead of exhausting
+// the goroutine stack.
+func TestDownloadFile_HTMLLoopIsBounded(t *testing.T) {
+	var hits int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		atomic.AddInt32(&hits, 1)
+		w.Header().Set("Content-Type", "text/html")
+		// A GET link that points right back at another HTML page on this server.
+		_, _ = fmt.Fprintf(w, `<html><body><a href="http://%s/next">GET</a></body></html>`, r.Host)
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{IncomingDir: t.TempDir(), UserAgent: "test"}
+	d := NewDirectDownloader(cfg, server.Client())
+	d.validate = nil // httptest serves on loopback; not exercising the SSRF guard here
+
+	_, _, err := d.downloadFile(server.URL, "Loop", nil)
+	if err == nil {
+		t.Fatal("expected an error from an unbounded HTML redirect loop, got nil")
+	}
+	if !strings.Contains(err.Error(), "too many download hops") {
+		t.Errorf("expected hop-limit error, got: %v", err)
+	}
+	if got := atomic.LoadInt32(&hits); got > maxDownloadHops+2 {
+		t.Errorf("made %d requests; hop limit should cap it near %d", got, maxDownloadHops)
 	}
 }
 
