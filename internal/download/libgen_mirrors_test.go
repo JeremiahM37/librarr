@@ -1,6 +1,7 @@
 package download
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"net/http"
@@ -12,6 +13,91 @@ import (
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/sources/sourcestest"
 )
+
+func TestTitlesMatch(t *testing.T) {
+	tests := []struct {
+		name      string
+		expected  string
+		candidate string
+		want      bool
+	}{
+		{"same title", "Human Transit: How Clearer Thinking About Public Transit Can Enrich Our Communities and Our Lives", "Human transit : how clearer thinking about public transit can enrich our communities and our lives", true},
+		{"short matching title", "Human Transit: How Clearer Thinking About Public Transit Can Enrich Our Communities and Our Lives", "Jarrett Walker - Human Transit.epub", true},
+		{"one generic word is insufficient", "Human Transit: How Clearer Thinking About Public Transit Can Enrich Our Communities and Our Lives", "Chasing Molecules: Poisonous Products, Human Health", false},
+		{"subtitle fragment is insufficient", "Human Transit: How Clearer Thinking About Public Transit Can Enrich Our Communities and Our Lives", "Public Transit", false},
+		{"unrelated", "Human Transit", "The Great Gatsby", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := titlesMatch(tc.expected, tc.candidate); got != tc.want {
+				t.Errorf("titlesMatch(%q, %q) = %v, want %v", tc.expected, tc.candidate, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseAnnasSearchCandidatesKeepsTitlesWithMD5s(t *testing.T) {
+	html := `<html><body>
+		<a href="/md5/11111111111111111111111111111111"><img alt="cover"></a>
+		<a href="/md5/11111111111111111111111111111111">Human Transit</a>
+		<a href="/md5/AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA">Uppercase MD5</a>
+		<a href="/md5/22222222222222222222222222222222">Chasing Molecules</a>
+	</body></html>`
+
+	results, err := parseAnnasSearchCandidates(strings.NewReader(html))
+	if err != nil {
+		t.Fatalf("parse candidates: %v", err)
+	}
+	if len(results) != 3 {
+		t.Fatalf("got %d candidates, want 3: %+v", len(results), results)
+	}
+	if results[0].Title != "Human Transit" || results[0].MD5 != "11111111111111111111111111111111" {
+		t.Errorf("unexpected first candidate: %+v", results[0])
+	}
+	if results[1].MD5 != "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" {
+		t.Errorf("uppercase MD5 was not normalized: %+v", results[1])
+	}
+}
+
+func TestDownloadFromLibgenMirrorsContinuesAfterDownloadFailure(t *testing.T) {
+	failedDownloads := int32(0)
+	first := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/ads.php") {
+			_, _ = w.Write([]byte(`<a href="get.php?md5=book&key=first">GET</a>`))
+			return
+		}
+		atomic.AddInt32(&failedDownloads, 1)
+		w.WriteHeader(http.StatusGatewayTimeout)
+	}))
+	defer first.Close()
+
+	pdf := append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte{'x'}, 1500)...)
+	second := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasPrefix(r.URL.Path, "/ads.php") {
+			_, _ = w.Write([]byte(`<a href="get.php?md5=book&key=second">GET</a>`))
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		_, _ = w.Write(pdf)
+	}))
+	defer second.Close()
+
+	cfg := newTestConfig([]string{first.URL, second.URL})
+	cfg.IncomingDir = t.TempDir()
+	d := NewDirectDownloader(cfg, second.Client())
+	d.validate = nil
+
+	filePath, fileSize, err := d.downloadFromLibgenMirrors("book", "Human Transit", make(map[string]bool), nil)
+	if err != nil {
+		t.Fatalf("download from mirrors: %v", err)
+	}
+	if atomic.LoadInt32(&failedDownloads) != 1 {
+		t.Errorf("first mirror download calls = %d, want 1", failedDownloads)
+	}
+	if !strings.HasSuffix(filePath, ".pdf") || fileSize != int64(len(pdf)) {
+		t.Errorf("unexpected downloaded file: path=%q size=%d", filePath, fileSize)
+	}
+}
 
 // newTestConfig builds a Config with the given libgen mirrors injected into
 // the runtime sources registry.
@@ -97,6 +183,26 @@ func TestFetchLibgenDownloadURL_AllMirrorsFail(t *testing.T) {
 	// Should report the LAST mirror's error
 	if !strings.Contains(err.Error(), "HTTP") {
 		t.Errorf("error should mention HTTP status: %v", err)
+	}
+}
+
+func TestFetchLibgenDownloadURL_MixedNoMatchAndServerErrorIsRetryable(t *testing.T) {
+	missing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("File not found in DB"))
+	}))
+	defer missing.Close()
+	broken := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer broken.Close()
+
+	d := NewDirectDownloader(newTestConfig([]string{missing.URL, broken.URL}), broken.Client())
+	_, err := d.fetchLibgenDownloadURL("abc", nil)
+	if err == nil {
+		t.Fatal("expected mirror resolution failure")
+	}
+	if errors.Is(err, errLibgenNoMatch) {
+		t.Fatalf("mixed transient failure was classified as no-match: %v", err)
 	}
 }
 

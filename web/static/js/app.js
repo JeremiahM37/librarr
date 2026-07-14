@@ -529,6 +529,7 @@ const STATUS_STYLES = {
   queued:      { bg: 'bg-slate-500/20', text: 'text-slate-400', border: 'border-slate-500/30', label: 'Queued' },
   searching:   { bg: 'bg-indigo-500/20', text: 'text-indigo-400', border: 'border-indigo-500/30', label: 'Searching' },
   importing:   { bg: 'bg-purple-500/20', text: 'text-purple-400', border: 'border-purple-500/30', label: 'Importing' },
+  retry_wait:  { bg: 'bg-amber-500/20', text: 'text-amber-400', border: 'border-amber-500/30', label: 'Retry Wait' },
 };
 
 const TERMINAL_DOWNLOAD_STATUSES = new Set(['completed', 'error', 'dead_letter']);
@@ -1161,6 +1162,7 @@ function renderBookCard(result, index) {
   const isDownloading = state.pendingDownloads.has(downloadKey);
   const isTrackedAnnaDownload = hasTrackedAnnaDownload(downloadKey);
   const isTrackedDirectDownload = hasTrackedDirectDownload(downloadKey);
+  const trackedJob = getTrackedDownloadJob(downloadKey);
   const downloadOutcome = state.downloadOutcomes.get(downloadKey);
   const coverHtml = result.cover_url
     ? `<img src="${escapeHtml(result.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" data-ph-title="${escapeHtml(result.title || '')}" data-ph-idx="${index}">`
@@ -1192,6 +1194,9 @@ function renderBookCard(result, index) {
     success: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`,
     error: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>`,
   };
+  const displayButtonText = buttonState === 'loading' && trackedJob?.detail
+    ? escapeHtml(trackedJob.detail)
+    : (buttonText[buttonState] || buttonText.idle);
 
   return `
     <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 flex flex-col">
@@ -1211,7 +1216,7 @@ function renderBookCard(result, index) {
           class="w-full ${buttonStyles[buttonState] || buttonStyles.idle} text-white text-sm font-medium py-1.5 rounded-lg transition-colors flex items-center justify-center gap-1.5 disabled:opacity-100"
         >
           ${buttonIcon[buttonState] || buttonIcon.idle}
-          ${buttonText[buttonState] || buttonText.idle}
+          <span class="truncate">${displayButtonText}</span>
         </button>
       </div>
     </div>
@@ -1269,6 +1274,15 @@ function hasTrackedDirectDownload(downloadKey) {
     if (tracked.key === downloadKey && tracked.source !== 'annas') return true;
   }
   return false;
+}
+
+function getTrackedDownloadJob(downloadKey) {
+  for (const [jobId, tracked] of state.trackedDownloadJobs.entries()) {
+    if (tracked.key !== downloadKey) continue;
+    const job = state.downloadJobs.find(candidate => String(candidate.job_id) === String(jobId));
+    if (job) return job;
+  }
+  return null;
 }
 
 function setDownloadOutcome(downloadKey, status, persist = false) {
@@ -1456,6 +1470,8 @@ function renderDownloadJob(job) {
           ${job.source ? `<span class="text-xs text-slate-500">${escapeHtml(job.source)}</span>` : ''}
         </div>
         <h4 class="text-sm font-medium text-white truncate" title="${escapeHtml(job.title || '')}">${escapeHtml(job.title || 'Unknown')}</h4>
+        ${job.detail ? `<p class="text-xs text-slate-400 mt-1 truncate" title="${escapeHtml(job.detail)}">${escapeHtml(job.detail)}</p>` : ''}
+        ${job.max_retries > 0 && job.retry_count > 0 ? `<p class="text-xs text-amber-400 mt-1">${escapeHtml(`Attempt ${Math.min(job.retry_count + 1, job.max_retries + 1)}/${job.max_retries + 1}`)}</p>` : ''}
         ${job.error ? `<p class="text-xs text-red-400 mt-1 truncate">${escapeHtml(job.error)}</p>` : ''}
         ${showProgress ? `
           <div class="mt-2 w-full bg-slate-800 rounded-full h-1.5">
@@ -1503,6 +1519,12 @@ function syncTrackedDownloadJobs(jobs) {
     }
 
     hasPendingTrackedJob = true;
+    Object.assign(tracked, {
+      status: job.status,
+      detail: job.detail || '',
+      retryCount: job.retry_count || 0,
+      maxRetries: job.max_retries || 0,
+    });
     setDownloadOutcome(tracked.key, 'loading', true);
   }
 

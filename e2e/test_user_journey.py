@@ -98,6 +98,38 @@ def test_data_idx_maps_to_rendered_result_in_every_sort_mode(searched):
         assert mismatches == [], f"sort={mode}: {mismatches}"
 
 
+def test_retry_wait_shows_progress_in_search_and_downloads(searched):
+    page = searched["page"]
+    retry_text = page.evaluate("""() => {
+        const result = state.renderedResults[0];
+        const key = getDownloadKey(result);
+        state.trackedDownloadJobs.set('retry-probe', {
+            key, title: result.title, source: 'annas', url: result.url || ''
+        });
+        state.downloadJobs = [{
+            job_id: 'retry-probe', title: result.title, source: 'annas',
+            status: 'retry_wait', detail: 'Retry 1/2 scheduled',
+            retry_count: 1, max_retries: 2, error: 'download HTTP 504'
+        }];
+        renderSearchResults();
+        renderDownloadList();
+        return {
+            button: document.querySelector('[data-action="startDownload"]')?.innerText,
+            downloads: document.querySelector('#downloads-list')?.innerText,
+        };
+    }""")
+    assert "Retry 1/2 scheduled" in retry_text["button"]
+    assert "Retry 1/2 scheduled" in retry_text["downloads"]
+    assert "Attempt 2/3" in retry_text["downloads"]
+
+    page.evaluate("""() => {
+        state.trackedDownloadJobs.delete('retry-probe');
+        state.downloadJobs = [];
+        renderSearchResults();
+        renderDownloadList();
+    }""")
+
+
 def test_download_completes_and_lands_in_library(searched):
     page = searched["page"]
     # Download the first rendered card; remember which book it claims to be.
