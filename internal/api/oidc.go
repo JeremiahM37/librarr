@@ -91,17 +91,21 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 	return h
 }
 
-// generateState creates a random state string for CSRF protection.
-func (h *OIDCHandler) generateState() string {
+// generateState creates a random state string for CSRF protection. It returns
+// an error if the CSPRNG fails, so login fails closed rather than proceed with
+// a predictable state nonce.
+func (h *OIDCHandler) generateState() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate OIDC state: %w", err)
+	}
 	state := hex.EncodeToString(b)
 
 	h.mu.Lock()
 	h.states[state] = time.Now().Add(10 * time.Minute)
 	h.mu.Unlock()
 
-	return state
+	return state, nil
 }
 
 // validateState checks and consumes a state nonce.
@@ -138,7 +142,11 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		oauth2Cfg.RedirectURL = fmt.Sprintf("%s://%s/auth/oidc/callback", scheme, host)
 	}
 
-	state := h.generateState()
+	state, err := h.generateState()
+	if err != nil {
+		http.Error(w, "Failed to start login", http.StatusInternalServerError)
+		return
+	}
 	http.Redirect(w, r, oauth2Cfg.AuthCodeURL(state), http.StatusFound)
 }
 
@@ -263,7 +271,11 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Create session.
 	h.db.UpdateLastLogin(user.ID)
-	sessionToken := h.sessions.Create(user.ID, user.Username, user.Role)
+	sessionToken, err := h.sessions.Create(user.ID, user.Username, user.Role)
+	if err != nil {
+		http.Error(w, "Failed to create session", http.StatusInternalServerError)
+		return
+	}
 	setSessionCookie(w, r, sessionToken, 86400)
 
 	// Redirect to app root.

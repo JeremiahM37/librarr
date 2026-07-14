@@ -191,7 +191,11 @@ func ensureSessionForUser(w http.ResponseWriter, r *http.Request, sessions *Sess
 		}
 	}
 
-	token := sessions.Create(user.ID, user.Username, user.Role)
+	token, err := sessions.Create(user.ID, user.Username, user.Role)
+	if err != nil {
+		slog.Error("failed to create SSO proxy session", "error", err, "username", user.Username)
+		return false
+	}
 	setSessionCookie(w, r, token, 86400)
 	return true
 }

@@ -14,11 +14,15 @@ import (
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
-// generateRequestID returns a random hex ID for a request.
-func generateRequestID() string {
+// generateRequestID returns a random hex ID for a request. It fails closed if
+// the CSPRNG errors rather than return a predictable all-zero ID that could
+// collide with an existing request.
+func generateRequestID() (string, error) {
 	b := make([]byte, 16)
-	rand.Read(b)
-	return hex.EncodeToString(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate request ID: %w", err)
+	}
+	return hex.EncodeToString(b), nil
 }
 
 // handleCreateRequest handles POST /api/requests — any authenticated user.
@@ -64,9 +68,18 @@ func (s *Server) handleCreateRequest(w http.ResponseWriter, r *http.Request) {
 	userID := getUserIDFromContext(r)
 	username, _ := r.Context().Value(ctxUsername).(string)
 
+	requestID, err := generateRequestID()
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   "Failed to create request",
+		})
+		return
+	}
+
 	now := time.Now()
 	request := &models.Request{
-		ID:             generateRequestID(),
+		ID:             requestID,
 		UserID:         userID,
 		Username:       username,
 		Title:          req.Title,
