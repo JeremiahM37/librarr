@@ -7,6 +7,7 @@ import (
 	"crypto/subtle"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -79,10 +80,14 @@ func NewSessionStore() *SessionStore {
 	return s
 }
 
-// Create generates a new session token for a user, valid for 24 hours.
-func (s *SessionStore) Create(userID int64, username, role string) string {
+// Create generates a new session token for a user, valid for 24 hours. It
+// returns an error if the system CSPRNG fails, so callers fail closed rather
+// than mint a predictable all-zero token.
+func (s *SessionStore) Create(userID int64, username, role string) (string, error) {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate session token: %w", err)
+	}
 	token := hex.EncodeToString(b)
 
 	s.mu.Lock()
@@ -94,13 +99,16 @@ func (s *SessionStore) Create(userID int64, username, role string) string {
 	}
 	s.mu.Unlock()
 
-	return token
+	return token, nil
 }
 
-// CreatePendingTOTP creates a temporary token for TOTP verification (5 min expiry).
-func (s *SessionStore) CreatePendingTOTP(userID int64) string {
+// CreatePendingTOTP creates a temporary token for TOTP verification (5 min
+// expiry). Like Create, it fails closed if the CSPRNG errors.
+func (s *SessionStore) CreatePendingTOTP(userID int64) (string, error) {
 	b := make([]byte, 32)
-	rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		return "", fmt.Errorf("generate pending TOTP token: %w", err)
+	}
 	token := hex.EncodeToString(b)
 
 	s.mu.Lock()
@@ -110,7 +118,7 @@ func (s *SessionStore) CreatePendingTOTP(userID int64) string {
 	}
 	s.mu.Unlock()
 
-	return token
+	return token, nil
 }
 
 // ValidatePendingTOTP checks and consumes a pending TOTP token.
@@ -374,7 +382,14 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 
 			// If TOTP is enabled, return pending token.
 			if user.TOTPEnabled {
-				pendingToken := sessions.CreatePendingTOTP(user.ID)
+				pendingToken, err := sessions.CreatePendingTOTP(user.ID)
+				if err != nil {
+					writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+						"success": false,
+						"error":   "Failed to create session",
+					})
+					return
+				}
 				writeJSON(w, http.StatusOK, map[string]interface{}{
 					"success":         true,
 					"needs_totp":      true,
@@ -385,7 +400,14 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 
 			// No TOTP — create full session.
 			database.UpdateLastLogin(user.ID)
-			token := sessions.Create(user.ID, user.Username, user.Role)
+			token, err := sessions.Create(user.ID, user.Username, user.Role)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to create session",
+				})
+				return
+			}
 			setSessionCookie(w, r, token, 86400)
 
 			database.LogActivity(user.Username, "login", user.Username, "User logged in")
@@ -416,7 +438,14 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 			return
 		}
 
-		token := sessions.Create(0, cfg.AuthUsername, "admin")
+		token, err := sessions.Create(0, cfg.AuthUsername, "admin")
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+				"success": false,
+				"error":   "Failed to create session",
+			})
+			return
+		}
 		setSessionCookie(w, r, token, 86400)
 
 		database.LogActivity(cfg.AuthUsername, "login", cfg.AuthUsername, "User logged in (legacy)")
@@ -466,7 +495,14 @@ func handleLoginTOTP(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 		// Try TOTP code first.
 		if validateTOTPCode(user.TOTPSecret, req.Code) {
 			database.UpdateLastLogin(user.ID)
-			token := sessions.Create(user.ID, user.Username, user.Role)
+			token, err := sessions.Create(user.ID, user.Username, user.Role)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to create session",
+				})
+				return
+			}
 			setSessionCookie(w, r, token, 86400)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"success":  true,
@@ -482,7 +518,14 @@ func handleLoginTOTP(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 		used, _ := database.UseBackupCode(user.ID, codeHash)
 		if used {
 			database.UpdateLastLogin(user.ID)
-			token := sessions.Create(user.ID, user.Username, user.Role)
+			token, err := sessions.Create(user.ID, user.Username, user.Role)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to create session",
+				})
+				return
+			}
 			setSessionCookie(w, r, token, 86400)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"success":          true,
@@ -603,7 +646,14 @@ func handleRegister(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 		// If first user, auto-login.
 		if isFirstUser {
 			database.UpdateLastLogin(id)
-			token := sessions.Create(id, req.Username, role)
+			token, err := sessions.Create(id, req.Username, role)
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to create session",
+				})
+				return
+			}
 			setSessionCookie(w, r, token, 86400)
 			writeJSON(w, http.StatusCreated, map[string]interface{}{
 				"success":  true,
