@@ -248,7 +248,7 @@ func (m *Manager) RetryDeadLetterJob(jobID string) error {
 func (m *Manager) runAnnasDownload(job *models.DownloadJob) {
 	m.updateJob(job, "downloading", "Downloading from Anna's Archive...", "")
 
-	filePath, fileSize, err := m.direct.DownloadFromAnnas(job.MD5, job.Title, func(detail string) {
+	filePath, fileSize, downloadedMD5, err := m.direct.DownloadFromAnnas(job.MD5, job.Title, func(detail string) {
 		m.setJobProgress(job, detail)
 	})
 	if err != nil {
@@ -316,7 +316,7 @@ func (m *Manager) runAnnasDownload(job *models.DownloadJob) {
 		FileFormat:   "epub",
 		MediaType:    "ebook",
 		Source:       "annas",
-		SourceID:     job.MD5,
+		SourceID:     downloadedMD5,
 	})
 
 	// Trigger library imports.

@@ -20,6 +20,7 @@ import (
 	"github.com/JeremiahM37/librarr/internal/netutil"
 	"github.com/JeremiahM37/librarr/internal/organize"
 	"github.com/JeremiahM37/librarr/internal/zlibraryparse"
+	"github.com/PuerkitoBio/goquery"
 )
 
 // DirectDownloader handles direct HTTP file downloads (Anna's Archive, Gutenberg, etc.).
@@ -68,41 +69,86 @@ func (d *DirectDownloader) mirrors() []string {
 
 // DownloadFromAnnas downloads a file from Anna's Archive via libgen.
 // Returns the local file path and size, or an error.
-func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, error) {
+func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, string, error) {
 	if progressFn != nil {
 		progressFn("Fetching download link from Anna's Archive...")
 	}
 
-	// Step 1: Try each libgen mirror to get the download key.
-	downloadURL, mirrorErr := d.fetchLibgenDownloadURL(md5, progressFn)
-	if mirrorErr != nil {
-		// All libgen mirrors failed. Try alternative MD5 hashes by re-searching
-		// Anna's Archive — the same book often has multiple MD5s across mirrors.
+	attemptedURLs := make(map[string]bool)
+	filePath, fileSize, originalErr := d.downloadFromLibgenMirrors(md5, title, attemptedURLs, progressFn)
+	if originalErr == nil {
+		return filePath, fileSize, md5, nil
+	} else if progressFn != nil {
+		progressFn("Original file unavailable, searching matching alternatives...")
+	}
+
+	results, err := (&annasSearchHelper{cfg: d.cfg, client: d.client}).searchForTitle(context.Background(), title)
+	if err != nil {
+		return "", 0, "", fmt.Errorf("search alternative Anna's Archive files: %w", err)
+	}
+
+	lastErr := originalErr
+	matchingAlternatives := 0
+	for _, result := range results {
+		if result.MD5 == "" || result.MD5 == md5 || !titlesMatch(title, result.Title) {
+			continue
+		}
+		if matchingAlternatives >= 5 {
+			break
+		}
+		matchingAlternatives++
 		if progressFn != nil {
-			progressFn("All libgen mirrors failed, trying alternative MD5s...")
+			progressFn(fmt.Sprintf("Trying matching alternative %d...", matchingAlternatives))
 		}
-		altURL, altErr := d.tryAltMD5(title, md5, progressFn)
-		if altErr != nil {
-			if errors.Is(mirrorErr, errLibgenNoMatch) || errors.Is(altErr, errLibgenNoMatch) {
-				// noMatchError pairs the user-facing message with errLibgenNoMatch
-				// as a sentinel, so callers (e.g. manager.go) can detect the
-				// no-match case via errors.Is — not by string-matching the
-				// localized error message.
-				return "", 0, &noMatchError{msg: "Anna's Archive could not find a matching LibGen MD5 for this book. Download it manually from Anna's Archive or choose another source."}
-			}
-			return "", 0, fmt.Errorf("all libgen mirrors failed (%v); alt search also failed: %v", mirrorErr, altErr)
+		filePath, fileSize, err := d.downloadFromLibgenMirrors(result.MD5, title, attemptedURLs, progressFn)
+		if err == nil {
+			return filePath, fileSize, result.MD5, nil
 		}
-		return d.downloadFile(altURL, title, progressFn)
+		lastErr = err
 	}
 
-	slog.Info("found libgen download link", "title", title, "url", downloadURL[:min(60, len(downloadURL))])
-
-	if progressFn != nil {
-		progressFn("Downloading...")
+	if matchingAlternatives == 0 && errors.Is(originalErr, errLibgenNoMatch) {
+		return "", 0, "", &noMatchError{msg: "Anna's Archive could not find a matching LibGen MD5 for this book. Download it manually from Anna's Archive or choose another source."}
 	}
+	if lastErr == nil {
+		lastErr = errLibgenNoMatch
+	}
+	return "", 0, "", fmt.Errorf("all matching LibGen candidates exhausted: %w", lastErr)
+}
 
-	// Step 2: Download the file.
-	return d.downloadFile(downloadURL, title, progressFn)
+// downloadFromLibgenMirrors resolves and downloads one MD5 from each mirror.
+// A bad response or failed file verification advances to the next mirror.
+func (d *DirectDownloader) downloadFromLibgenMirrors(md5, title string, attemptedURLs map[string]bool, progressFn func(string)) (string, int64, error) {
+	var lastErr error
+	for i, mirror := range d.mirrors() {
+		if progressFn != nil {
+			progressFn(fmt.Sprintf("Trying mirror %d/%d...", i+1, len(d.mirrors())))
+		}
+		downloadURL, err := d.fetchLibgenDownloadURLFromMirror(mirror, md5)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if attemptedURLs[downloadURL] {
+			lastErr = fmt.Errorf("%s resolved to an already attempted download URL", mirror)
+			continue
+		}
+		attemptedURLs[downloadURL] = true
+
+		slog.Info("found libgen download link", "title", title, "md5", md5, "mirror", mirror)
+		if progressFn != nil {
+			progressFn(fmt.Sprintf("Downloading from mirror %d/%d...", i+1, len(d.mirrors())))
+		}
+		filePath, fileSize, err := d.downloadFile(downloadURL, title, progressFn)
+		if err == nil {
+			return filePath, fileSize, nil
+		}
+		lastErr = fmt.Errorf("%s download: %w", mirror, err)
+	}
+	if lastErr == nil {
+		lastErr = errLibgenNoMatch
+	}
+	return "", 0, lastErr
 }
 
 // fetchLibgenDownloadURL tries each libgen mirror to find a valid get.php
@@ -112,53 +158,54 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 // have the book while others don't.
 func (d *DirectDownloader) fetchLibgenDownloadURL(md5 string, progressFn func(string)) (string, error) {
 	var lastErr error
-	noMatch := false
+	allNoMatch := true
 	for i, mirror := range d.mirrors() {
 		if i > 0 && progressFn != nil {
 			progressFn(fmt.Sprintf("Trying mirror: %s", mirror))
 		}
 
-		adsURL := fmt.Sprintf("%s/ads.php?md5=%s", mirror, md5)
-		req, err := http.NewRequest("GET", adsURL, nil)
+		downloadURL, err := d.fetchLibgenDownloadURLFromMirror(mirror, md5)
 		if err != nil {
 			lastErr = err
+			if !errors.Is(err, errLibgenNoMatch) {
+				allNoMatch = false
+			}
 			continue
 		}
-		req.Header.Set("User-Agent", d.cfg.UserAgent)
-
-		resp, err := d.client.Do(req)
-		if err != nil {
-			lastErr = fmt.Errorf("%s: %w", mirror, err)
-			continue
-		}
-
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			lastErr = fmt.Errorf("%s HTTP %d", mirror, resp.StatusCode)
-			continue
-		}
-
-		bodyStr := string(body)
-		if strings.Contains(bodyStr, "File not found in DB") || strings.Contains(bodyStr, "File not found") {
-			noMatch = true
-			lastErr = fmt.Errorf("%s: %w", mirror, errLibgenNoMatch)
-			continue
-		}
-
-		match := getLinkRe.FindSubmatch(body)
-		if len(match) < 2 {
-			lastErr = fmt.Errorf("%s: no get.php link for md5=%s", mirror, md5)
-			continue
-		}
-
-		return fmt.Sprintf("%s/%s", mirror, string(match[1])), nil
+		return downloadURL, nil
 	}
-	if noMatch {
+	if lastErr != nil && allNoMatch {
 		return "", fmt.Errorf("%w", errLibgenNoMatch)
 	}
 	return "", lastErr
+}
+
+func (d *DirectDownloader) fetchLibgenDownloadURLFromMirror(mirror, md5 string) (string, error) {
+	adsURL := fmt.Sprintf("%s/ads.php?md5=%s", mirror, md5)
+	req, err := http.NewRequest("GET", adsURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", d.cfg.UserAgent)
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("%s: %w", mirror, err)
+	}
+	defer resp.Body.Close()
+
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if resp.StatusCode != 200 {
+		return "", fmt.Errorf("%s HTTP %d", mirror, resp.StatusCode)
+	}
+	if strings.Contains(string(body), "File not found in DB") || strings.Contains(string(body), "File not found") {
+		return "", fmt.Errorf("%s: %w", mirror, errLibgenNoMatch)
+	}
+	match := getLinkRe.FindSubmatch(body)
+	if len(match) < 2 {
+		return "", fmt.Errorf("%s: no get.php link for md5=%s", mirror, md5)
+	}
+	return fmt.Sprintf("%s/%s", mirror, string(match[1])), nil
 }
 
 // DownloadFromURL downloads a file from any direct URL.
@@ -628,73 +675,18 @@ func (d *DirectDownloader) verifyEPUB(filePath, expectedTitle string) error {
 	return nil
 }
 
-// tryAltMD5 searches Anna's Archive for alternative MD5 hashes and tries them.
-func (d *DirectDownloader) tryAltMD5(title, originalMD5 string, progressFn func(string)) (string, error) {
-	ctx := context.Background()
-	annas := &annasSearchHelper{cfg: d.cfg, client: d.client}
-	results, err := annas.searchForTitle(ctx, title)
-	if err != nil {
-		return "", err
-	}
-
-	tried := 0
-	for _, r := range results {
-		if r.MD5 == "" || r.MD5 == originalMD5 {
-			continue
-		}
-		if tried >= 3 {
-			break
-		}
-		tried++
-
-		if progressFn != nil {
-			progressFn(fmt.Sprintf("Trying alt mirror %d/3...", tried))
-		}
-
-		// Use the first configured mirror as the primary alt-MD5 lookup.
-		primary := ""
-		if mm := d.mirrors(); len(mm) > 0 {
-			primary = mm[0]
-		}
-		if primary == "" {
-			continue
-		}
-		adsURL := fmt.Sprintf("%s/ads.php?md5=%s", primary, r.MD5)
-		req, err := http.NewRequest("GET", adsURL, nil)
-		if err != nil {
-			continue
-		}
-		req.Header.Set("User-Agent", d.cfg.UserAgent)
-
-		resp, err := d.client.Do(req)
-		if err != nil {
-			continue
-		}
-		body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-		resp.Body.Close()
-
-		if resp.StatusCode != 200 {
-			continue
-		}
-
-		match := getLinkRe.FindSubmatch(body)
-		if len(match) >= 2 {
-			downloadURL := fmt.Sprintf("%s/%s", primary, string(match[1]))
-			slog.Info("found alt libgen download link", "title", title, "alt_md5", r.MD5)
-			return downloadURL, nil
-		}
-	}
-
-	return "", fmt.Errorf("no alternative MD5 hashes had working download links")
-}
-
 // annasSearchHelper is a minimal helper to search Anna's Archive for alt MD5s.
 type annasSearchHelper struct {
 	cfg    *config.Config
 	client *http.Client
 }
 
-func (a *annasSearchHelper) searchForTitle(ctx context.Context, title string) ([]struct{ MD5 string }, error) {
+type annasSearchCandidate struct {
+	MD5   string
+	Title string
+}
+
+func (a *annasSearchHelper) searchForTitle(ctx context.Context, title string) ([]annasSearchCandidate, error) {
 	baseURL := fmt.Sprintf("https://%s/search", a.cfg.AnnasArchiveDomain)
 	req, err := http.NewRequestWithContext(ctx, "GET", baseURL, nil)
 	if err != nil {
@@ -716,19 +708,95 @@ func (a *annasSearchHelper) searchForTitle(ctx context.Context, title string) ([
 		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
 	}
 
-	body, _ := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
-	md5Re := regexp.MustCompile(`/md5/([a-f0-9]+)`)
-	matches := md5Re.FindAllStringSubmatch(string(body), -1)
+	return parseAnnasSearchCandidates(io.LimitReader(resp.Body, 2*1024*1024))
+}
+
+func parseAnnasSearchCandidates(reader io.Reader) ([]annasSearchCandidate, error) {
+	doc, err := goquery.NewDocumentFromReader(reader)
+	if err != nil {
+		return nil, fmt.Errorf("parse Anna's Archive search HTML: %w", err)
+	}
 
 	seen := make(map[string]bool)
-	var results []struct{ MD5 string }
-	for _, m := range matches {
-		if len(m) >= 2 && !seen[m[1]] {
-			seen[m[1]] = true
-			results = append(results, struct{ MD5 string }{m[1]})
+	md5Re := regexp.MustCompile(`(?i)/md5/([a-f0-9]{32})`)
+	var results []annasSearchCandidate
+	doc.Find("a[href*='/md5/']").Each(func(_ int, selection *goquery.Selection) {
+		href, ok := selection.Attr("href")
+		if !ok {
+			return
+		}
+		match := md5Re.FindStringSubmatch(href)
+		candidateTitle := strings.TrimSpace(selection.Text())
+		if len(match) < 2 || candidateTitle == "" {
+			return
+		}
+		md5 := strings.ToLower(match[1])
+		if seen[md5] {
+			return
+		}
+		seen[md5] = true
+		results = append(results, annasSearchCandidate{MD5: md5, Title: candidateTitle})
+	})
+	return results, nil
+}
+
+var titleWordRe = regexp.MustCompile(`[\p{L}\p{N}]+`)
+
+var titleStopwords = map[string]bool{
+	"a": true, "an": true, "and": true, "at": true, "by": true,
+	"for": true, "from": true, "in": true, "of": true, "on": true,
+	"or": true, "the": true, "to": true, "with": true,
+}
+
+func titlesMatch(expected, candidate string) bool {
+	expectedWords := significantTitleWords(expected)
+	candidateWords := significantTitleWords(candidate)
+	if len(expectedWords) == 0 || len(candidateWords) == 0 {
+		return false
+	}
+
+	matches := 0
+	for word := range expectedWords {
+		if candidateWords[word] {
+			matches++
 		}
 	}
-	return results, nil
+	// Anna results often prefix an author or append a file extension, but a
+	// matching edition should still contain the book's primary title. Requiring
+	// that core prevents a generic subtitle fragment such as "Public Transit"
+	// from selecting an unrelated result.
+	primary := primaryTitle(expected)
+	primaryWords := significantTitleWords(primary)
+	primaryMatches := 0
+	for word := range primaryWords {
+		if candidateWords[word] {
+			primaryMatches++
+		}
+	}
+	if primary != expected && len(primaryWords) >= 2 && primaryMatches == len(primaryWords) {
+		return true
+	}
+
+	return matches >= 2 &&
+		float64(matches)/float64(len(expectedWords)) >= 0.5 &&
+		float64(matches)/float64(len(candidateWords)) >= 0.5
+}
+
+func primaryTitle(title string) string {
+	if before, _, ok := strings.Cut(title, ":"); ok {
+		return before
+	}
+	return title
+}
+
+func significantTitleWords(title string) map[string]bool {
+	words := make(map[string]bool)
+	for _, word := range titleWordRe.FindAllString(strings.ToLower(title), -1) {
+		if len(word) > 1 && !titleStopwords[word] && word != "epub" && word != "pdf" {
+			words[word] = true
+		}
+	}
+	return words
 }
 
 var unsafeCharsRe = regexp.MustCompile(`[^\w\s-]`)
