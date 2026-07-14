@@ -76,7 +76,7 @@ func TestDownloadFromAnnasReturnsSuccessfulFallbackMD5(t *testing.T) {
 	pdf := append([]byte("%PDF-1.7\n"), bytes.Repeat([]byte{'x'}, 1500)...)
 	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
 		status := http.StatusOK
-		body := []byte{}
+		var body []byte
 		header := make(http.Header)
 		switch {
 		case req.URL.Host == "mirror.test" && req.URL.Path == "/ads.php" && req.URL.Query().Get("md5") == "original":
