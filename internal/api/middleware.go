@@ -186,6 +186,10 @@ func sanitizeLogValue(v string) string {
 		}
 		return r
 	}, v)
+	// Explicit newline removal (already covered by the Map above) in the
+	// form CodeQL's log-injection query recognizes as a sanitizer barrier.
+	v = strings.ReplaceAll(v, "\n", "")
+	v = strings.ReplaceAll(v, "\r", "")
 	if len(v) > 64 {
 		v = v[:64] + "…"
 	}
