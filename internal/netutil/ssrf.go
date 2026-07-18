@@ -1,3 +1,5 @@
+// Package netutil provides network helpers, including SSRF-safe
+// validation of user-supplied integration and outbound URLs.
 package netutil
 
 import (

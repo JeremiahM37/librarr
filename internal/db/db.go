@@ -1,3 +1,5 @@
+// Package db provides SQLite persistence for librarr: users, library
+// items, download jobs, requests, and related records.
 package db
 
 import (

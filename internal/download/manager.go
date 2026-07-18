@@ -1,3 +1,5 @@
+// Package download manages download jobs and the supported download
+// clients (qBittorrent, Transmission, Deluge, SABnzbd, and direct HTTP).
 package download
 
 import (

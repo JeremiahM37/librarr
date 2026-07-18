@@ -1,3 +1,5 @@
+// Package zlibraryparse parses Z-Library search and book-detail
+// responses (JSON and HTML fallbacks) into structured data.
 package zlibraryparse
 
 import (

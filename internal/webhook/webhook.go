@@ -1,3 +1,5 @@
+// Package webhook delivers librarr event notifications to configured
+// webhook endpoints such as Discord.
 package webhook
 
 import (

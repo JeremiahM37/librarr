@@ -1,3 +1,5 @@
+// Package api implements librarr's HTTP server: REST API handlers,
+// authentication and sessions, and routing for the embedded web UI.
 package api
 
 import (

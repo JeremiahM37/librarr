@@ -1,3 +1,5 @@
+// Package scheduler runs periodic background tasks such as wishlist
+// searches, monitored-author checks, and series tracking updates.
 package scheduler
 
 import (
