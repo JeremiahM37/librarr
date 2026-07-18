@@ -145,17 +145,3 @@ func (s *Server) refreshWebhookSender() {
 	}
 	s.webhookSender.SetConfigs(configs)
 }
-
-// sendWebhook is a convenience method to send a webhook notification.
-func (s *Server) sendWebhook(event webhook.EventType, title, message, status string, extra map[string]interface{}) {
-	if s.webhookSender == nil {
-		return
-	}
-	s.webhookSender.Send(webhook.Payload{
-		Event:   event,
-		Title:   title,
-		Message: message,
-		Status:  status,
-		Extra:   extra,
-	})
-}

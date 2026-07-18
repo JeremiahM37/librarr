@@ -30,7 +30,6 @@ type Scheduler struct {
 	lastRun    time.Time
 	lastResult string
 	itemsFound int
-	cancel     context.CancelFunc
 }
 
 // NewScheduler creates a new scheduler.
