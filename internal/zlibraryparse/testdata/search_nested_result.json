@@ -1,0 +1,18 @@
+{
+  "success": "true",
+  "result": {
+    "data": {
+      "items": [
+        {
+          "id": 99,
+          "md5": "cafebabe",
+          "bookTitle": "Nested Response Book",
+          "authorName": {"name": "Deep Author"},
+          "ext": "mobi",
+          "sizeBytes": 1048576,
+          "url": "/dl/99/tok99"
+        }
+      ]
+    }
+  }
+}

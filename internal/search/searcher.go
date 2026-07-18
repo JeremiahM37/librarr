@@ -1,3 +1,6 @@
+// Package search implements librarr's search sources (Anna's Archive,
+// Prowlarr, Project Gutenberg, and others) plus result filtering,
+// scoring, and source health tracking.
 package search
 
 import (

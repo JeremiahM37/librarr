@@ -1,0 +1,8 @@
+{
+  "success": true,
+  "book": {
+    "id": 42,
+    "title": "The Go Programming Language",
+    "dl": "https://z.example.org/dl/42/token"
+  }
+}

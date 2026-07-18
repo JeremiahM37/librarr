@@ -1,3 +1,5 @@
+// Command librarr runs the librarr server: book search, downloads, and
+// library management with a web UI, Torznab endpoint, and OPDS feed.
 package main
 
 import (

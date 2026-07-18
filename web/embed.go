@@ -1,3 +1,4 @@
+// Package web embeds the static web UI assets served by the API.
 package web
 
 import "embed"

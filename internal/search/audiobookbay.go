@@ -28,8 +28,7 @@ func NewAudioBookBay(cfg *config.Config, client *http.Client) *AudioBookBay {
 	return &AudioBookBay{cfg: cfg, client: client}
 }
 
-func (a *AudioBookBay) domains() []string  { return a.cfg.Sources.AudioBookBay.Mirrors }
-func (a *AudioBookBay) trackers() []string { return a.cfg.Sources.AudioBookBay.Trackers }
+func (a *AudioBookBay) domains() []string { return a.cfg.Sources.AudioBookBay.Mirrors }
 
 func (a *AudioBookBay) Name() string         { return "audiobookbay" }
 func (a *AudioBookBay) Label() string        { return "AudioBookBay" }

@@ -1,3 +1,4 @@
+// Package metadata fetches book metadata from Open Library.
 package metadata
 
 import (

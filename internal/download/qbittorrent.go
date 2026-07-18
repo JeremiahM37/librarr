@@ -212,7 +212,7 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category str
 	}
 
 	if err := parseQBittorrentAddTorrentResponse(body); err != nil {
-		return fmt.Errorf("add torrent failed: %s", err.Error())
+		return fmt.Errorf("add torrent failed: %w", err)
 	}
 
 	slog.Info("torrent added to qBittorrent", "title", title)

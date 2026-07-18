@@ -1,3 +1,4 @@
+// Package models defines the shared data types used across librarr.
 package models
 
 import "time"

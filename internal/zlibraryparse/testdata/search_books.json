@@ -1,0 +1,31 @@
+{
+  "success": 1,
+  "books": [
+    {
+      "id": 42,
+      "hash": "abc123",
+      "title": "The Go Programming Language",
+      "author": "Alan A. A. Donovan",
+      "extension": "epub",
+      "filesize": 2500000,
+      "language": "english",
+      "year": 2015,
+      "pages": 380,
+      "cover": "https://covers.example.org/go.jpg",
+      "description": "The authoritative resource.",
+      "dl": "/dl/2222/token42"
+    },
+    {
+      "id": 7,
+      "book_hash": "def456",
+      "name": "Learning Go",
+      "authors": ["Jon Bodner"],
+      "format": "pdf",
+      "size": "12,345",
+      "lang": "english",
+      "publish_year": "2021",
+      "pageCount": 375,
+      "downloadUrl": "https://z.example.org/dl/7/tok7"
+    }
+  ]
+}

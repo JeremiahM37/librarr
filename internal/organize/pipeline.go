@@ -1,3 +1,5 @@
+// Package organize moves downloaded ebooks, audiobooks, and manga into
+// the configured library layout, extracting metadata where possible.
 package organize
 
 import (

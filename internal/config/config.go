@@ -1,3 +1,5 @@
+// Package config loads, validates, and persists librarr's server
+// configuration and runtime settings.
 package config
 
 import (

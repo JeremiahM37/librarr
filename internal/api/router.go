@@ -1,3 +1,5 @@
+// Package api implements librarr's HTTP server: REST API handlers,
+// authentication and sessions, and routing for the embedded web UI.
 package api
 
 import (
@@ -188,6 +190,20 @@ func (s *Server) Handler() http.Handler {
 }
 
 func (s *Server) registerRoutes() {
+	s.registerCoreRoutes()
+	s.registerAuthRoutes()
+	s.registerSearchRoutes()
+	s.registerDownloadRoutes()
+	s.registerLibraryRoutes()
+	s.registerRequestRoutes()
+	s.registerCurationRoutes()
+	s.registerAdminRoutes()
+	s.registerFeedRoutes()
+}
+
+// registerCoreRoutes wires the root page, static assets, health checks, and
+// small informational endpoints.
+func (s *Server) registerCoreRoutes() {
 	// Root -- API info page.
 	s.mux.HandleFunc("GET /{$}", s.handleRoot)
 
@@ -204,6 +220,21 @@ func (s *Server) registerRoutes() {
 	// prior knowledge of the codebase.
 	s.mux.HandleFunc("GET /api/openapi.json", s.handleOpenAPI)
 
+	// Sources.
+	s.mux.HandleFunc("GET /api/sources", s.handleSources)
+	s.mux.HandleFunc("GET /api/config", s.handleConfig)
+
+	// Duplicate check.
+	s.mux.HandleFunc("GET /api/check-duplicate", s.handleCheckDuplicate)
+
+	// External URLs stub.
+	s.mux.HandleFunc("GET /api/external-urls", func(w http.ResponseWriter, _ *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]string{})
+	})
+}
+
+// registerAuthRoutes wires authentication, account, and user management.
+func (s *Server) registerAuthRoutes() {
 	// Authentication.
 	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions))
 	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.db, s.sessions))
@@ -235,7 +266,10 @@ func (s *Server) registerRoutes() {
 		s.mux.HandleFunc("GET /auth/oidc/login", s.oidc.HandleLogin)
 		s.mux.HandleFunc("GET /auth/oidc/callback", s.oidc.HandleCallback)
 	}
+}
 
+// registerSearchRoutes wires the search endpoints.
+func (s *Server) registerSearchRoutes() {
 	// Search.
 	s.mux.HandleFunc("GET /api/search", s.handleSearch)
 	s.mux.HandleFunc("GET /api/search/audiobooks", s.handleSearchAudiobooks)
@@ -243,7 +277,10 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /api/search/stream", s.handleSearchStream)
 	s.mux.HandleFunc("GET /api/search/audiobooks/stream", s.handleSearchAudiobooksStream)
 	s.mux.HandleFunc("GET /api/search/manga/stream", s.handleSearchMangaStream)
+}
 
+// registerDownloadRoutes wires download management and file uploads.
+func (s *Server) registerDownloadRoutes() {
 	// Downloads.
 	s.mux.HandleFunc("POST /api/download", s.handleDownload)
 	s.mux.HandleFunc("POST /api/download/torrent", s.handleDownloadTorrent)
@@ -257,6 +294,14 @@ func (s *Server) registerRoutes() {
 	// Job retry (dead letter).
 	s.mux.HandleFunc("POST /api/downloads/jobs/{id}/retry", s.handleRetryJob)
 
+	// File upload.
+	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
+	s.mux.HandleFunc("GET /api/uploads", s.handleListUploads)
+}
+
+// registerLibraryRoutes wires the library, wishlist, tags, reading history,
+// series tracking, and monitored authors.
+func (s *Server) registerLibraryRoutes() {
 	// Library.
 	s.mux.HandleFunc("GET /api/library", s.handleLibrary)
 	s.mux.HandleFunc("GET /api/library/audiobooks", s.handleLibraryAudiobooks)
@@ -271,6 +316,34 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/wishlist", s.handleAddWishlist)
 	s.mux.HandleFunc("DELETE /api/wishlist/{id}", s.handleDeleteWishlist)
 
+	// Reading history.
+	s.mux.HandleFunc("POST /api/history", s.handleAddHistory)
+	s.mux.HandleFunc("GET /api/history", s.handleGetHistory)
+	s.mux.HandleFunc("PATCH /api/history/{id}", s.handleUpdateHistory)
+	s.mux.HandleFunc("DELETE /api/history/{id}", s.handleDeleteHistory)
+	s.mux.HandleFunc("GET /api/history/stats", s.handleHistoryStats)
+
+	// Series auto-complete.
+	s.mux.HandleFunc("GET /api/series", s.handleListSeries)
+	s.mux.HandleFunc("GET /api/series/{name}/missing", s.handleSeriesMissing)
+	s.mux.HandleFunc("POST /api/series/{name}/search-missing", s.handleSearchMissingSeries)
+
+	// Tags.
+	s.mux.HandleFunc("GET /api/tags", s.handleGetTags)
+	s.mux.HandleFunc("POST /api/tags", s.handleCreateTag)
+	s.mux.HandleFunc("DELETE /api/tags/{id}", s.handleDeleteTag)
+	s.mux.HandleFunc("GET /api/library/{id}/tags", s.handleGetItemTags)
+	s.mux.HandleFunc("POST /api/library/{id}/tags", s.handleAddItemTags)
+	s.mux.HandleFunc("DELETE /api/library/{id}/tags/{tagId}", s.handleRemoveItemTag)
+
+	// Author Monitoring.
+	s.mux.HandleFunc("GET /api/authors", s.handleListMonitoredAuthors)
+	s.mux.HandleFunc("POST /api/authors/monitor", requireAdmin(s.handleAddMonitoredAuthor))
+	s.mux.HandleFunc("DELETE /api/authors/{id}", requireAdmin(s.handleDeleteMonitoredAuthor))
+}
+
+// registerRequestRoutes wires the book request workflow and notifications.
+func (s *Server) registerRequestRoutes() {
 	// Requests (book request workflow).
 	s.mux.HandleFunc("POST /api/requests", s.handleCreateRequest)
 	s.mux.HandleFunc("GET /api/requests", s.handleListRequests)
@@ -287,89 +360,11 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("PUT /api/notifications/{id}/read", s.handleMarkRead)
 	s.mux.HandleFunc("PUT /api/notifications/read-all", s.handleMarkAllRead)
 	s.mux.HandleFunc("DELETE /api/notifications/{id}", s.handleDeleteNotification)
+}
 
-	// Sources.
-	s.mux.HandleFunc("GET /api/sources", s.handleSources)
-	s.mux.HandleFunc("GET /api/config", s.handleConfig)
-
-	// Duplicate check.
-	s.mux.HandleFunc("GET /api/check-duplicate", s.handleCheckDuplicate)
-
-	// Settings (admin only).
-	s.mux.HandleFunc("GET /api/settings", requireAdmin(s.handleGetSettings))
-	s.mux.HandleFunc("POST /api/settings", requireAdmin(s.handleSaveSettings))
-
-	// Connection tests (admin only — SSRF risk).
-	s.mux.HandleFunc("POST /api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
-	s.mux.HandleFunc("POST /api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
-	s.mux.HandleFunc("POST /api/test/transmission", requireAdmin(s.handleTestTransmission))
-	s.mux.HandleFunc("POST /api/test/audiobookshelf", requireAdmin(s.handleTestAudiobookshelf))
-	s.mux.HandleFunc("POST /api/test/kavita", requireAdmin(s.handleTestKavita))
-	s.mux.HandleFunc("POST /api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))
-
-	// External URLs stub.
-	s.mux.HandleFunc("GET /api/external-urls", func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]string{})
-	})
-
-	// OPDS feed (Feature 14).
-	s.mux.HandleFunc("GET /opds", s.handleOPDSRoot)
-	s.mux.HandleFunc("GET /opds/", s.handleOPDSRoot)
-	s.mux.HandleFunc("GET /opds/books", s.handleOPDSBooks)
-	s.mux.HandleFunc("GET /opds/search", s.handleOPDSSearch)
-	s.mux.HandleFunc("GET /opds/download/{id}", s.handleOPDSDownload)
-	s.mux.HandleFunc("GET /opds/opensearch.xml", s.handleOPDSOpenSearch)
-
-	// Prometheus metrics (Feature 16).
-	if s.cfg.MetricsEnabled {
-		s.mux.HandleFunc("GET /metrics", s.handleMetrics)
-	}
-
-	// CSV bulk import (admin only — triggers downloads).
-	s.mux.HandleFunc("POST /api/import/csv", requireAdmin(s.handleCSVImport))
-
-	// Admin dashboard (admin only).
-	s.mux.HandleFunc("GET /api/admin/dashboard", requireAdmin(s.handleAdminDashboard))
-	s.mux.HandleFunc("GET /api/admin/activity", requireAdmin(s.handleAdminActivity))
-	s.mux.HandleFunc("POST /api/admin/bulk/retry", requireAdmin(s.handleAdminBulkRetry))
-	s.mux.HandleFunc("POST /api/admin/bulk/cancel", requireAdmin(s.handleAdminBulkCancel))
-	s.mux.HandleFunc("GET /api/admin/health", requireAdmin(s.handleAdminHealth))
-
-	// File upload.
-	s.mux.HandleFunc("POST /api/upload", s.handleUpload)
-	s.mux.HandleFunc("GET /api/uploads", s.handleListUploads)
-
-	// Webhooks (admin only).
-	s.mux.HandleFunc("GET /api/webhooks", requireAdmin(s.handleGetWebhooks))
-	s.mux.HandleFunc("POST /api/webhooks", requireAdmin(s.handleCreateWebhook))
-	s.mux.HandleFunc("DELETE /api/webhooks/{id}", requireAdmin(s.handleDeleteWebhook))
-	s.mux.HandleFunc("POST /api/webhooks/test", requireAdmin(s.handleTestWebhook))
-
-	// Import/Export.
-	s.mux.HandleFunc("GET /api/export/library", s.handleExportLibrary)
-	s.mux.HandleFunc("GET /api/export/wishlist", s.handleExportWishlist)
-	s.mux.HandleFunc("GET /api/export/requests", s.handleExportRequests)
-	s.mux.HandleFunc("POST /api/import/library", requireAdmin(s.handleImportLibrary))
-	s.mux.HandleFunc("POST /api/import/wishlist", requireAdmin(s.handleImportWishlist))
-	s.mux.HandleFunc("POST /api/import/csvdata", requireAdmin(s.handleImportCSVData))
-
-	// Scheduler.
-	s.mux.HandleFunc("GET /api/scheduler/status", s.handleSchedulerStatus)
-	s.mux.HandleFunc("POST /api/scheduler/run", requireAdmin(s.handleSchedulerRun))
-	s.mux.HandleFunc("PUT /api/scheduler/config", requireAdmin(s.handleSchedulerConfig))
-
-	// Reading history.
-	s.mux.HandleFunc("POST /api/history", s.handleAddHistory)
-	s.mux.HandleFunc("GET /api/history", s.handleGetHistory)
-	s.mux.HandleFunc("PATCH /api/history/{id}", s.handleUpdateHistory)
-	s.mux.HandleFunc("DELETE /api/history/{id}", s.handleDeleteHistory)
-	s.mux.HandleFunc("GET /api/history/stats", s.handleHistoryStats)
-
-	// Series auto-complete.
-	s.mux.HandleFunc("GET /api/series", s.handleListSeries)
-	s.mux.HandleFunc("GET /api/series/{name}/missing", s.handleSeriesMissing)
-	s.mux.HandleFunc("POST /api/series/{name}/search-missing", s.handleSearchMissingSeries)
-
+// registerCurationRoutes wires quality profiles, the blocklist, and
+// release profiles.
+func (s *Server) registerCurationRoutes() {
 	// Quality Profiles.
 	s.mux.HandleFunc("GET /api/quality-profiles", s.handleGetQualityProfiles)
 	s.mux.HandleFunc("GET /api/quality-profiles/default", s.handleGetDefaultQualityProfile)
@@ -388,33 +383,82 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("POST /api/release-profiles", requireAdmin(s.handleCreateReleaseProfile))
 	s.mux.HandleFunc("PUT /api/release-profiles/{id}", requireAdmin(s.handleUpdateReleaseProfile))
 	s.mux.HandleFunc("DELETE /api/release-profiles/{id}", requireAdmin(s.handleDeleteReleaseProfile))
+}
+
+// registerAdminRoutes wires settings, integration tests, imports/exports,
+// webhooks, the scheduler, backups, and the admin dashboard.
+func (s *Server) registerAdminRoutes() {
+	// Settings (admin only).
+	s.mux.HandleFunc("GET /api/settings", requireAdmin(s.handleGetSettings))
+	s.mux.HandleFunc("POST /api/settings", requireAdmin(s.handleSaveSettings))
+
+	// Connection tests (admin only — SSRF risk).
+	s.mux.HandleFunc("POST /api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
+	s.mux.HandleFunc("POST /api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
+	s.mux.HandleFunc("POST /api/test/transmission", requireAdmin(s.handleTestTransmission))
+	s.mux.HandleFunc("POST /api/test/audiobookshelf", requireAdmin(s.handleTestAudiobookshelf))
+	s.mux.HandleFunc("POST /api/test/kavita", requireAdmin(s.handleTestKavita))
+	s.mux.HandleFunc("POST /api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))
+
+	// CSV bulk import (admin only — triggers downloads).
+	s.mux.HandleFunc("POST /api/import/csv", requireAdmin(s.handleCSVImport))
+
+	// Admin dashboard (admin only).
+	s.mux.HandleFunc("GET /api/admin/dashboard", requireAdmin(s.handleAdminDashboard))
+	s.mux.HandleFunc("GET /api/admin/activity", requireAdmin(s.handleAdminActivity))
+	s.mux.HandleFunc("POST /api/admin/bulk/retry", requireAdmin(s.handleAdminBulkRetry))
+	s.mux.HandleFunc("POST /api/admin/bulk/cancel", requireAdmin(s.handleAdminBulkCancel))
+	s.mux.HandleFunc("GET /api/admin/health", requireAdmin(s.handleAdminHealth))
+
+	// Webhooks (admin only).
+	s.mux.HandleFunc("GET /api/webhooks", requireAdmin(s.handleGetWebhooks))
+	s.mux.HandleFunc("POST /api/webhooks", requireAdmin(s.handleCreateWebhook))
+	s.mux.HandleFunc("DELETE /api/webhooks/{id}", requireAdmin(s.handleDeleteWebhook))
+	s.mux.HandleFunc("POST /api/webhooks/test", requireAdmin(s.handleTestWebhook))
+
+	// Import/Export.
+	s.mux.HandleFunc("GET /api/export/library", s.handleExportLibrary)
+	s.mux.HandleFunc("GET /api/export/wishlist", s.handleExportWishlist)
+	s.mux.HandleFunc("GET /api/export/requests", s.handleExportRequests)
+	s.mux.HandleFunc("POST /api/import/library", requireAdmin(s.handleImportLibrary))
+	s.mux.HandleFunc("POST /api/import/wishlist", requireAdmin(s.handleImportWishlist))
+	s.mux.HandleFunc("POST /api/import/csvdata", requireAdmin(s.handleImportCSVData))
 
 	// Manual Import.
 	s.mux.HandleFunc("POST /api/import/scan", requireAdmin(s.handleScanImport))
 	s.mux.HandleFunc("POST /api/import/files", requireAdmin(s.handleImportFiles))
 
-	// Tags.
-	s.mux.HandleFunc("GET /api/tags", s.handleGetTags)
-	s.mux.HandleFunc("POST /api/tags", s.handleCreateTag)
-	s.mux.HandleFunc("DELETE /api/tags/{id}", s.handleDeleteTag)
-	s.mux.HandleFunc("GET /api/library/{id}/tags", s.handleGetItemTags)
-	s.mux.HandleFunc("POST /api/library/{id}/tags", s.handleAddItemTags)
-	s.mux.HandleFunc("DELETE /api/library/{id}/tags/{tagId}", s.handleRemoveItemTag)
+	// Goodreads / StoryGraph CSV Import.
+	s.mux.HandleFunc("POST /api/import/goodreads", requireAdmin(s.handleImportGoodreads))
+	s.mux.HandleFunc("POST /api/import/storygraph", requireAdmin(s.handleImportStoryGraph))
+
+	// Scheduler.
+	s.mux.HandleFunc("GET /api/scheduler/status", s.handleSchedulerStatus)
+	s.mux.HandleFunc("POST /api/scheduler/run", requireAdmin(s.handleSchedulerRun))
+	s.mux.HandleFunc("PUT /api/scheduler/config", requireAdmin(s.handleSchedulerConfig))
 
 	// Backup/Restore.
 	s.mux.HandleFunc("GET /api/backup", requireAdmin(s.handleDownloadBackup))
 	s.mux.HandleFunc("POST /api/backup/create", requireAdmin(s.handleCreateBackup))
 	s.mux.HandleFunc("GET /api/backup/list", requireAdmin(s.handleListBackups))
 	s.mux.HandleFunc("POST /api/restore", requireAdmin(s.handleRestore))
+}
 
-	// Author Monitoring.
-	s.mux.HandleFunc("GET /api/authors", s.handleListMonitoredAuthors)
-	s.mux.HandleFunc("POST /api/authors/monitor", requireAdmin(s.handleAddMonitoredAuthor))
-	s.mux.HandleFunc("DELETE /api/authors/{id}", requireAdmin(s.handleDeleteMonitoredAuthor))
+// registerFeedRoutes wires the OPDS feed, Prometheus metrics, and the
+// Torznab indexer API.
+func (s *Server) registerFeedRoutes() {
+	// OPDS feed (Feature 14).
+	s.mux.HandleFunc("GET /opds", s.handleOPDSRoot)
+	s.mux.HandleFunc("GET /opds/", s.handleOPDSRoot)
+	s.mux.HandleFunc("GET /opds/books", s.handleOPDSBooks)
+	s.mux.HandleFunc("GET /opds/search", s.handleOPDSSearch)
+	s.mux.HandleFunc("GET /opds/download/{id}", s.handleOPDSDownload)
+	s.mux.HandleFunc("GET /opds/opensearch.xml", s.handleOPDSOpenSearch)
 
-	// Goodreads / StoryGraph CSV Import.
-	s.mux.HandleFunc("POST /api/import/goodreads", requireAdmin(s.handleImportGoodreads))
-	s.mux.HandleFunc("POST /api/import/storygraph", requireAdmin(s.handleImportStoryGraph))
+	// Prometheus metrics (Feature 16).
+	if s.cfg.MetricsEnabled {
+		s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+	}
 
 	// Torznab API.
 	torznabHandler := torznab.NewHandler(s.cfg, s.searchMgr)

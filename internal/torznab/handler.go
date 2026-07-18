@@ -1,3 +1,5 @@
+// Package torznab serves a Torznab-compatible API so external tools
+// (e.g. Prowlarr) can query librarr as an indexer.
 package torznab
 
 import (

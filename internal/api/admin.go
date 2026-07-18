@@ -230,137 +230,97 @@ func (s *Server) handleAdminBulkCancel(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// httpHealthCheck probes url with optional headers and returns a health
+// check entry for the named service. statusOK decides whether a response
+// status code counts as healthy.
+func httpHealthCheck(client *http.Client, service, url string, headers map[string]string, statusOK func(int) bool) map[string]interface{} {
+	status := "ok"
+	detail := ""
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		status = "error"
+		detail = "Invalid URL"
+	} else {
+		for k, v := range headers {
+			req.Header.Set(k, v)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			status = "error"
+			detail = "Connection failed"
+		} else {
+			resp.Body.Close()
+			if !statusOK(resp.StatusCode) {
+				status = "error"
+				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
+			}
+		}
+	}
+	return map[string]interface{}{
+		"service": service,
+		"status":  status,
+		"detail":  detail,
+	}
+}
+
+// diagnoseHealthCheck converts a download-client Diagnose() result into a
+// health check entry for the named service.
+func diagnoseHealthCheck(service string, result map[string]interface{}) map[string]interface{} {
+	status := "ok"
+	detail := ""
+	if success, ok := result["success"].(bool); !ok || !success {
+		status = "error"
+		if e, ok := result["error"].(string); ok {
+			detail = e
+		}
+	}
+	return map[string]interface{}{
+		"service": service,
+		"status":  status,
+		"detail":  detail,
+	}
+}
+
 func (s *Server) handleAdminHealth(w http.ResponseWriter, _ *http.Request) {
 	checks := make([]map[string]interface{}, 0)
 
 	healthClient := &http.Client{Timeout: 10 * time.Second}
+	is200 := func(code int) bool { return code == 200 }
 
 	// Prowlarr.
 	if s.cfg.HasProwlarr() {
-		status := "ok"
-		detail := ""
-		req, _ := http.NewRequest("GET", s.cfg.ProwlarrURL+"/api/v1/health", nil)
-		req.Header.Set("X-Api-Key", s.cfg.ProwlarrAPIKey)
-		resp, err := healthClient.Do(req)
-		if err != nil {
-			status = "error"
-			detail = "Connection failed"
-		} else {
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				status = "error"
-				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "prowlarr",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, httpHealthCheck(healthClient, "prowlarr",
+			s.cfg.ProwlarrURL+"/api/v1/health",
+			map[string]string{"X-Api-Key": s.cfg.ProwlarrAPIKey}, is200))
 	}
 
 	// qBittorrent.
 	if s.cfg.HasQBittorrent() {
-		result := s.qb.Diagnose()
-		status := "ok"
-		detail := ""
-		if success, ok := result["success"].(bool); !ok || !success {
-			status = "error"
-			if e, ok := result["error"].(string); ok {
-				detail = e
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "qbittorrent",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, diagnoseHealthCheck("qbittorrent", s.qb.Diagnose()))
 	}
 
 	// SABnzbd.
 	if s.cfg.HasSABnzbd() && s.sab != nil {
-		result := s.sab.Diagnose()
-		status := "ok"
-		detail := ""
-		if success, ok := result["success"].(bool); !ok || !success {
-			status = "error"
-			if e, ok := result["error"].(string); ok {
-				detail = e
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "sabnzbd",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, diagnoseHealthCheck("sabnzbd", s.sab.Diagnose()))
 	}
 
 	// Audiobookshelf.
 	if s.cfg.HasAudiobookshelf() {
-		status := "ok"
-		detail := ""
-		req, _ := http.NewRequest("GET", s.cfg.ABSURL+"/api/libraries", nil)
-		req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
-		resp, err := healthClient.Do(req)
-		if err != nil {
-			status = "error"
-			detail = "Connection failed"
-		} else {
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				status = "error"
-				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "audiobookshelf",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, httpHealthCheck(healthClient, "audiobookshelf",
+			s.cfg.ABSURL+"/api/libraries",
+			map[string]string{"Authorization": "Bearer " + s.cfg.ABSToken}, is200))
 	}
 
 	// Kavita.
 	if s.cfg.HasKavita() {
-		status := "ok"
-		detail := ""
-		resp, err := healthClient.Get(s.cfg.KavitaURL + "/api/health")
-		if err != nil {
-			status = "error"
-			detail = "Connection failed"
-		} else {
-			resp.Body.Close()
-			if resp.StatusCode != 200 {
-				status = "error"
-				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "kavita",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, httpHealthCheck(healthClient, "kavita",
+			s.cfg.KavitaURL+"/api/health", nil, is200))
 	}
 
 	// Calibre.
 	if s.cfg.HasCalibre() && s.cfg.CalibreURL != "" {
-		status := "ok"
-		detail := ""
-		resp, err := healthClient.Get(s.cfg.CalibreURL)
-		if err != nil {
-			status = "error"
-			detail = "Connection failed"
-		} else {
-			resp.Body.Close()
-			if resp.StatusCode >= 400 {
-				status = "error"
-				detail = fmt.Sprintf("HTTP %d", resp.StatusCode)
-			}
-		}
-		checks = append(checks, map[string]interface{}{
-			"service": "calibre",
-			"status":  status,
-			"detail":  detail,
-		})
+		checks = append(checks, httpHealthCheck(healthClient, "calibre",
+			s.cfg.CalibreURL, nil, func(code int) bool { return code < 400 }))
 	}
 
 	allOK := true
