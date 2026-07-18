@@ -82,7 +82,7 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
 				} else if err != nil && cfg != nil && cfg.HasOIDC() {
-					slog.Warn("proxy SSO login rejected", "username", username, "error", err)
+					slog.Warn("proxy SSO login rejected", "username", sanitizeLogValue(username), "error", err)
 				}
 			}
 		}
@@ -173,4 +173,21 @@ func requireAdmin(next http.HandlerFunc) http.HandlerFunc {
 func getUserIDFromContext(r *http.Request) int64 {
 	id, _ := r.Context().Value(ctxUserID).(int64)
 	return id
+}
+
+// sanitizeLogValue strips control characters (incl. newlines) from a
+// request-derived value and caps its length before it reaches a log line.
+// slog already quotes values, but the proxy identity header is fully
+// attacker-controlled on misconfigured deployments, so scrub it anyway.
+func sanitizeLogValue(v string) string {
+	v = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return -1
+		}
+		return r
+	}, v)
+	if len(v) > 64 {
+		v = v[:64] + "…"
+	}
+	return v
 }
