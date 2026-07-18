@@ -409,9 +409,10 @@ func (s *Server) handleDeleteRequest(w http.ResponseWriter, r *http.Request) {
 }
 
 // processApprovedRequest runs the search + download pipeline for an approved request.
-func (s *Server) processApprovedRequest(req *models.Request) {
-	// Determine which search tab to use.
-	tab := "main"
+// requestSearchParams returns the search tab and query for a request.
+// An explicit SearchQuery overrides the title+author query.
+func requestSearchParams(req *models.Request) (tab, query string) {
+	tab = "main"
 	switch req.BookType {
 	case "audiobook":
 		tab = "audiobook"
@@ -419,14 +420,30 @@ func (s *Server) processApprovedRequest(req *models.Request) {
 		tab = "manga"
 	}
 
-	// Build search query.
-	query := req.Title
+	query = req.Title
 	if req.Author != "" {
 		query = req.Title + " " + req.Author
 	}
 	if req.SearchQuery != "" {
 		query = req.SearchQuery
 	}
+	return tab, query
+}
+
+// chooseRequestResult picks the search result for a request, honoring a
+// valid admin-selected result index and falling back to the best score.
+func chooseRequestResult(results []models.SearchResult, req *models.Request) models.SearchResult {
+	if req.SelectedResultID != "" {
+		idx, err := strconv.Atoi(req.SelectedResultID)
+		if err == nil && idx >= 0 && idx < len(results) {
+			return results[idx]
+		}
+	}
+	return pickBestResult(results, req.BookType)
+}
+
+func (s *Server) processApprovedRequest(req *models.Request) {
+	tab, query := requestSearchParams(req)
 
 	// Update status to searching.
 	req.Status = "searching"
@@ -456,17 +473,7 @@ func (s *Server) processApprovedRequest(req *models.Request) {
 	}
 
 	// Pick the best result. If admin selected a specific index, use that.
-	var chosen models.SearchResult
-	if req.SelectedResultID != "" {
-		idx, err := strconv.Atoi(req.SelectedResultID)
-		if err == nil && idx >= 0 && idx < len(results) {
-			chosen = results[idx]
-		} else {
-			chosen = pickBestResult(results, req.BookType)
-		}
-	} else {
-		chosen = pickBestResult(results, req.BookType)
-	}
+	chosen := chooseRequestResult(results, req)
 
 	slog.Info("selected result for request", "id", req.ID, "source", chosen.Source, "title", chosen.Title)
 
