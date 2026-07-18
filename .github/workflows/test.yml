@@ -12,7 +12,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: {go-version: '1.25.x', cache: false, check-latest: true}
+        with: {go-version: '1.25.x', cache: true, check-latest: true}
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
@@ -89,7 +89,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
-        with: {go-version: '1.25.x', cache: false, check-latest: true}
+        with: {go-version: '1.25.x', cache: true, check-latest: true}
       - name: build binary
         run: go build -o /tmp/librarr ./cmd/librarr/
       - uses: actions/setup-python@v5
