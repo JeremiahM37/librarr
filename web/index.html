@@ -328,6 +328,25 @@
         </div>
         <div class="space-y-4">
 
+          <!-- Anna's Archive -->
+          <div class="bg-slate-800/40 rounded-lg p-4">
+            <div class="flex items-center justify-between mb-3">
+              <h4 class="text-sm font-medium text-slate-200">Anna's Archive</h4>
+              <button data-action="saveIntegration" data-arg="annas" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Save</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-3">Membership secret key enables VIP fast downloads via <code class="text-slate-400">/dyn/api/fast_download.json</code>. Without it, Librarr uses public LibGen mirrors.</p>
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Domain</label>
+                <input type="text" id="setting-annas_archive_domain" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="annas-archive.gl">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Secret key (donator / VIP)</label>
+                <input type="password" id="setting-annas_archive_secret_key" autocomplete="off" data-1p-ignore data-lpignore="true" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="">
+              </div>
+            </div>
+          </div>
+
           <!-- Prowlarr -->
           <div class="bg-slate-800/40 rounded-lg p-4">
             <div class="flex items-center justify-between mb-3">

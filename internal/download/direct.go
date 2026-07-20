@@ -67,10 +67,23 @@ func (d *DirectDownloader) mirrors() []string {
 	return d.cfg.Sources.LibgenMirrors
 }
 
-// DownloadFromAnnas downloads a file from Anna's Archive via libgen.
-// Returns the local file path and size, or an error.
+// DownloadFromAnnas downloads a file from Anna's Archive.
+// When a membership/donator secret key is configured, tries the VIP
+// fast_download API first, then falls back to public LibGen mirrors.
 func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, string, error) {
-	if progressFn != nil {
+	if strings.TrimSpace(d.cfg.AnnasArchiveSecretKey) != "" {
+		if progressFn != nil {
+			progressFn("Trying Anna's Archive fast download...")
+		}
+		filePath, fileSize, err := d.downloadFromAnnasFast(md5, title, progressFn)
+		if err == nil {
+			return filePath, fileSize, md5, nil
+		}
+		slog.Warn("annas fast download failed; falling back to LibGen", "md5", md5, "error", err)
+		if progressFn != nil {
+			progressFn("Fast download unavailable, trying LibGen mirrors...")
+		}
+	} else if progressFn != nil {
 		progressFn("Fetching download link from Anna's Archive...")
 	}
 
@@ -114,6 +127,108 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 		lastErr = errLibgenNoMatch
 	}
 	return "", 0, "", fmt.Errorf("all matching LibGen candidates exhausted: %w", lastErr)
+}
+
+// downloadFromAnnasFast resolves VIP fast_download.json and downloads the file.
+func (d *DirectDownloader) downloadFromAnnasFast(md5, title string, progressFn func(string)) (string, int64, error) {
+	downloadURL, err := d.fetchAnnasFastDownloadURL(md5)
+	if err != nil {
+		return "", 0, err
+	}
+	if progressFn != nil {
+		progressFn("Downloading via Anna's Archive fast download...")
+	}
+	slog.Info("found annas fast download link", "title", title, "md5", md5)
+	return d.downloadFile(downloadURL, title, progressFn)
+}
+
+// fetchAnnasFastDownloadURL calls AA membership fast_download API for one MD5.
+func (d *DirectDownloader) fetchAnnasFastDownloadURL(md5 string) (string, error) {
+	domain := strings.TrimSpace(d.cfg.AnnasArchiveDomain)
+	key := strings.TrimSpace(d.cfg.AnnasArchiveSecretKey)
+	if domain == "" || key == "" {
+		return "", fmt.Errorf("annas fast download requires domain and secret key")
+	}
+	apiURL := fmt.Sprintf(
+		"https://%s/dyn/api/fast_download.json?md5=%s&key=%s",
+		domain,
+		url.QueryEscape(md5),
+		url.QueryEscape(key),
+	)
+	if err := d.checkURL(apiURL); err != nil {
+		return "", err
+	}
+
+	req, err := http.NewRequest("GET", apiURL, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("User-Agent", d.cfg.UserAgent)
+
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("annas fast download request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1024*1024))
+	if err != nil {
+		return "", fmt.Errorf("annas fast download read body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("annas fast download HTTP %d: %s", resp.StatusCode, truncateForErr(string(body), 200))
+	}
+
+	downloadURL, err := parseAnnasFastDownloadURL(apiURL, body)
+	if err != nil {
+		return "", err
+	}
+	if err := d.checkURL(downloadURL); err != nil {
+		return "", err
+	}
+	return downloadURL, nil
+}
+
+// parseAnnasFastDownloadURL extracts download_url from AA fast_download JSON.
+func parseAnnasFastDownloadURL(apiURL string, body []byte) (string, error) {
+	var payload struct {
+		DownloadURL string `json:"download_url"`
+		Error       string `json:"error"`
+		Message     string `json:"message"`
+	}
+	if err := json.Unmarshal(body, &payload); err != nil {
+		return "", fmt.Errorf("annas fast download JSON: %w", err)
+	}
+	if payload.Error != "" {
+		return "", fmt.Errorf("annas fast download: %s", payload.Error)
+	}
+	if payload.Message != "" && payload.DownloadURL == "" {
+		return "", fmt.Errorf("annas fast download: %s", payload.Message)
+	}
+	downloadURL := strings.TrimSpace(payload.DownloadURL)
+	if downloadURL == "" {
+		return "", fmt.Errorf("annas fast download: empty download_url")
+	}
+	if strings.HasPrefix(downloadURL, "http://") || strings.HasPrefix(downloadURL, "https://") {
+		return downloadURL, nil
+	}
+	base, err := url.Parse(apiURL)
+	if err != nil {
+		return "", fmt.Errorf("annas fast download base URL: %w", err)
+	}
+	ref, err := url.Parse(downloadURL)
+	if err != nil {
+		return "", fmt.Errorf("annas fast download relative URL: %w", err)
+	}
+	return base.ResolveReference(ref).String(), nil
+}
+
+func truncateForErr(s string, max int) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= max {
+		return s
+	}
+	return s[:max] + "…"
 }
 
 // downloadFromLibgenMirrors resolves and downloads one MD5 from each mirror.

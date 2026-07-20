@@ -16,15 +16,17 @@ const maskedValue = "--------"
 
 // sensitiveKeys are settings keys that should be masked in GET responses.
 var sensitiveKeys = map[string]bool{
-	"prowlarr_api_key":  true,
-	"qb_pass":           true,
-	"abs_token":         true,
-	"kavita_pass":       true,
-	"api_key":           true,
-	"auth_password":     true,
-	"komga_pass":        true,
-	"sabnzbd_api_key":   true,
-	"transmission_pass": true,
+	"prowlarr_api_key":         true,
+	"qb_pass":                  true,
+	"abs_token":                true,
+	"kavita_pass":              true,
+	"api_key":                  true,
+	"auth_password":            true,
+	"komga_pass":               true,
+	"sabnzbd_api_key":          true,
+	"transmission_pass":        true,
+	"annas_archive_secret_key": true,
+	"annas_secret_key":         true,
 }
 
 func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
@@ -35,6 +37,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 	defaults := map[string]interface{}{
 		"file_org_enabled":            s.cfg.FileOrgEnabled,
 		"annas_archive_domain":        s.cfg.AnnasArchiveDomain,
+		"annas_archive_secret_key":    s.cfg.AnnasArchiveSecretKey,
 		"ebook_dir":                   s.cfg.EbookDir,
 		"audiobook_dir":               s.cfg.AudiobookDir,
 		"manga_dir":                   s.cfg.MangaDir,
@@ -171,6 +174,13 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.RemoveTorrentAfterImport = b
 			slog.Info("remove torrent after import updated", "enabled", b)
 		}
+	}
+	if v, ok := data["annas_archive_domain"].(string); ok && v != "" {
+		s.cfg.AnnasArchiveDomain = sources.NormalizeDomain(v)
+	}
+	if v, ok := data["annas_archive_secret_key"].(string); ok && v != "" {
+		s.cfg.AnnasArchiveSecretKey = v
+		slog.Info("annas archive secret key updated")
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})

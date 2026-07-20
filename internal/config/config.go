@@ -50,7 +50,8 @@ type Config struct {
 	TorznabAPIKey string
 
 	// Anna's Archive
-	AnnasArchiveDomain string
+	AnnasArchiveDomain    string
+	AnnasArchiveSecretKey string // membership/donator key for /dyn/api/fast_download.json
 
 	// Sources is the runtime indexer-endpoint registry. Drivers read URLs,
 	// mirrors, and per-site config from here instead of from hardcoded
@@ -305,7 +306,8 @@ func buildFromEnv() *Config {
 
 		TorznabAPIKey: getEnv("TORZNAB_API_KEY", ""),
 
-		AnnasArchiveDomain: annasDomain,
+		AnnasArchiveDomain:    annasDomain,
+		AnnasArchiveSecretKey: firstNonEmpty(getEnv("ANNAS_ARCHIVE_SECRET_KEY", ""), getEnv("AA_DONATOR_KEY", "")),
 
 		CircuitBreakerThreshold: getEnvInt("CIRCUIT_BREAKER_THRESHOLD", 3),
 		CircuitBreakerTimeout:   getEnvInt("CIRCUIT_BREAKER_TIMEOUT", 300),
@@ -580,13 +582,14 @@ func (c *Config) applySettingsFileOverrides() {
 		"komga_library_path":        &c.KomgaLibraryPath,
 		"calibre_url":               &c.CalibreURL,
 		"calibre_library_path":      &c.CalibreLibraryPath,
-		"annas_archive_domain":      &c.AnnasArchiveDomain,
-		"ebook_dir":                 &c.EbookDir,
-		"audiobook_dir":             &c.AudiobookDir,
-		"manga_dir":                 &c.MangaDir,
-		"incoming_dir":              &c.IncomingDir,
-		"manga_incoming_dir":        &c.MangaIncomingDir,
-		"flibusta_url":              &c.FlibustaURL,
+		"annas_archive_domain":     &c.AnnasArchiveDomain,
+		"annas_archive_secret_key": &c.AnnasArchiveSecretKey,
+		"ebook_dir":                &c.EbookDir,
+		"audiobook_dir":            &c.AudiobookDir,
+		"manga_dir":                &c.MangaDir,
+		"incoming_dir":             &c.IncomingDir,
+		"manga_incoming_dir":       &c.MangaIncomingDir,
+		"flibusta_url":             &c.FlibustaURL,
 	}
 	for key, fieldPtr := range strPtrs {
 		v, ok := raw[key]
@@ -598,6 +601,12 @@ func (c *Config) applySettingsFileOverrides() {
 			continue
 		}
 		*fieldPtr = s
+	}
+	// Prefer canonical key; accept legacy alias used by some deployments.
+	if c.AnnasArchiveSecretKey == "" {
+		if s, ok := raw["annas_secret_key"].(string); ok && s != "" {
+			c.AnnasArchiveSecretKey = s
+		}
 	}
 
 	boolPtrs := map[string]*bool{
@@ -651,6 +660,15 @@ func getEnv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // splitCSV splits a comma-separated value into trimmed, non-empty entries.
