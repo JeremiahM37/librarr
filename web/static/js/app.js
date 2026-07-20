@@ -2034,6 +2034,7 @@ document.getElementById('change-password-form')?.addEventListener('submit', asyn
 // Settings keys backed by an input in the Integrations section, grouped by the
 // integration name passed to saveIntegration().
 const INTEGRATION_FIELDS = {
+  annas:          ['annas_archive_domain', 'annas_archive_secret_key'],
   prowlarr:       ['prowlarr_url', 'prowlarr_api_key'],
   qbittorrent:    ['qb_url', 'qb_user', 'qb_pass'],
   transmission:   ['transmission_url', 'transmission_user', 'transmission_pass', 'torrent_client'],
