@@ -51,7 +51,7 @@ type Config struct {
 
 	// Anna's Archive
 	AnnasArchiveDomain    string
-	AnnasArchiveSecretKey string // membership/donator key for /dyn/api/fast_download.json
+	AnnasArchiveSecretKey string // AA account secret key for /dyn/api/fast_download.json
 
 	// Sources is the runtime indexer-endpoint registry. Drivers read URLs,
 	// mirrors, and per-site config from here instead of from hardcoded

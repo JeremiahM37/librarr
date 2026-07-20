@@ -68,7 +68,7 @@ func (d *DirectDownloader) mirrors() []string {
 }
 
 // DownloadFromAnnas downloads a file from Anna's Archive.
-// When a membership/donator secret key is configured, tries the VIP
+// When an account secret key is configured, tries the membership
 // fast_download API first, then falls back to public LibGen mirrors.
 func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(string)) (string, int64, string, error) {
 	if strings.TrimSpace(d.cfg.AnnasArchiveSecretKey) != "" {
@@ -129,7 +129,7 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 	return "", 0, "", fmt.Errorf("all matching LibGen candidates exhausted: %w", lastErr)
 }
 
-// downloadFromAnnasFast resolves VIP fast_download.json and downloads the file.
+// downloadFromAnnasFast resolves membership fast_download.json and downloads the file.
 func (d *DirectDownloader) downloadFromAnnasFast(md5, title string, progressFn func(string)) (string, int64, error) {
 	downloadURL, err := d.fetchAnnasFastDownloadURL(md5)
 	if err != nil {
@@ -142,7 +142,7 @@ func (d *DirectDownloader) downloadFromAnnasFast(md5, title string, progressFn f
 	return d.downloadFile(downloadURL, title, progressFn)
 }
 
-// fetchAnnasFastDownloadURL calls AA membership fast_download API for one MD5.
+// fetchAnnasFastDownloadURL calls AA fast_download API for one MD5 using the account secret key.
 func (d *DirectDownloader) fetchAnnasFastDownloadURL(md5 string) (string, error) {
 	domain := strings.TrimSpace(d.cfg.AnnasArchiveDomain)
 	key := strings.TrimSpace(d.cfg.AnnasArchiveSecretKey)

@@ -45,7 +45,7 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 ### Download Management
 
 - **Multiple download clients** -- qBittorrent or Transmission for torrents, plus SABnzbd for Usenet
-- **Anna's Archive VIP fast download** -- optional membership secret key uses `/dyn/api/fast_download.json`, with LibGen mirror fallback
+- **Anna's Archive membership fast download** -- optional account secret key uses `/dyn/api/fast_download.json`, with LibGen mirror fallback
 - **Request/approval workflow** -- pending, approved, searching, downloading, completed states with per-request notifications
 - **Scheduled wishlist searches** -- background scheduler auto-searches and downloads wishlist items on a configurable interval
 - **Torrent completion watcher** -- polls download client, auto-imports completed downloads
@@ -255,7 +255,7 @@ which requires Transmission 3.0+).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANNAS_ARCHIVE_DOMAIN` | (from sources registry) | AA mirror hostname (no scheme) |
-| `ANNAS_ARCHIVE_SECRET_KEY` | | Membership/donator secret key for VIP `/dyn/api/fast_download.json`. Alias: `AA_DONATOR_KEY`. Without a key, downloads use public LibGen mirrors. |
+| `ANNAS_ARCHIVE_SECRET_KEY` | | Account secret key from the AA login page (also called a donator key in some tools). Used for `/dyn/api/fast_download.json` when the account has an active membership. Env alias `AA_DONATOR_KEY` is still accepted. Without a key, downloads use public LibGen mirrors. |
 
 ### Library Imports
 
