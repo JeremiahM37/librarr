@@ -133,7 +133,7 @@ func (d *DirectDownloader) DownloadFromAnnas(md5, title string, progressFn func(
 func (d *DirectDownloader) downloadFromAnnasFast(md5, title string, progressFn func(string)) (string, int64, error) {
 	downloadURL, err := d.fetchAnnasFastDownloadURL(md5)
 	if err != nil {
-		return "", 0, err
+		return "", 0, redactSecret(err, d.cfg.AnnasArchiveSecretKey)
 	}
 	if progressFn != nil {
 		progressFn("Downloading via Anna's Archive fast download...")
@@ -221,6 +221,21 @@ func parseAnnasFastDownloadURL(apiURL string, body []byte) (string, error) {
 		return "", fmt.Errorf("annas fast download relative URL: %w", err)
 	}
 	return base.ResolveReference(ref).String(), nil
+}
+
+// redactSecret scrubs the account secret key from an error's text. A
+// network-level failure surfaces as *url.Error, whose message embeds the
+// full request URL — including the key query parameter — and the fast-path
+// failure is logged, so without this the key would leak into logs.
+func redactSecret(err error, secret string) error {
+	if err == nil || secret == "" {
+		return err
+	}
+	msg := err.Error()
+	for _, needle := range []string{url.QueryEscape(secret), secret} {
+		msg = strings.ReplaceAll(msg, needle, "REDACTED")
+	}
+	return errors.New(msg)
 }
 
 func truncateForErr(s string, max int) string {

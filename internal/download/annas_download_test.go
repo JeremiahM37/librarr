@@ -2,6 +2,7 @@ package download
 
 import (
 	"bytes"
+	"errors"
 	"io"
 	"net/http"
 	"path/filepath"
@@ -245,5 +246,29 @@ func TestDownloadFromAnnasFallsBackToLibgenWhenFastFails(t *testing.T) {
 	}
 	if gotMD5 != md5 {
 		t.Errorf("md5 = %q, want %q", gotMD5, md5)
+	}
+}
+
+func TestFastDownloadNetworkErrorRedactsSecretKey(t *testing.T) {
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		return nil, errors.New("dial tcp: connection refused")
+	})}
+	cfg := exhaustedAnnasConfig(t.TempDir())
+	cfg.AnnasArchiveSecretKey = "vip-key"
+	direct := NewDirectDownloader(cfg, client)
+	direct.validate = nil
+
+	_, _, err := direct.downloadFromAnnasFast("cccccccccccccccccccccccccccccccc", "Redact Book", nil)
+	if err == nil {
+		t.Fatal("expected network error")
+	}
+	// client.Do wraps transport errors in *url.Error, which embeds the full
+	// request URL including key=… — the secret must not survive into the
+	// error text that DownloadFromAnnas logs.
+	if strings.Contains(err.Error(), "vip-key") {
+		t.Fatalf("secret key leaked into error: %v", err)
+	}
+	if !strings.Contains(err.Error(), "REDACTED") {
+		t.Fatalf("expected redaction marker in error: %v", err)
 	}
 }

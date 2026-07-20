@@ -582,14 +582,14 @@ func (c *Config) applySettingsFileOverrides() {
 		"komga_library_path":        &c.KomgaLibraryPath,
 		"calibre_url":               &c.CalibreURL,
 		"calibre_library_path":      &c.CalibreLibraryPath,
-		"annas_archive_domain":     &c.AnnasArchiveDomain,
-		"annas_archive_secret_key": &c.AnnasArchiveSecretKey,
-		"ebook_dir":                &c.EbookDir,
-		"audiobook_dir":            &c.AudiobookDir,
-		"manga_dir":                &c.MangaDir,
-		"incoming_dir":             &c.IncomingDir,
-		"manga_incoming_dir":       &c.MangaIncomingDir,
-		"flibusta_url":             &c.FlibustaURL,
+		"annas_archive_domain":      &c.AnnasArchiveDomain,
+		"annas_archive_secret_key":  &c.AnnasArchiveSecretKey,
+		"ebook_dir":                 &c.EbookDir,
+		"audiobook_dir":             &c.AudiobookDir,
+		"manga_dir":                 &c.MangaDir,
+		"incoming_dir":              &c.IncomingDir,
+		"manga_incoming_dir":        &c.MangaIncomingDir,
+		"flibusta_url":              &c.FlibustaURL,
 	}
 	for key, fieldPtr := range strPtrs {
 		v, ok := raw[key]
