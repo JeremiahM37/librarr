@@ -156,6 +156,69 @@ func TestLibraryItems_CRUD(t *testing.T) {
 	})
 }
 
+func TestBackfillLibraryMetadata(t *testing.T) {
+	dir := t.TempDir()
+	database, err := New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	metadataFile := filepath.Join(dir, "library", "Torrent Name", "book.epub")
+	if err := os.MkdirAll(filepath.Dir(metadataFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metadataFile, []byte("ebook"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	missingFile := filepath.Join(dir, "library", "Missing", "book.epub")
+	userEditedFile := filepath.Join(dir, "library", "Torrent Name", "edited.epub")
+	if err := os.WriteFile(userEditedFile, []byte("edited"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, item := range []*models.LibraryItem{
+		{Title: "Torrent Name", Author: "", FilePath: metadataFile, OriginalPath: "/incoming/Torrent Name/book.epub", MediaType: "ebook"},
+		{Title: "Missing", Author: "", FilePath: missingFile, OriginalPath: "/incoming/Missing/book.epub", MediaType: "ebook"},
+		{Title: "User Edited", Author: "Someone", FilePath: userEditedFile, OriginalPath: "/incoming/Torrent Name/edited.epub", MediaType: "ebook"},
+	} {
+		if _, err := database.AddItem(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	updated, err := database.BackfillLibraryMetadata(func(path string) (string, string) {
+		if path == metadataFile {
+			return "The Guardian's Path", "Jane Doe"
+		}
+		return "", ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("BackfillLibraryMetadata updated %d rows, want 1", updated)
+	}
+
+	items, err := database.GetItems("ebook", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]models.LibraryItem)
+	for _, item := range items {
+		byPath[item.FilePath] = item
+	}
+	if got := byPath[metadataFile]; got.Title != "The Guardian's Path" || got.Author != "Jane Doe" || got.FileFormat != "epub" {
+		t.Fatalf("metadata row = %+v, want corrected metadata and format", got)
+	}
+	if got := byPath[userEditedFile]; got.Title != "User Edited" || got.Author != "Someone" {
+		t.Fatalf("user-edited row changed: %+v", got)
+	}
+	if got := byPath[missingFile]; got.Title != "Missing" {
+		t.Fatalf("missing-file row changed: %+v", got)
+	}
+}
+
 func TestAddItemIsIdempotentByEquivalentPathAndContent(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "book.epub")

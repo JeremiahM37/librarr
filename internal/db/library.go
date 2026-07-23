@@ -215,6 +215,88 @@ func (d *DB) backfillLibraryContentHashes() error {
 	return nil
 }
 
+// BackfillLibraryMetadata updates rows whose title still matches the
+// torrent-derived directory name. It deliberately leaves user-renamed rows
+// alone and skips files that are no longer present.
+func (d *DB) BackfillLibraryMetadata(extract func(string) (title, author string)) (int, error) {
+	if extract == nil {
+		return 0, fmt.Errorf("library metadata extractor is nil")
+	}
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	rows, err := d.db.Query(`SELECT id, title, author, file_path, original_path, file_format
+		FROM library_items WHERE media_type = 'ebook'`)
+	if err != nil {
+		return 0, err
+	}
+	defer rows.Close()
+
+	type candidate struct {
+		id                                                int64
+		title, author, filePath, originalPath, fileFormat string
+	}
+	var candidates []candidate
+	for rows.Next() {
+		var item candidate
+		if err := rows.Scan(&item.id, &item.title, &item.author, &item.filePath, &item.originalPath, &item.fileFormat); err != nil {
+			return 0, err
+		}
+		if _, err := os.Stat(item.filePath); err != nil {
+			continue
+		}
+		if !matchesTorrentDerivedTitle(item.title, item.filePath, item.originalPath) {
+			continue
+		}
+		candidates = append(candidates, item)
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	if err := rows.Close(); err != nil {
+		return 0, err
+	}
+
+	updated := 0
+	for _, item := range candidates {
+		title, author := extract(item.filePath)
+		format := item.fileFormat
+		if format == "" {
+			format = effectiveLibraryFormat("", item.filePath)
+		}
+		if title == "" && author == "" && format == item.fileFormat {
+			continue
+		}
+		if title == "" {
+			title = item.title
+		}
+		if author == "" {
+			author = item.author
+		}
+		if _, err := d.db.Exec(`UPDATE library_items SET title = ?, author = ?, file_format = ? WHERE id = ?`, title, author, format, item.id); err != nil {
+			return updated, err
+		}
+		updated++
+	}
+	return updated, nil
+}
+
+func matchesTorrentDerivedTitle(title, filePath, originalPath string) bool {
+	title = strings.TrimSpace(title)
+	if title == "" {
+		return false
+	}
+	for _, path := range []string{filePath, originalPath} {
+		if path == "" {
+			continue
+		}
+		if strings.EqualFold(title, filepath.Base(filepath.Dir(path))) {
+			return true
+		}
+	}
+	return false
+}
+
 func effectiveLibraryFormat(fileFormat, filePath string) string {
 	if format := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fileFormat)), "."); format != "" {
 		return format

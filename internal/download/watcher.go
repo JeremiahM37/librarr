@@ -291,27 +291,16 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath string) error {
 	}
 
 	for _, bf := range bookFiles {
-		destPath, err := w.organizer.OrganizeEbook(bf, t.Name, "")
+		metadata := organize.ExtractEbookMetadata(bf)
+		title := firstNonEmpty(metadata.Title, t.Name)
+		author := metadata.Author
+		destPath, err := w.organizer.OrganizeEbook(bf, title, author)
 		if err != nil {
 			slog.Warn("organize ebook failed", "file", bf, "error", err)
 			destPath = bf
 		}
 
-		// Try to extract author from EPUB metadata.
-		author := ""
-		metadataTitle := t.Name
-		if strings.HasSuffix(strings.ToLower(destPath), ".epub") {
-			if meta, err := organize.ExtractEPUBMeta(destPath); err == nil {
-				if meta.Author != "" {
-					author = meta.Author
-				}
-				if meta.Title != "" {
-					metadataTitle = meta.Title
-				}
-			}
-		}
-
-		inserted, err := w.recordTorrentItem(t, "ebook", bf, destPath, t.Name, author, metadataTitle, author, fileFormat(destPath), t.TotalSize)
+		inserted, err := w.recordTorrentItem(t, "ebook", bf, destPath, title, author, metadata.Title, metadata.Author, fileFormat(destPath), t.TotalSize)
 		if err != nil {
 			return err
 		}
@@ -323,6 +312,15 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath string) error {
 	}
 
 	return nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if value = strings.TrimSpace(value); value != "" {
+			return value
+		}
+	}
+	return ""
 }
 
 func (w *Watcher) importAudiobook(t TorrentInfo, savePath string) error {

@@ -10,10 +10,7 @@ import (
 )
 
 // EPUBMeta holds extracted EPUB metadata.
-type EPUBMeta struct {
-	Title  string
-	Author string
-}
+type EPUBMeta = EbookMetadata
 
 // ExtractEPUBMeta reads an EPUB file (ZIP archive) and extracts dc:title and dc:creator
 // from the OPF metadata file.
