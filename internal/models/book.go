@@ -93,6 +93,7 @@ type LibraryItem struct {
 	MediaType    string    `json:"media_type"`
 	Source       string    `json:"source"`
 	SourceID     string    `json:"source_id"`
+	ContentHash  string    `json:"-"`
 	Metadata     string    `json:"metadata"`
 	AddedAt      time.Time `json:"added_at"`
 }

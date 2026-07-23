@@ -5,12 +5,14 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
 	"time"
 
+	"github.com/JeremiahM37/librarr/internal/download"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
@@ -539,9 +541,14 @@ func (s *Server) processApprovedRequest(req *models.Request) {
 		}
 
 		savePath, category := s.resolveSavePathAndCategory(req.BookType)
-		if err := s.downloadMgr.StartTorrentDownload(url, chosen.Title, savePath, category); err != nil {
-			s.failRequest(req, fmt.Sprintf("Torrent download failed: %v", err))
-			return
+		if err := s.downloadMgr.StartTorrentDownload(url, chosen.Title, savePath, category, chosen.InfoHash); err != nil {
+			var verificationWarning *download.TorrentVerificationWarning
+			if errors.As(err, &verificationWarning) {
+				slog.Warn("torrent accepted; verification pending", "title", chosen.Title, "warning", err.Error())
+			} else {
+				s.failRequest(req, fmt.Sprintf("Torrent download failed: %v", err))
+				return
+			}
 		}
 		req.Status = "processing"
 		req.UpdatedAt = time.Now()

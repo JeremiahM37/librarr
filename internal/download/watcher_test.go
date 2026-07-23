@@ -4,11 +4,99 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/db"
 )
+
+func TestRecordTorrentItemIsIdempotentAcrossWatcherPolls(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	filePath := filepath.Join(dir, "book.epub")
+	if err := os.WriteFile(filePath, []byte("same torrent file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := &Watcher{db: database}
+	torrent := TorrentInfo{Name: "Book", Hash: "torrent-hash"}
+
+	first, err := w.recordTorrentItem(torrent, "ebook", "/downloads/book.epub", filePath, "Book", "Author", "Book", "Author", "epub", 0)
+	if err != nil || !first {
+		t.Fatalf("first recordTorrentItem = inserted %v, err %v", first, err)
+	}
+	second, err := w.recordTorrentItem(torrent, "ebook", "/downloads/book.epub", filePath, "Book", "Author", "Book", "Author", "epub", 0)
+	if err != nil || second {
+		t.Fatalf("second recordTorrentItem = inserted %v, err %v; want idempotent reuse", second, err)
+	}
+
+	count, err := database.CountItems("ebook")
+	if err != nil || count != 1 {
+		t.Fatalf("CountItems = %d, %v; want one row", count, err)
+	}
+}
+
+func TestMapTorrentPathRemoteRootToLocalRoot(t *testing.T) {
+	got, ok := mapTorrentPath("/downloads/rclone-mnt/downloads/Prince Of Persia", "/downloads/rclone-mnt/downloads", "/downloads")
+	if !ok || got != "/downloads/Prince Of Persia" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/downloads/Prince Of Persia, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathSingleFile(t *testing.T) {
+	got, ok := mapTorrentPath("/remote/books/Book.epub", "/remote/books", "/local/incoming")
+	if !ok || got != "/local/incoming/Book.epub" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/local/incoming/Book.epub, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathMultiFileDirectory(t *testing.T) {
+	got, ok := mapTorrentPath("/remote/books/Series/Book", "/remote/books", "/local/incoming")
+	if !ok || got != "/local/incoming/Series/Book" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/local/incoming/Series/Book, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathIdenticalRoots(t *testing.T) {
+	got, ok := mapTorrentPath("/downloads/Book/file.epub", "/downloads", "/downloads")
+	if !ok || got != "/downloads/Book/file.epub" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want unchanged path, true", got, ok)
+	}
+}
+
+func TestMapTorrentPathRejectsOutsideRemoteRoot(t *testing.T) {
+	if got, ok := mapTorrentPath("/other/Book.epub", "/remote/books", "/local/incoming"); ok || got != "" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want empty path, false", got, ok)
+	}
+}
+
+func TestMapTorrentPathRejectsTraversal(t *testing.T) {
+	if got, ok := mapTorrentPath("/remote/books/../secret/Book.epub", "/remote/books", "/local/incoming"); ok || got != "" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want empty path, false", got, ok)
+	}
+}
+
+func TestResolveLocalPathMapsConfiguredQBRoot(t *testing.T) {
+	w := &Watcher{cfg: &config.Config{
+		QBSavePath:  "/downloads/rclone-mnt/downloads",
+		IncomingDir: "/downloads",
+		QBCategory:  "librarr",
+	}}
+
+	got := w.resolveLocalPath(TorrentInfo{
+		ContentPath: "/downloads/rclone-mnt/downloads/Prince Of Persia",
+		SavePath:    "/downloads/rclone-mnt/downloads",
+	}, "ebook")
+	if got != "/downloads/Prince Of Persia" {
+		t.Fatalf("resolveLocalPath = %q, want /downloads/Prince Of Persia", got)
+	}
+}
 
 func TestResolveLocalPathAudiobookUsesContentPath(t *testing.T) {
 	w := &Watcher{

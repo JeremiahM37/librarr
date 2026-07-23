@@ -227,7 +227,7 @@ which requires Transmission 3.0+).
 | `QB_URL` | | qBittorrent Web UI URL |
 | `QB_USER` | `admin` | qBittorrent username |
 | `QB_PASS` | | qBittorrent password |
-| `QB_SAVE_PATH` | `/downloads` | Ebook download path (inside qBit container) |
+| `QB_SAVE_PATH` | `/downloads` | Ebook download path as seen by qBittorrent (the remote/client-side path) |
 | `QB_CATEGORY` | `librarr` | Torrent category for ebooks |
 | `QB_AUDIOBOOK_SAVE_PATH` | `/audiobooks-incoming` | Audiobook download path |
 | `QB_AUDIOBOOK_CATEGORY` | `audiobooks` | Torrent category for audiobooks |
@@ -288,7 +288,7 @@ which requires Transmission 3.0+).
 | `EBOOK_DIR` | `/books/ebooks` | Organized ebook destination |
 | `AUDIOBOOK_DIR` | `/books/audiobooks` | Organized audiobook destination |
 | `MANGA_DIR` | `/books/manga` | Organized manga destination |
-| `INCOMING_DIR` | `/data/incoming` | Incoming file staging directory |
+| `INCOMING_DIR` | `/data/incoming` | Incoming file staging directory as seen by Librarr; qBittorrent paths beneath `QB_SAVE_PATH` are translated here before import |
 | `MANGA_INCOMING_DIR` | `/data/manga-incoming` | Manga incoming staging directory |
 
 ### Sources Registry

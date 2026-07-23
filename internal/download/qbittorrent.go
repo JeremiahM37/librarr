@@ -1,31 +1,61 @@
 package download
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/netutil"
 )
 
 // QBittorrentClient wraps the qBittorrent Web API.
 type QBittorrentClient struct {
-	cfg           *config.Config
-	client        *http.Client
-	mu            sync.Mutex
-	authenticated bool
-	cookies       []*http.Cookie
-	banUntil      time.Time
-	nextLogin     time.Time
-	backoffSec    int
-	lastError     string
+	cfg            *config.Config
+	client         *http.Client
+	mu             sync.Mutex
+	authenticated  bool
+	cookies        []*http.Cookie
+	banUntil       time.Time
+	nextLogin      time.Time
+	backoffSec     int
+	lastError      string
+	verifyTimeout  time.Duration
+	verifyInterval time.Duration
+}
+
+// TorrentVerificationWarning indicates that qBittorrent accepted the add
+// request but the torrent was not visible before the verification deadline.
+// The submission remains accepted; callers may surface this as a warning.
+type TorrentVerificationWarning struct {
+	Err error
+}
+
+func (e *TorrentVerificationWarning) Error() string {
+	return fmt.Sprintf("torrent accepted but verification incomplete: %v", e.Err)
+}
+
+func (e *TorrentVerificationWarning) Unwrap() error { return e.Err }
+
+type torrentVerificationTimeoutError struct{}
+
+func (torrentVerificationTimeoutError) Error() string {
+	return "timed out waiting for torrent to appear in qBittorrent"
 }
 
 // Name identifies this client in logs and the TorrentClient interface.
@@ -42,7 +72,9 @@ func NewQBittorrentClient(cfg *config.Config) *QBittorrentClient {
 				return http.ErrUseLastResponse
 			},
 		},
-		backoffSec: 3,
+		backoffSec:     3,
+		verifyTimeout:  25 * time.Second,
+		verifyInterval: 250 * time.Millisecond,
 	}
 }
 
@@ -75,7 +107,11 @@ func (q *QBittorrentClient) login() error {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		q.scheduleBackoff()
+		return fmt.Errorf("read qBittorrent login response: %w", err)
+	}
 	bodyStr := string(body)
 
 	if strings.Contains(strings.ToLower(bodyStr), "banned") {
@@ -134,6 +170,13 @@ func (q *QBittorrentClient) ensureAuth() error {
 }
 
 func (q *QBittorrentClient) doRequest(method, path string, data url.Values) (*http.Response, error) {
+	return q.doRequestContext(context.Background(), method, path, data)
+}
+
+func (q *QBittorrentClient) doRequestContext(ctx context.Context, method, path string, data url.Values) (*http.Response, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
@@ -161,6 +204,7 @@ func (q *QBittorrentClient) doRequest(method, path string, data url.Values) (*ht
 				req.URL.RawQuery = data.Encode()
 			}
 		}
+		req = req.WithContext(ctx)
 
 		for _, c := range q.cookies {
 			req.AddCookie(c)
@@ -186,7 +230,7 @@ func (q *QBittorrentClient) doRequest(method, path string, data url.Values) (*ht
 }
 
 // AddTorrent adds a torrent to qBittorrent.
-func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category string) error {
+func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, expectedInfoHash string) error {
 	if savePath == "" {
 		savePath = q.cfg.QBSavePath
 	}
@@ -194,6 +238,48 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category str
 		category = q.cfg.QBCategory
 	}
 
+	expectedInfoHash = firstNonEmptyHash(expectedInfoHash, infoHashFromMagnet(torrentURL))
+	var ids []string
+	var err error
+	if isMagnetURL(torrentURL) {
+		slog.Info("submitting magnet to qBittorrent", "title", title, "category", category)
+		ids, err = q.addTorrentURL(torrentURL, savePath, category)
+	} else if isHTTPURL(torrentURL) {
+		slog.Info("fetching torrent before qBittorrent upload", "title", title, "category", category)
+		var fetched fetchedTorrent
+		fetched, err = q.fetchTorrent(torrentURL)
+		if err == nil {
+			if supplied := firstNonEmptyHash(expectedInfoHash); supplied != "" && supplied != fetched.infoHash {
+				slog.Warn("torrent info hash differs from search result", "title", title, "expected_hash", supplied, "fetched_hash", fetched.infoHash)
+			}
+			// The hash of the fetched bytes is authoritative for verification.
+			expectedInfoHash = fetched.infoHash
+			slog.Info("uploading torrent bytes to qBittorrent", "title", title, "category", category, "filename", fetched.filename, "bytes", len(fetched.body))
+			ids, err = q.addTorrentFile(fetched, savePath, category)
+		}
+	} else {
+		slog.Info("submitting torrent URL to qBittorrent", "title", title, "category", category)
+		ids, err = q.addTorrentURL(torrentURL, savePath, category)
+	}
+	if err != nil {
+		slog.Warn("qBittorrent torrent submission failed", "title", title, "category", category, "error", netutil.SanitizeSensitiveText(err.Error()))
+		return err
+	}
+
+	if err := q.verifyTorrentAdded(expectedInfoHash, ids, title, category); err != nil {
+		slog.Warn("qBittorrent torrent verification failed", "title", title, "category", category, "error", netutil.SanitizeSensitiveText(err.Error()))
+		var timeoutErr torrentVerificationTimeoutError
+		if errors.As(err, &timeoutErr) {
+			return &TorrentVerificationWarning{Err: err}
+		}
+		return err
+	}
+
+	slog.Info("torrent added to qBittorrent", "title", title, "category", category)
+	return nil
+}
+
+func (q *QBittorrentClient) addTorrentURL(torrentURL, savePath, category string) ([]string, error) {
 	data := url.Values{
 		"urls":     {torrentURL},
 		"savepath": {savePath},
@@ -202,21 +288,106 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category str
 
 	resp, err := q.doRequest("POST", "/api/v2/torrents/add", data)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read add torrent response: %w", err)
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return fmt.Errorf("add torrent HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("add torrent HTTP %d: %s", resp.StatusCode, string(body))
 	}
 
-	if err := parseQBittorrentAddTorrentResponse(body); err != nil {
-		return fmt.Errorf("add torrent failed: %w", err)
+	parsed, err := parseQBittorrentAddTorrentResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("add torrent failed: %w", err)
 	}
 
-	slog.Info("torrent added to qBittorrent", "title", title)
-	return nil
+	return parsed.AddedTorrentIDs, nil
+}
+
+func (q *QBittorrentClient) addTorrentFile(torrent fetchedTorrent, savePath, category string) ([]string, error) {
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	part, err := writer.CreateFormFile("torrents", torrent.filename)
+	if err != nil {
+		return nil, err
+	}
+	if _, err := part.Write(torrent.body); err != nil {
+		return nil, err
+	}
+	if savePath != "" {
+		if err := writer.WriteField("savepath", savePath); err != nil {
+			return nil, fmt.Errorf("write torrent save path: %w", err)
+		}
+	}
+	if category != "" {
+		if err := writer.WriteField("category", category); err != nil {
+			return nil, fmt.Errorf("write torrent category: %w", err)
+		}
+	}
+	if err := writer.Close(); err != nil {
+		return nil, err
+	}
+
+	resp, err := q.doMultipartRequest("/api/v2/torrents/add", writer.FormDataContentType(), buf.Bytes())
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read add torrent response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("add torrent HTTP %d: %s", resp.StatusCode, string(body))
+	}
+
+	parsed, err := parseQBittorrentAddTorrentResponse(body)
+	if err != nil {
+		return nil, fmt.Errorf("add torrent failed: %w", err)
+	}
+	return parsed.AddedTorrentIDs, nil
+}
+
+func (q *QBittorrentClient) doMultipartRequest(path, contentType string, body []byte) (*http.Response, error) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	if err := q.ensureAuth(); err != nil {
+		return nil, err
+	}
+
+	var resp *http.Response
+	var err error
+	for attempt := 0; attempt < 2; attempt++ {
+		req, reqErr := http.NewRequest("POST", q.cfg.QBUrl+path, bytes.NewReader(body))
+		if reqErr != nil {
+			return nil, reqErr
+		}
+		req.Header.Set("Content-Type", contentType)
+		for _, c := range q.cookies {
+			req.AddCookie(c)
+		}
+
+		resp, err = q.client.Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode == 403 && attempt == 0 {
+			resp.Body.Close()
+			q.authenticated = false
+			if err := q.login(); err != nil {
+				return nil, err
+			}
+			continue
+		}
+		break
+	}
+	return resp, nil
 }
 
 type qbittorrentAddTorrentResponse struct {
@@ -227,26 +398,446 @@ type qbittorrentAddTorrentResponse struct {
 	Error           string   `json:"error"`
 }
 
-func parseQBittorrentAddTorrentResponse(body []byte) error {
+func parseQBittorrentAddTorrentResponse(body []byte) (qbittorrentAddTorrentResponse, error) {
 	trimmed := strings.TrimSpace(string(body))
 	if trimmed == "" || trimmed == "Ok." {
-		return nil
+		return qbittorrentAddTorrentResponse{}, nil
 	}
 
 	var parsed qbittorrentAddTorrentResponse
 	if err := json.Unmarshal(body, &parsed); err == nil {
 		if parsed.Error != "" {
-			return errors.New(parsed.Error)
+			return parsed, errors.New(parsed.Error)
 		}
 		if parsed.FailureCount > 0 {
-			return fmt.Errorf("success_count=%d failure_count=%d pending_count=%d", parsed.SuccessCount, parsed.FailureCount, parsed.PendingCount)
+			return parsed, fmt.Errorf("success_count=%d failure_count=%d pending_count=%d", parsed.SuccessCount, parsed.FailureCount, parsed.PendingCount)
 		}
 		if parsed.SuccessCount > 0 || parsed.PendingCount > 0 || len(parsed.AddedTorrentIDs) > 0 {
-			return nil
+			return parsed, nil
 		}
 	}
 
-	return errors.New(trimmed)
+	return parsed, errors.New(trimmed)
+}
+
+const maxTorrentFetchBytes = 50 << 20
+
+type fetchedTorrent struct {
+	filename string
+	body     []byte
+	infoHash string
+}
+
+func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) {
+	if q.cfg == nil || q.cfg.ProwlarrURL == "" {
+		return fetchedTorrent{}, fmt.Errorf("Prowlarr URL is not configured")
+	}
+	if _, err := netutil.ValidateSameOriginHTTPURL(rawURL, q.cfg.ProwlarrURL); err != nil {
+		return fetchedTorrent{}, fmt.Errorf("torrent URL rejected: %w", err)
+	}
+
+	client := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: q.client.Transport,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if len(via) >= 5 {
+				return fmt.Errorf("stopped after 5 redirects")
+			}
+			if _, err := netutil.ValidateSameOriginHTTPURL(req.URL.String(), q.cfg.ProwlarrURL); err != nil {
+				req.Header.Del("X-Api-Key")
+				return fmt.Errorf("torrent redirect rejected: %w", err)
+			}
+			q.applyProwlarrAuth(req)
+			return nil
+		},
+	}
+
+	req, err := http.NewRequest("GET", rawURL, nil)
+	if err != nil {
+		return fetchedTorrent{}, fmt.Errorf("torrent URL request: %w", err)
+	}
+	q.applyProwlarrAuth(req)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return fetchedTorrent{}, fmt.Errorf("fetch torrent: %s", netutil.SanitizeSensitiveText(err.Error()))
+	}
+	defer resp.Body.Close()
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentFetchBytes+1))
+	if err != nil {
+		return fetchedTorrent{}, fmt.Errorf("read torrent response: %w", err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return fetchedTorrent{}, fmt.Errorf("fetch torrent HTTP %d: %s", resp.StatusCode, summarizeHTTPBody(body))
+	}
+	if len(body) > maxTorrentFetchBytes {
+		return fetchedTorrent{}, fmt.Errorf("torrent response too large")
+	}
+	infoHash, err := validateTorrentBytes(resp.Header.Get("Content-Type"), body)
+	if err != nil {
+		return fetchedTorrent{}, err
+	}
+
+	return fetchedTorrent{
+		filename: torrentFilename(resp, rawURL),
+		body:     body,
+		infoHash: infoHash,
+	}, nil
+}
+
+func (q *QBittorrentClient) applyProwlarrAuth(req *http.Request) {
+	if q.cfg == nil || q.cfg.ProwlarrAPIKey == "" {
+		req.Header.Del("X-Api-Key")
+		return
+	}
+	if _, err := netutil.ValidateSameOriginHTTPURL(req.URL.String(), q.cfg.ProwlarrURL); err != nil {
+		req.Header.Del("X-Api-Key")
+		return
+	}
+	req.Header.Set("X-Api-Key", q.cfg.ProwlarrAPIKey)
+}
+
+func validateTorrentBytes(contentType string, body []byte) (string, error) {
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 {
+		return "", fmt.Errorf("torrent response was empty")
+	}
+
+	ct := strings.ToLower(contentType)
+	switch {
+	case strings.Contains(ct, "text/html"):
+		return "", fmt.Errorf("torrent response was HTML, not a .torrent file")
+	case strings.Contains(ct, "application/json"):
+		return "", fmt.Errorf("torrent response was JSON, not a .torrent file: %s", summarizeHTTPBody(body))
+	}
+
+	if trimmed[0] == '<' {
+		return "", fmt.Errorf("torrent response was HTML, not a .torrent file")
+	}
+	if trimmed[0] == '{' || trimmed[0] == '[' {
+		return "", fmt.Errorf("torrent response was JSON, not a .torrent file: %s", summarizeHTTPBody(body))
+	}
+	infoHash, err := torrentInfoHash(trimmed)
+	if err != nil {
+		return "", fmt.Errorf("torrent response did not contain valid bencode: %w", err)
+	}
+	return infoHash, nil
+}
+
+// torrentInfoHash computes the BitTorrent v1 info hash from the exact raw
+// bencoded info dictionary bytes. Re-encoding the dictionary could change its
+// byte ordering and therefore produce a different hash.
+func torrentInfoHash(body []byte) (string, error) {
+	pos := 0
+	if len(body) == 0 || body[pos] != 'd' {
+		return "", fmt.Errorf("torrent metadata is not a dictionary")
+	}
+	pos++
+	var info []byte
+	for pos < len(body) && body[pos] != 'e' {
+		key, err := parseBencodeStringAt(body, &pos)
+		if err != nil {
+			return "", err
+		}
+		start := pos
+		end, err := skipBencodeValue(body, pos, 0)
+		if err != nil {
+			return "", err
+		}
+		if string(key) == "info" {
+			if body[start] != 'd' {
+				return "", fmt.Errorf("info value is not a dictionary")
+			}
+			info = body[start:end]
+		}
+		pos = end
+	}
+	if pos >= len(body) || body[pos] != 'e' {
+		return "", fmt.Errorf("torrent metadata has an unterminated top-level dictionary")
+	}
+	pos++
+	if pos != len(body) {
+		return "", fmt.Errorf("torrent metadata has trailing data")
+	}
+	if len(info) == 0 {
+		return "", fmt.Errorf("torrent metadata is missing an info dictionary")
+	}
+
+	sum := sha1.Sum(info)
+	return hex.EncodeToString(sum[:]), nil
+}
+
+func parseBencodeStringAt(data []byte, pos *int) ([]byte, error) {
+	if *pos >= len(data) || data[*pos] < '0' || data[*pos] > '9' {
+		return nil, fmt.Errorf("invalid bencode string")
+	}
+	length := 0
+	for *pos < len(data) && data[*pos] >= '0' && data[*pos] <= '9' {
+		digit := int(data[*pos] - '0')
+		if length > (len(data)-digit)/10 {
+			return nil, fmt.Errorf("bencode string length is too large")
+		}
+		length = length*10 + digit
+		(*pos)++
+	}
+	if *pos >= len(data) || data[*pos] != ':' {
+		return nil, fmt.Errorf("invalid bencode string length")
+	}
+	(*pos)++
+	if length > len(data)-*pos {
+		return nil, fmt.Errorf("bencode string exceeds response")
+	}
+	start := *pos
+	*pos += length
+	return data[start:*pos], nil
+}
+
+func skipBencodeValue(data []byte, pos, depth int) (int, error) {
+	if depth > 64 || pos >= len(data) {
+		return 0, fmt.Errorf("invalid bencode nesting")
+	}
+	switch data[pos] {
+	case 'i':
+		pos++
+		start := pos
+		if pos < len(data) && data[pos] == '-' {
+			pos++
+		}
+		if pos >= len(data) || data[pos] < '0' || data[pos] > '9' {
+			return 0, fmt.Errorf("invalid bencode integer")
+		}
+		for pos < len(data) && data[pos] >= '0' && data[pos] <= '9' {
+			pos++
+		}
+		if (pos-start > 1 && data[start] == '0') ||
+			(pos-start > 2 && data[start] == '-' && data[start+1] == '0') {
+			return 0, fmt.Errorf("invalid bencode integer")
+		}
+		if pos >= len(data) || data[pos] != 'e' {
+			return 0, fmt.Errorf("unterminated bencode integer")
+		}
+		return pos + 1, nil
+	case 'l':
+		pos++
+		for pos < len(data) && data[pos] != 'e' {
+			var err error
+			pos, err = skipBencodeValue(data, pos, depth+1)
+			if err != nil {
+				return 0, err
+			}
+		}
+		if pos >= len(data) {
+			return 0, fmt.Errorf("unterminated bencode list")
+		}
+		return pos + 1, nil
+	case 'd':
+		pos++
+		for pos < len(data) && data[pos] != 'e' {
+			if _, err := parseBencodeStringAt(data, &pos); err != nil {
+				return 0, err
+			}
+			var err error
+			pos, err = skipBencodeValue(data, pos, depth+1)
+			if err != nil {
+				return 0, err
+			}
+		}
+		if pos >= len(data) {
+			return 0, fmt.Errorf("unterminated bencode dictionary")
+		}
+		return pos + 1, nil
+	default:
+		_, err := parseBencodeStringAt(data, &pos)
+		return pos, err
+	}
+}
+
+func summarizeHTTPBody(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	s = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 {
+			return ' '
+		}
+		return r
+	}, s)
+	if len(s) > 160 {
+		return s[:160]
+	}
+	if s == "" {
+		return "empty response"
+	}
+	return s
+}
+
+func torrentFilename(resp *http.Response, rawURL string) string {
+	if cd := resp.Header.Get("Content-Disposition"); cd != "" {
+		if _, params, err := mime.ParseMediaType(cd); err == nil {
+			if filename := cleanTorrentFilename(params["filename"]); filename != "" {
+				return filename
+			}
+			if filename := cleanTorrentFilename(params["filename*"]); filename != "" {
+				return filename
+			}
+		}
+	}
+	if u, err := url.Parse(rawURL); err == nil {
+		if filename := cleanTorrentFilename(path.Base(u.Path)); filename != "" {
+			return filename
+		}
+	}
+	return "download.torrent"
+}
+
+func cleanTorrentFilename(filename string) string {
+	filename = strings.TrimSpace(path.Base(filename))
+	if filename == "." || filename == "/" || filename == "" {
+		return ""
+	}
+	filename = strings.Map(func(r rune) rune {
+		if r < 32 || r == 127 || r == '/' || r == '\\' {
+			return -1
+		}
+		return r
+	}, filename)
+	filename = strings.TrimSpace(filename)
+	if filename == "" {
+		return ""
+	}
+	if !strings.HasSuffix(strings.ToLower(filename), ".torrent") {
+		filename += ".torrent"
+	}
+	return filename
+}
+
+func isHTTPURL(raw string) bool {
+	u, err := url.Parse(strings.TrimSpace(raw))
+	return err == nil && (u.Scheme == "http" || u.Scheme == "https")
+}
+
+func isMagnetURL(raw string) bool {
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(raw)), "magnet:")
+}
+
+func infoHashFromMagnet(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || !strings.EqualFold(u.Scheme, "magnet") {
+		return ""
+	}
+	for _, xt := range u.Query()["xt"] {
+		const prefix = "urn:btih:"
+		if strings.HasPrefix(strings.ToLower(xt), prefix) {
+			return normalizeInfoHash(xt[len(prefix):])
+		}
+	}
+	return ""
+}
+
+func firstNonEmptyHash(values ...string) string {
+	for _, v := range values {
+		if h := normalizeInfoHash(v); h != "" {
+			return h
+		}
+	}
+	return ""
+}
+
+func normalizeInfoHash(hash string) string {
+	hash = strings.TrimSpace(hash)
+	hash = strings.TrimPrefix(strings.ToLower(hash), "urn:btih:")
+	if len(hash) == 32 {
+		if decoded, err := base32.StdEncoding.WithPadding(base32.NoPadding).DecodeString(strings.ToUpper(hash)); err == nil && len(decoded) == sha1.Size {
+			return hex.EncodeToString([]byte(decoded))
+		}
+	}
+	return hash
+}
+
+func (q *QBittorrentClient) verifyTorrentAdded(expectedInfoHash string, addedIDs []string, title, category string) error {
+	ctx, cancel := context.WithTimeout(context.Background(), q.verifyTimeout)
+	defer cancel()
+	return q.verifyTorrentAddedContext(ctx, expectedInfoHash, addedIDs, title, category)
+}
+
+func (q *QBittorrentClient) verifyTorrentAddedContext(ctx context.Context, expectedInfoHash string, addedIDs []string, title, category string) error {
+	expected := firstNonEmptyHash(expectedInfoHash)
+	for _, id := range addedIDs {
+		if expected == "" {
+			expected = normalizeInfoHash(id)
+			break
+		}
+	}
+
+	var lastErr error
+	ticker := time.NewTicker(q.verifyInterval)
+	defer ticker.Stop()
+	for {
+		torrents, err := q.getTorrentsContext(ctx, "")
+		if err != nil {
+			if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+				lastErr = err
+			}
+		} else {
+			slog.Debug("qBittorrent verification poll", "expected_hash", expected, "added_ids", addedIDs, "expected_category", category, "expected_title", title, "candidate_count", len(torrents))
+			if torrentListContains(torrents, expected, addedIDs, title, category) {
+				return nil
+			}
+		}
+
+		select {
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				if lastErr != nil {
+					return fmt.Errorf("verify torrent in qBittorrent: %w", lastErr)
+				}
+				return torrentVerificationTimeoutError{}
+			}
+			return fmt.Errorf("verify torrent in qBittorrent: %w", ctx.Err())
+		case <-ticker.C:
+		}
+	}
+}
+
+func torrentListContains(torrents []TorrentInfo, expectedInfoHash string, addedIDs []string, title, expectedCategory string) bool {
+	expectedInfoHash = normalizeInfoHash(expectedInfoHash)
+	added := make(map[string]bool, len(addedIDs))
+	for _, id := range addedIDs {
+		if h := normalizeInfoHash(id); h != "" {
+			added[h] = true
+		}
+	}
+	title = strings.ToLower(strings.TrimSpace(title))
+
+	for _, t := range torrents {
+		hash := normalizeInfoHash(t.Hash)
+		if expectedInfoHash != "" && hash == expectedInfoHash {
+			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "matching info hash", "expected_category", expectedCategory)
+			return true
+		}
+		if added[hash] {
+			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "matching add response id", "expected_category", expectedCategory)
+			return true
+		}
+		if expectedInfoHash == "" && len(added) == 0 && title != "" && strings.EqualFold(strings.TrimSpace(t.Name), title) {
+			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "exact title fallback", "expected_category", expectedCategory)
+			return true
+		}
+		slog.Debug("qBittorrent verification candidate rejected", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", verificationRejectReason(expectedInfoHash, added, title), "expected_category", expectedCategory)
+	}
+	return false
+}
+
+func verificationRejectReason(expectedHash string, added map[string]bool, title string) string {
+	if expectedHash != "" {
+		return "info hash did not match"
+	}
+	if len(added) > 0 {
+		return "add response id did not match"
+	}
+	if title != "" {
+		return "title did not match"
+	}
+	return "no verification identifier available"
 }
 
 // TorrentInfo represents a torrent from the qBittorrent API.
@@ -283,7 +874,10 @@ func (q *QBittorrentClient) GetTorrentFiles(hash string) ([]TorrentFile, error) 
 	}
 
 	var files []TorrentFile
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read torrent files response: %w", err)
+	}
 	if err := jsonUnmarshal(body, &files); err != nil {
 		return nil, err
 	}
@@ -292,12 +886,16 @@ func (q *QBittorrentClient) GetTorrentFiles(hash string) ([]TorrentFile, error) 
 
 // GetTorrents returns torrents, optionally filtered by category.
 func (q *QBittorrentClient) GetTorrents(category string) ([]TorrentInfo, error) {
+	return q.getTorrentsContext(context.Background(), category)
+}
+
+func (q *QBittorrentClient) getTorrentsContext(ctx context.Context, category string) ([]TorrentInfo, error) {
 	data := url.Values{}
 	if category != "" {
 		data.Set("category", category)
 	}
 
-	resp, err := q.doRequest("GET", "/api/v2/torrents/info", data)
+	resp, err := q.doRequestContext(ctx, "GET", "/api/v2/torrents/info", data)
 	if err != nil {
 		return nil, err
 	}
@@ -308,7 +906,10 @@ func (q *QBittorrentClient) GetTorrents(category string) ([]TorrentInfo, error) 
 	}
 
 	var torrents []TorrentInfo
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read torrents response: %w", err)
+	}
 	if err := jsonUnmarshal(body, &torrents); err != nil {
 		return nil, err
 	}
@@ -347,7 +948,10 @@ func (q *QBittorrentClient) Diagnose() map[string]interface{} {
 		return map[string]interface{}{"success": false, "error": err.Error()}
 	}
 
-	req, _ := http.NewRequest("GET", q.cfg.QBUrl+"/api/v2/app/version", nil)
+	req, err := http.NewRequest("GET", q.cfg.QBUrl+"/api/v2/app/version", nil)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": "invalid qBittorrent URL"}
+	}
 	for _, c := range q.cookies {
 		req.AddCookie(c)
 	}
@@ -358,7 +962,10 @@ func (q *QBittorrentClient) Diagnose() map[string]interface{} {
 	}
 	defer resp.Body.Close()
 
-	body, _ := io.ReadAll(resp.Body)
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return map[string]interface{}{"success": false, "error": "read qBittorrent version response failed"}
+	}
 	if resp.StatusCode != 200 {
 		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}

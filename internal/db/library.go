@@ -1,9 +1,15 @@
 package db
 
 import (
+	"crypto/sha256"
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/models"
@@ -11,10 +17,62 @@ import (
 
 // --- Library Items ---
 
+const libraryItemColumns = `id, title, author, file_path, original_path, file_size,
+	file_format, media_type, source, source_id, metadata, content_hash, added_at`
+
+// AddItemOutcome describes whether AddItem inserted a new row or reused an
+// existing file-level identity.
+type AddItemOutcome struct {
+	ID             int64
+	Inserted       bool
+	Reason         string
+	ContentHash    string
+	NormalizedPath string
+	ExistingID     int64
+}
+
 // AddItem records a successfully processed book.
 func (d *DB) AddItem(item *models.LibraryItem) (int64, error) {
+	outcome, err := d.AddItemWithOutcome(item)
+	return outcome.ID, err
+}
+
+// AddItemWithOutcome inserts a library item idempotently. Exact canonical
+// destination paths are always unique. Content hashes are also unique within
+// the same media type and file format, which prevents a moved or re-imported
+// file from creating a second row without merging EPUB and MOBI records.
+// The DB mutex serializes the identity check and insert, so concurrent imports
+// within Librarr cannot race between those operations.
+func (d *DB) AddItemWithOutcome(item *models.LibraryItem) (AddItemOutcome, error) {
+	if item == nil {
+		return AddItemOutcome{}, fmt.Errorf("library item is nil")
+	}
+
+	normalizedPath := NormalizeLibraryPath(item.FilePath)
+	contentHash := strings.ToLower(strings.TrimSpace(item.ContentHash))
+	if contentHash == "" {
+		contentHash = hashLibraryFile(item.FilePath)
+	}
+	item.ContentHash = contentHash
+
 	d.mu.Lock()
 	defer d.mu.Unlock()
+
+	existing, err := d.findDuplicateLibraryItemLocked(item, normalizedPath, contentHash)
+	if err != nil {
+		return AddItemOutcome{}, err
+	}
+	if existing.ID != 0 {
+		slog.Info("library import skipped", "reason", existing.Reason, "existing_record_id", existing.ID, "destination_path", item.FilePath, "content_hash", contentHash)
+		return AddItemOutcome{
+			ID:             existing.ID,
+			Inserted:       false,
+			Reason:         existing.Reason,
+			ContentHash:    contentHash,
+			NormalizedPath: normalizedPath,
+			ExistingID:     existing.ID,
+		}, nil
+	}
 
 	metadata := item.Metadata
 	if metadata == "" {
@@ -22,16 +80,146 @@ func (d *DB) AddItem(item *models.LibraryItem) (int64, error) {
 	}
 
 	result, err := d.db.Exec(
-		`INSERT INTO library_items (title, author, file_path, original_path, file_size, file_format, media_type, source, source_id, metadata)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO library_items (title, author, file_path, original_path, file_size, file_format, media_type, source, source_id, metadata, content_hash)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		item.Title, item.Author, item.FilePath, item.OriginalPath,
 		item.FileSize, item.FileFormat, item.MediaType,
-		item.Source, item.SourceID, metadata,
+		item.Source, item.SourceID, metadata, contentHash,
 	)
 	if err != nil {
-		return 0, err
+		return AddItemOutcome{}, err
 	}
-	return result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return AddItemOutcome{}, err
+	}
+	return AddItemOutcome{
+		ID:             id,
+		Inserted:       true,
+		Reason:         "new_library_item",
+		ContentHash:    contentHash,
+		NormalizedPath: normalizedPath,
+	}, nil
+}
+
+type duplicateLibraryItem struct {
+	ID     int64
+	Reason string
+}
+
+func (d *DB) findDuplicateLibraryItemLocked(item *models.LibraryItem, normalizedPath, contentHash string) (duplicateLibraryItem, error) {
+	rows, err := d.db.Query("SELECT id, file_path, content_hash, file_format, media_type FROM library_items")
+	if err != nil {
+		return duplicateLibraryItem{}, err
+	}
+	defer rows.Close()
+
+	candidateFormat := effectiveLibraryFormat(item.FileFormat, item.FilePath)
+	for rows.Next() {
+		var id int64
+		var filePath, existingHash, fileFormat, mediaType string
+		if err := rows.Scan(&id, &filePath, &existingHash, &fileFormat, &mediaType); err != nil {
+			return duplicateLibraryItem{}, err
+		}
+		if normalizedPath != "" && normalizedPath == NormalizeLibraryPath(filePath) {
+			return duplicateLibraryItem{ID: id, Reason: "duplicate_destination_path"}, nil
+		}
+
+		if contentHash == "" || mediaType != item.MediaType {
+			continue
+		}
+		if existingHash == "" {
+			existingHash = hashLibraryFile(filePath)
+		}
+		if existingHash == contentHash && effectiveLibraryFormat(fileFormat, filePath) == candidateFormat {
+			return duplicateLibraryItem{ID: id, Reason: "duplicate_content_hash"}, nil
+		}
+	}
+	return duplicateLibraryItem{}, rows.Err()
+}
+
+// NormalizeLibraryPath returns a stable absolute path for identity checks.
+// Symlinks are resolved when the target exists; case is intentionally not
+// folded because Linux library filesystems are case-sensitive.
+func NormalizeLibraryPath(filePath string) string {
+	filePath = strings.TrimSpace(filePath)
+	if filePath == "" {
+		return ""
+	}
+	cleaned, err := filepath.Abs(filepath.Clean(filePath))
+	if err != nil {
+		cleaned = filepath.Clean(filePath)
+	}
+	if resolved, err := filepath.EvalSymlinks(cleaned); err == nil {
+		return filepath.Clean(resolved)
+	}
+	return filepath.Clean(cleaned)
+}
+
+func hashLibraryFile(filePath string) string {
+	if filePath == "" {
+		return ""
+	}
+	info, err := os.Stat(filePath)
+	if err != nil || !info.Mode().IsRegular() {
+		return ""
+	}
+	f, err := os.Open(filePath)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return ""
+	}
+	return fmt.Sprintf("%x", h.Sum(nil))
+}
+
+func (d *DB) backfillLibraryContentHashes() error {
+	rows, err := d.db.Query("SELECT id, file_path, content_hash FROM library_items WHERE content_hash = ''")
+	if err != nil {
+		return err
+	}
+
+	type libraryFile struct {
+		id   int64
+		path string
+	}
+	var files []libraryFile
+	for rows.Next() {
+		var file libraryFile
+		var contentHash string
+		if err := rows.Scan(&file.id, &file.path, &contentHash); err != nil {
+			return err
+		}
+		files = append(files, file)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	for _, file := range files {
+		hash := hashLibraryFile(file.path)
+		if hash == "" {
+			continue
+		}
+		if _, err := d.db.Exec("UPDATE library_items SET content_hash = ? WHERE id = ? AND content_hash = ''", hash, file.id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func effectiveLibraryFormat(fileFormat, filePath string) string {
+	if format := strings.TrimPrefix(strings.ToLower(strings.TrimSpace(fileFormat)), "."); format != "" {
+		return format
+	}
+	return strings.TrimPrefix(strings.ToLower(filepath.Ext(filePath)), ".")
 }
 
 // HasSourceID checks if a source_id already exists.
@@ -48,7 +236,7 @@ func (d *DB) HasSourceID(sourceID string) bool {
 
 // FindByTitle performs a case-insensitive title lookup.
 func (d *DB) FindByTitle(title string) ([]models.LibraryItem, error) {
-	rows, err := d.db.Query("SELECT * FROM library_items WHERE title = ? COLLATE NOCASE", title)
+	rows, err := d.db.Query("SELECT "+libraryItemColumns+" FROM library_items WHERE title = ? COLLATE NOCASE", title)
 	if err != nil {
 		return nil, err
 	}
@@ -62,12 +250,12 @@ func (d *DB) GetItems(mediaType string, limit, offset int) ([]models.LibraryItem
 	var err error
 	if mediaType != "" {
 		rows, err = d.db.Query(
-			"SELECT * FROM library_items WHERE media_type = ? ORDER BY added_at DESC LIMIT ? OFFSET ?",
+			"SELECT "+libraryItemColumns+" FROM library_items WHERE media_type = ? ORDER BY added_at DESC LIMIT ? OFFSET ?",
 			mediaType, limit, offset,
 		)
 	} else {
 		rows, err = d.db.Query(
-			"SELECT * FROM library_items ORDER BY added_at DESC LIMIT ? OFFSET ?",
+			"SELECT "+libraryItemColumns+" FROM library_items ORDER BY added_at DESC LIMIT ? OFFSET ?",
 			limit, offset,
 		)
 	}
@@ -140,9 +328,9 @@ func scanLibraryItems(rows *sql.Rows) ([]models.LibraryItem, error) {
 			&item.ID, &item.Title, &item.Author, &item.FilePath,
 			&item.OriginalPath, &item.FileSize, &item.FileFormat,
 			&item.MediaType, &item.Source, &item.SourceID,
-			&metadataStr, &ts,
+			&metadataStr, &item.ContentHash, &ts,
 		); err != nil {
-			continue
+			return nil, err
 		}
 		item.AddedAt = time.Unix(int64(ts), 0)
 		item.Metadata = metadataStr

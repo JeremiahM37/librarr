@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/librarr/internal/download"
 	"github.com/JeremiahM37/librarr/internal/models"
 	"github.com/JeremiahM37/librarr/internal/netutil"
 	"github.com/JeremiahM37/librarr/internal/search"
@@ -119,7 +121,17 @@ func (s *Server) handleTorrentDownload(w http.ResponseWriter, r *http.Request, r
 		category = s.cfg.QBMangaCategory
 	}
 
-	err = s.downloadMgr.StartTorrentDownload(url, req.Title, savePath, category)
+	err = s.downloadMgr.StartTorrentDownload(url, req.Title, savePath, category, req.InfoHash)
+	var verificationWarning *download.TorrentVerificationWarning
+	if errors.As(err, &verificationWarning) {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": true,
+			"title":   req.Title,
+			"error":   "",
+			"warning": errString(err),
+		})
+		return
+	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": err == nil,
 		"title":   req.Title,
@@ -416,7 +428,7 @@ func errString(err error) string {
 	if err == nil {
 		return ""
 	}
-	return "Download failed"
+	return netutil.SanitizeSensitiveText(err.Error())
 }
 
 // isNZBResult checks if a download request should be routed to SABnzbd.

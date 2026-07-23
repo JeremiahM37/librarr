@@ -1,10 +1,19 @@
 package download
 
 import (
+	"context"
+	"crypto/sha1"
+	"encoding/base32"
+	"encoding/hex"
+	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 )
@@ -254,13 +263,14 @@ func TestQBittorrentAddTorrentAcceptsJSONSuccess(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"added_torrent_ids":["e2f71d638953c009f17594d6982c6de68b06d985"],"failure_count":0,"pending_count":0,"success_count":1}`))
 	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler("e2f71d638953c009f17594d6982c6de68b06d985", "Test Book"))
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	if err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", ""); err != nil {
+	if err := q.AddTorrent("magnet:?xt=urn:btih:e2f71d638953c009f17594d6982c6de68b06d985", "Test Book", "", "", ""); err != nil {
 		t.Fatalf("AddTorrent returned error: %v", err)
 	}
 }
@@ -276,13 +286,14 @@ func TestQBittorrentAddTorrentAcceptsOkBody(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("Ok."))
 	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler("abc", "Test Book"))
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	if err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", ""); err != nil {
+	if err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Test Book", "", "", ""); err != nil {
 		t.Fatalf("AddTorrent returned error: %v", err)
 	}
 }
@@ -304,7 +315,7 @@ func TestQBittorrentAddTorrentRejectsHTTPError(t *testing.T) {
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", "")
+	err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Test Book", "", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -331,7 +342,7 @@ func TestQBittorrentAddTorrentRejectsJSONFailure(t *testing.T) {
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", "")
+	err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Test Book", "", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
@@ -352,13 +363,14 @@ func TestQBittorrentAddTorrentAcceptsJSONPending(t *testing.T) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"added_torrent_ids":[],"failure_count":0,"pending_count":1,"success_count":0}`))
 	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler("abc", "Test Book"))
 
 	srv := httptest.NewServer(mux)
 	defer srv.Close()
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	if err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", ""); err != nil {
+	if err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Test Book", "", "", ""); err != nil {
 		t.Fatalf("AddTorrent returned error: %v", err)
 	}
 }
@@ -381,12 +393,492 @@ func TestQBittorrentAddTorrentRejectsJSONPartialFailure(t *testing.T) {
 
 	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
 
-	err := q.AddTorrent("https://example.com/file.torrent", "Test Book", "", "")
+	err := q.AddTorrent("magnet:?xt=urn:btih:e2f71d638953c009f17594d6982c6de68b06d985", "Test Book", "", "", "")
 	if err == nil {
 		t.Fatal("expected error")
 	}
 	if got := err.Error(); !strings.Contains(got, "success_count=1 failure_count=1 pending_count=0") {
 		t.Fatalf("error = %q, want partial failure counts", got)
+	}
+}
+
+func TestQBittorrentHTTPURLFetchedAndUploadedAsMultipart(t *testing.T) {
+	hash, err := torrentInfoHash(validTorrentBytes())
+	if err != nil {
+		t.Fatalf("torrentInfoHash: %v", err)
+	}
+	var sawDownload bool
+	var sawMultipart bool
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/download/book.torrent", func(w http.ResponseWriter, r *http.Request) {
+		sawDownload = true
+		if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
+			t.Fatalf("X-Api-Key = %q, want prowlarr-key", got)
+		}
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		w.Header().Set("Content-Disposition", `attachment; filename="Useful Name.torrent"`)
+		_, _ = w.Write(validTorrentBytes())
+	})
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		sawMultipart = true
+		if !strings.HasPrefix(r.Header.Get("Content-Type"), "multipart/form-data") {
+			t.Fatalf("Content-Type = %q, want multipart/form-data", r.Header.Get("Content-Type"))
+		}
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Fatalf("ParseMultipartForm: %v", err)
+		}
+		files := r.MultipartForm.File["torrents"]
+		if len(files) != 1 {
+			t.Fatalf("expected one torrents file, got %d", len(files))
+		}
+		if files[0].Filename != "Useful Name.torrent" {
+			t.Fatalf("filename = %q", files[0].Filename)
+		}
+		f, err := files[0].Open()
+		if err != nil {
+			t.Fatalf("open uploaded file: %v", err)
+		}
+		defer f.Close()
+		body, _ := io.ReadAll(f)
+		if string(body) != string(validTorrentBytes()) {
+			t.Fatalf("uploaded body mismatch")
+		}
+		if got := r.MultipartForm.Value["savepath"]; len(got) != 1 || got[0] != "/downloads" {
+			t.Fatalf("savepath = %#v", got)
+		}
+		if got := r.MultipartForm.Value["category"]; len(got) != 1 || got[0] != "librarr" {
+			t.Fatalf("category = %#v", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"added_torrent_ids":["` + hash + `"],"success_count":1}`))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler(hash, "Actual qB Name"))
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.cfg.ProwlarrURL = srv.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	if err := q.AddTorrent(srv.URL+"/download/book.torrent", "Search Result Name", "", "", hash); err != nil {
+		t.Fatalf("AddTorrent returned error: %v", err)
+	}
+	if !sawDownload {
+		t.Fatal("expected Librarr to fetch torrent URL")
+	}
+	if !sawMultipart {
+		t.Fatal("expected multipart upload to qBittorrent")
+	}
+}
+
+func TestFetchTorrentAllowsConfiguredProwlarrOrigin(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
+			t.Fatalf("X-Api-Key = %q, want prowlarr-key", got)
+		}
+		w.Header().Set("Content-Type", "application/x-bittorrent")
+		_, _ = w.Write(validTorrentBytes())
+	}))
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.cfg.ProwlarrURL = srv.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	if _, err := q.fetchTorrent(srv.URL + "/download.torrent"); err != nil {
+		t.Fatalf("fetchTorrent returned error: %v", err)
+	}
+}
+
+func TestFetchTorrentRejectsDifferentOriginInputs(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("rejected URL should not be fetched")
+	}))
+	defer srv.Close()
+
+	tests := []struct {
+		name string
+		url  string
+		want string
+	}{
+		{"different hostname", "http://other.example:9696/download.torrent", "host or port"},
+		{"different port", differentPortURL(t, srv.URL) + "/download.torrent", "host or port"},
+		{"credentials", strings.Replace(srv.URL, "http://", "http://user:pass@", 1) + "/download.torrent", "credentials"},
+		{"unsupported scheme", "ftp://example.com/download.torrent", "http or https"},
+		{"missing host", "http:///download.torrent", "host"},
+	}
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.cfg.ProwlarrURL = srv.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := q.fetchTorrent(tt.url)
+			if err == nil {
+				t.Fatal("expected rejection")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestFetchTorrentRejectsCrossOriginRedirects(t *testing.T) {
+	var leakedKey bool
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("X-Api-Key") != "" {
+			leakedKey = true
+		}
+		_, _ = w.Write(validTorrentBytes())
+	}))
+	defer target.Close()
+
+	prowlarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/download.torrent", http.StatusFound)
+	}))
+	defer prowlarr.Close()
+
+	q := newAddTorrentTestQBClient(prowlarr.URL, prowlarr.Client())
+	q.cfg.ProwlarrURL = prowlarr.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	_, err := q.fetchTorrent(prowlarr.URL + "/start")
+	if err == nil {
+		t.Fatal("expected redirect rejection")
+	}
+	if !strings.Contains(err.Error(), "redirect rejected") {
+		t.Fatalf("error = %q, want redirect rejected", err.Error())
+	}
+	if leakedKey {
+		t.Fatal("Prowlarr API key leaked to rejected redirect target")
+	}
+}
+
+func TestFetchTorrentRejectsRedirectToDifferentHostname(t *testing.T) {
+	prowlarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, "http://other.example:9696/download.torrent", http.StatusFound)
+	}))
+	defer prowlarr.Close()
+
+	q := newAddTorrentTestQBClient(prowlarr.URL, prowlarr.Client())
+	q.cfg.ProwlarrURL = prowlarr.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	_, err := q.fetchTorrent(prowlarr.URL + "/start")
+	if err == nil {
+		t.Fatal("expected redirect rejection")
+	}
+	if !strings.Contains(err.Error(), "host or port") {
+		t.Fatalf("error = %q, want host or port", err.Error())
+	}
+}
+
+func TestFetchTorrentRejectsRedirectToDifferentPort(t *testing.T) {
+	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatal("rejected redirect should not be fetched")
+	}))
+	defer target.Close()
+
+	prowlarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, target.URL+"/download.torrent", http.StatusFound)
+	}))
+	defer prowlarr.Close()
+
+	q := newAddTorrentTestQBClient(prowlarr.URL, prowlarr.Client())
+	q.cfg.ProwlarrURL = prowlarr.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	_, err := q.fetchTorrent(prowlarr.URL + "/start")
+	if err == nil {
+		t.Fatal("expected redirect rejection")
+	}
+	if !strings.Contains(err.Error(), "host or port") {
+		t.Fatalf("error = %q, want host or port", err.Error())
+	}
+}
+
+func TestFetchTorrentAllowsSameOriginRedirect(t *testing.T) {
+	var downloadSawKey bool
+	prowlarr := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/start":
+			if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
+				t.Fatalf("start X-Api-Key = %q, want prowlarr-key", got)
+			}
+			http.Redirect(w, r, "/download.torrent", http.StatusFound)
+		case "/download.torrent":
+			if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
+				t.Fatalf("download X-Api-Key = %q, want prowlarr-key", got)
+			}
+			downloadSawKey = true
+			w.Header().Set("Content-Type", "application/x-bittorrent")
+			_, _ = w.Write(validTorrentBytes())
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer prowlarr.Close()
+
+	q := newAddTorrentTestQBClient(prowlarr.URL, prowlarr.Client())
+	q.cfg.ProwlarrURL = prowlarr.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	if _, err := q.fetchTorrent(prowlarr.URL + "/start"); err != nil {
+		t.Fatalf("fetchTorrent returned error: %v", err)
+	}
+	if !downloadSawKey {
+		t.Fatal("same-origin redirect target was not fetched")
+	}
+}
+
+func TestQBittorrentMagnetStillUsesURLFormField(t *testing.T) {
+	const hash = "abcdefabcdefabcdefabcdefabcdefabcdefabcd"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Fatalf("Content-Type = %q, want form urlencoded", got)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("urls"); got != "magnet:?xt=urn:btih:"+hash {
+			t.Fatalf("urls = %q", got)
+		}
+		if r.MultipartForm != nil {
+			t.Fatal("magnet should not be uploaded as multipart file")
+		}
+		_, _ = w.Write([]byte(`{"added_torrent_ids":["` + hash + `"],"success_count":1}`))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler(hash, "Magnet Book"))
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	if err := q.AddTorrent("magnet:?xt=urn:btih:"+hash, "Magnet Book", "", "", ""); err != nil {
+		t.Fatalf("AddTorrent returned error: %v", err)
+	}
+}
+
+func TestTorrentInfoHashUsesRawInfoDictionaryBytes(t *testing.T) {
+	body := []byte("d4:infod4:zkey1:a4:akey1:bee")
+	got, err := torrentInfoHash(body)
+	if err != nil {
+		t.Fatalf("torrentInfoHash returned error: %v", err)
+	}
+	rawInfo := []byte("d4:zkey1:a4:akey1:be")
+	wantBytes := sha1.Sum(rawInfo)
+	want := hex.EncodeToString(wantBytes[:])
+	if got != want {
+		t.Fatalf("torrentInfoHash = %q, want raw-info hash %q", got, want)
+	}
+}
+
+func TestTorrentVerificationMatchesHashAcrossCategoryAndName(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123"})
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"name":"Actual qB Name","hash":"` + hash + `","category":"other","save_path":"/remote/downloads"}]`))
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	if err := q.AddTorrent("magnet:?xt=urn:btih:"+hash, "Search Result Name", "", "librarr", ""); err != nil {
+		t.Fatalf("AddTorrent returned error: %v", err)
+	}
+}
+
+func TestTorrentVerificationIgnoresUnrelatedTorrents(t *testing.T) {
+	if torrentListContains([]TorrentInfo{{Name: "Other", Hash: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}, "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", nil, "Target", "librarr") {
+		t.Fatal("unrelated torrent was accepted")
+	}
+}
+
+func TestMagnetInfoHashNormalization(t *testing.T) {
+	hexHash := "0123456789abcdef0123456789abcdef01234567"
+	base32Hash := base32.StdEncoding.WithPadding(base32.NoPadding).EncodeToString([]byte{0, 17, 34, 51, 68, 85, 102, 119, 136, 153, 170, 187, 204, 221, 238, 255, 16, 32, 48, 64})
+	wantBase32 := "00112233445566778899aabbccddeeff10203040"
+	if got := infoHashFromMagnet("magnet:?xt=urn:btih:" + strings.ToUpper(hexHash)); got != hexHash {
+		t.Fatalf("hex magnet hash = %q, want %q", got, hexHash)
+	}
+	if got := infoHashFromMagnet("magnet:?xt=urn:btih:" + base32Hash); got != wantBase32 {
+		t.Fatalf("base32 magnet hash = %q, want %q", got, wantBase32)
+	}
+}
+
+func TestTorrentVerificationContextCancellation(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123"})
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/torrents/info":
+			_, _ = w.Write([]byte(`[]`))
+		default:
+			_, _ = w.Write([]byte("Ok."))
+		}
+	}))
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	start := time.Now()
+	err := q.verifyTorrentAddedContext(ctx, "abc", nil, "Target", "librarr")
+	if err == nil || time.Since(start) > time.Second {
+		t.Fatalf("verification cancellation error=%v duration=%s", err, time.Since(start))
+	}
+}
+
+func TestFetchTorrentRejectsInvalidResponses(t *testing.T) {
+	tests := []struct {
+		name        string
+		statusCode  int
+		contentType string
+		body        string
+		want        string
+	}{
+		{"html", http.StatusOK, "text/html", "<html>login</html>", "HTML"},
+		{"json", http.StatusOK, "application/json", `{"error":"denied"}`, "JSON"},
+		{"empty", http.StatusOK, "application/x-bittorrent", "", "empty"},
+		{"non-2xx", http.StatusForbidden, "text/plain", "forbidden", "HTTP 403"},
+		{"malformed", http.StatusOK, "application/x-bittorrent", "not bencode", "bencode"},
+		{"missing info dictionary", http.StatusOK, "application/x-bittorrent", "d4:name4:teste", "info dictionary"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", tt.contentType)
+				w.WriteHeader(tt.statusCode)
+				_, _ = w.Write([]byte(tt.body))
+			}))
+			defer srv.Close()
+
+			q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+			q.cfg.ProwlarrURL = srv.URL
+			_, err := q.fetchTorrent(srv.URL + "/download.torrent")
+			if err == nil {
+				t.Fatal("expected error")
+			}
+			if !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %q, want %q", err.Error(), tt.want)
+			}
+		})
+	}
+}
+
+func TestQBittorrentVerificationTimeout(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[]`))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Missing Book", "", "", "")
+	if err == nil {
+		t.Fatal("expected verification timeout")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Fatalf("error = %q, want timeout", err.Error())
+	}
+	var warning *TorrentVerificationWarning
+	if !errors.As(err, &warning) {
+		t.Fatalf("error type = %T, want TorrentVerificationWarning", err)
+	}
+}
+
+func TestQBittorrentVerificationWaitsForDelayedVisibility(t *testing.T) {
+	infoCalls := 0
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		infoCalls++
+		if infoCalls < 4 {
+			_, _ = w.Write([]byte(`[]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"name":"Delayed Book","hash":"abc"}]`))
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.verifyTimeout = 300 * time.Millisecond
+	q.verifyInterval = 20 * time.Millisecond
+	if err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Delayed Book", "", "", ""); err != nil {
+		t.Fatalf("AddTorrent returned error for delayed visibility: %v", err)
+	}
+	if infoCalls < 4 {
+		t.Fatalf("verification made %d info calls, want at least 4", infoCalls)
+	}
+}
+
+func TestQBittorrentVerificationAPIError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	})
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	err := q.AddTorrent("magnet:?xt=urn:btih:abc", "Broken Info", "", "", "")
+	if err == nil {
+		t.Fatal("expected verification API error")
+	}
+	if !strings.Contains(err.Error(), "get torrents HTTP 500") {
+		t.Fatalf("error = %q, want HTTP 500", err.Error())
 	}
 }
 
@@ -400,7 +892,38 @@ func newAddTorrentTestQBClient(serverURL string, client *http.Client) *QBittorre
 	}
 	q := NewQBittorrentClient(cfg)
 	q.client = client
+	q.verifyTimeout = 40 * time.Millisecond
+	q.verifyInterval = 5 * time.Millisecond
 	return q
+}
+
+func torrentInfoHandler(hash, name string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if hash == "" {
+			_, _ = w.Write([]byte(`[{"name":"` + name + `","hash":""}]`))
+			return
+		}
+		_, _ = w.Write([]byte(`[{"name":"` + name + `","hash":"` + hash + `"}]`))
+	}
+}
+
+func differentPortURL(t *testing.T, raw string) string {
+	t.Helper()
+	u, err := url.Parse(raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(u.Port())
+	if err != nil {
+		t.Fatal(err)
+	}
+	u.Host = u.Hostname() + ":" + strconv.Itoa(port+1)
+	return u.String()
+}
+
+func validTorrentBytes() []byte {
+	return []byte("d4:infod4:name4:testee")
 }
 
 func TestGetTorrentFiles(t *testing.T) {
