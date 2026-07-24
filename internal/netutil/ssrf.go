@@ -178,9 +178,20 @@ func strictEffectivePort(u *url.URL) (string, error) {
 	}
 }
 
+// SanitizeLogValue strips line breaks from remote-derived values before they
+// reach structured logs, so a crafted value cannot forge additional log
+// entries.
+func SanitizeLogValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
+}
+
 // SanitizeSensitiveText redacts credentials and common secret query parameters
 // from error strings before they are logged or returned through API responses.
+// Line breaks are also removed so the result is safe to log.
 func SanitizeSensitiveText(text string) string {
+	text = SanitizeLogValue(text)
 	parts := strings.Fields(text)
 	for i, part := range parts {
 		trimmed := strings.Trim(part, "\"'(),")

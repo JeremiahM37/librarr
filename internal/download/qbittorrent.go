@@ -239,35 +239,37 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, ex
 	}
 
 	expectedInfoHash = firstNonEmptyHash(expectedInfoHash, infoHashFromMagnet(torrentURL))
+	logTitle := netutil.SanitizeLogValue(title)
+	logCategory := netutil.SanitizeLogValue(category)
 	var ids []string
 	var err error
 	if isMagnetURL(torrentURL) {
-		slog.Info("submitting magnet to qBittorrent", "title", title, "category", category)
+		slog.Info("submitting magnet to qBittorrent", "title", logTitle, "category", logCategory)
 		ids, err = q.addTorrentURL(torrentURL, savePath, category)
 	} else if isHTTPURL(torrentURL) && q.isProwlarrTorrentURL(torrentURL) {
-		slog.Info("fetching torrent before qBittorrent upload", "title", title, "category", category)
+		slog.Info("fetching torrent before qBittorrent upload", "title", logTitle, "category", logCategory)
 		var fetched fetchedTorrent
 		fetched, err = q.fetchTorrent(torrentURL)
 		if err == nil {
 			if supplied := firstNonEmptyHash(expectedInfoHash); supplied != "" && supplied != fetched.infoHash {
-				slog.Warn("torrent info hash differs from search result", "title", title, "expected_hash", supplied, "fetched_hash", fetched.infoHash)
+				slog.Warn("torrent info hash differs from search result", "title", logTitle, "expected_hash", netutil.SanitizeLogValue(supplied), "fetched_hash", netutil.SanitizeLogValue(fetched.infoHash))
 			}
 			// The hash of the fetched bytes is authoritative for verification.
 			expectedInfoHash = fetched.infoHash
-			slog.Info("uploading torrent bytes to qBittorrent", "title", title, "category", category, "filename", fetched.filename, "bytes", len(fetched.body))
+			slog.Info("uploading torrent bytes to qBittorrent", "title", logTitle, "category", logCategory, "filename", netutil.SanitizeLogValue(fetched.filename), "bytes", len(fetched.body))
 			ids, err = q.addTorrentFile(fetched, savePath, category)
 		}
 	} else {
-		slog.Info("submitting torrent URL to qBittorrent", "title", title, "category", category)
+		slog.Info("submitting torrent URL to qBittorrent", "title", logTitle, "category", logCategory)
 		ids, err = q.addTorrentURL(torrentURL, savePath, category)
 	}
 	if err != nil {
-		slog.Warn("qBittorrent torrent submission failed", "title", title, "category", category, "error", netutil.SanitizeSensitiveText(err.Error()))
+		slog.Warn("qBittorrent torrent submission failed", "title", logTitle, "category", logCategory, "error", netutil.SanitizeSensitiveText(err.Error()))
 		return err
 	}
 
 	if err := q.verifyTorrentAdded(expectedInfoHash, ids, title, category); err != nil {
-		slog.Warn("qBittorrent torrent verification failed", "title", title, "category", category, "error", netutil.SanitizeSensitiveText(err.Error()))
+		slog.Warn("qBittorrent torrent verification failed", "title", logTitle, "category", logCategory, "error", netutil.SanitizeSensitiveText(err.Error()))
 		var timeoutErr torrentVerificationTimeoutError
 		if errors.As(err, &timeoutErr) {
 			return &TorrentVerificationWarning{Err: err}
@@ -275,7 +277,7 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, ex
 		return err
 	}
 
-	slog.Info("torrent added to qBittorrent", "title", title, "category", category)
+	slog.Info("torrent added to qBittorrent", "title", logTitle, "category", logCategory)
 	return nil
 }
 
@@ -445,9 +447,17 @@ func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) 
 	if q.cfg == nil || q.cfg.ProwlarrURL == "" {
 		return fetchedTorrent{}, fmt.Errorf("Prowlarr URL is not configured")
 	}
-	if _, err := netutil.ValidateSameOriginHTTPURL(rawURL, q.cfg.ProwlarrURL); err != nil {
+	u, err := netutil.ValidateSameOriginHTTPURL(rawURL, q.cfg.ProwlarrURL)
+	if err != nil {
 		return fetchedTorrent{}, fmt.Errorf("torrent URL rejected: %w", err)
 	}
+	base, err := netutil.ValidateSameOriginHTTPURL(q.cfg.ProwlarrURL, q.cfg.ProwlarrURL)
+	if err != nil {
+		return fetchedTorrent{}, fmt.Errorf("configured Prowlarr URL invalid: %w", err)
+	}
+	// Build the request from the configured Prowlarr origin plus the validated
+	// path and query, so the fetched host and port always come from config.
+	requestURL := base.Scheme + "://" + base.Host + u.RequestURI()
 
 	client := &http.Client{
 		Timeout:   30 * time.Second,
@@ -465,7 +475,7 @@ func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) 
 		},
 	}
 
-	req, err := http.NewRequest("GET", rawURL, nil)
+	req, err := http.NewRequest("GET", requestURL, nil)
 	if err != nil {
 		return fetchedTorrent{}, fmt.Errorf("torrent URL request: %w", err)
 	}
@@ -791,7 +801,7 @@ func (q *QBittorrentClient) verifyTorrentAddedContext(ctx context.Context, expec
 				lastErr = err
 			}
 		} else {
-			slog.Debug("qBittorrent verification poll", "expected_hash", expected, "added_ids", addedIDs, "expected_category", category, "expected_title", title, "candidate_count", len(torrents))
+			slog.Debug("qBittorrent verification poll", "expected_hash", netutil.SanitizeLogValue(expected), "added_ids", netutil.SanitizeLogValue(strings.Join(addedIDs, ",")), "expected_category", netutil.SanitizeLogValue(category), "expected_title", netutil.SanitizeLogValue(title), "candidate_count", len(torrents))
 			if torrentListContains(torrents, expected, addedIDs, title, category) {
 				return nil
 			}
@@ -824,18 +834,18 @@ func torrentListContains(torrents []TorrentInfo, expectedInfoHash string, addedI
 	for _, t := range torrents {
 		hash := normalizeInfoHash(t.Hash)
 		if expectedInfoHash != "" && hash == expectedInfoHash {
-			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "matching info hash", "expected_category", expectedCategory)
+			slog.Debug("qBittorrent verification candidate accepted", "hash", netutil.SanitizeLogValue(hash), "name", netutil.SanitizeLogValue(t.Name), "category", netutil.SanitizeLogValue(t.Category), "save_path", netutil.SanitizeLogValue(t.SavePath), "reason", "matching info hash", "expected_category", netutil.SanitizeLogValue(expectedCategory))
 			return true
 		}
 		if added[hash] {
-			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "matching add response id", "expected_category", expectedCategory)
+			slog.Debug("qBittorrent verification candidate accepted", "hash", netutil.SanitizeLogValue(hash), "name", netutil.SanitizeLogValue(t.Name), "category", netutil.SanitizeLogValue(t.Category), "save_path", netutil.SanitizeLogValue(t.SavePath), "reason", "matching add response id", "expected_category", netutil.SanitizeLogValue(expectedCategory))
 			return true
 		}
 		if expectedInfoHash == "" && len(added) == 0 && title != "" && strings.EqualFold(strings.TrimSpace(t.Name), title) {
-			slog.Debug("qBittorrent verification candidate accepted", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", "exact title fallback", "expected_category", expectedCategory)
+			slog.Debug("qBittorrent verification candidate accepted", "hash", netutil.SanitizeLogValue(hash), "name", netutil.SanitizeLogValue(t.Name), "category", netutil.SanitizeLogValue(t.Category), "save_path", netutil.SanitizeLogValue(t.SavePath), "reason", "exact title fallback", "expected_category", netutil.SanitizeLogValue(expectedCategory))
 			return true
 		}
-		slog.Debug("qBittorrent verification candidate rejected", "hash", hash, "name", t.Name, "category", t.Category, "save_path", t.SavePath, "reason", verificationRejectReason(expectedInfoHash, added, title), "expected_category", expectedCategory)
+		slog.Debug("qBittorrent verification candidate rejected", "hash", netutil.SanitizeLogValue(hash), "name", netutil.SanitizeLogValue(t.Name), "category", netutil.SanitizeLogValue(t.Category), "save_path", netutil.SanitizeLogValue(t.SavePath), "reason", verificationRejectReason(expectedInfoHash, added, title), "expected_category", netutil.SanitizeLogValue(expectedCategory))
 	}
 	return false
 }

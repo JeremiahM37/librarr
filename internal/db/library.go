@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/JeremiahM37/librarr/internal/netutil"
 )
 
 // --- Library Items ---
@@ -63,7 +64,7 @@ func (d *DB) AddItemWithOutcome(item *models.LibraryItem) (AddItemOutcome, error
 		return AddItemOutcome{}, err
 	}
 	if existing.ID != 0 {
-		slog.Info("library import skipped", "reason", existing.Reason, "existing_record_id", existing.ID, "destination_path", item.FilePath, "content_hash", contentHash)
+		slog.Info("library import skipped", "reason", existing.Reason, "existing_record_id", existing.ID, "destination_path", netutil.SanitizeLogValue(item.FilePath), "content_hash", netutil.SanitizeLogValue(contentHash))
 		return AddItemOutcome{
 			ID:             existing.ID,
 			Inserted:       false,
@@ -157,7 +158,8 @@ func NormalizeLibraryPath(filePath string) string {
 }
 
 func hashLibraryFile(filePath string) string {
-	if filePath == "" {
+	filePath = filepath.Clean(strings.TrimSpace(filePath))
+	if filePath == "" || filePath == "." || strings.Contains(filePath, "..") {
 		return ""
 	}
 	info, err := os.Stat(filePath)
