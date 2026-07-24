@@ -882,6 +882,69 @@ func TestQBittorrentVerificationAPIError(t *testing.T) {
 	}
 }
 
+func TestQBittorrentPublicTorrentURLPassedThrough(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	const publicURL = "https://nyaa.example/download/12345.torrent"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("Content-Type"); got != "application/x-www-form-urlencoded" {
+			t.Fatalf("Content-Type = %q, want form urlencoded", got)
+		}
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("urls"); got != publicURL {
+			t.Fatalf("urls = %q, want the public torrent URL passed through", got)
+		}
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler(hash, "Manga Volume"))
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.cfg.ProwlarrURL = "http://prowlarr.internal:9696"
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	if err := q.AddTorrent(publicURL, "Manga Volume", "", "", hash); err != nil {
+		t.Fatalf("AddTorrent returned error for public torrent URL: %v", err)
+	}
+}
+
+func TestQBittorrentHTTPURLWithoutProwlarrPassedThrough(t *testing.T) {
+	const hash = "89abcdef0123456789abcdef0123456789abcdef"
+	mux := http.NewServeMux()
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "abc123", Path: "/"})
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+		if got := r.Form.Get("urls"); got == "" {
+			t.Fatal("urls form field missing, want URL passthrough when Prowlarr is not configured")
+		}
+		_, _ = w.Write([]byte("Ok."))
+	})
+	mux.HandleFunc("/api/v2/torrents/info", torrentInfoHandler(hash, "Some Book"))
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	if err := q.AddTorrent("https://tracker.example/file.torrent", "Some Book", "", "", hash); err != nil {
+		t.Fatalf("AddTorrent returned error without Prowlarr configured: %v", err)
+	}
+}
+
 func newAddTorrentTestQBClient(serverURL string, client *http.Client) *QBittorrentClient {
 	cfg := &config.Config{
 		QBUrl:      serverURL,

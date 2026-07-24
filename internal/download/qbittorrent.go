@@ -244,7 +244,7 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, ex
 	if isMagnetURL(torrentURL) {
 		slog.Info("submitting magnet to qBittorrent", "title", title, "category", category)
 		ids, err = q.addTorrentURL(torrentURL, savePath, category)
-	} else if isHTTPURL(torrentURL) {
+	} else if isHTTPURL(torrentURL) && q.isProwlarrTorrentURL(torrentURL) {
 		slog.Info("fetching torrent before qBittorrent upload", "title", title, "category", category)
 		var fetched fetchedTorrent
 		fetched, err = q.fetchTorrent(torrentURL)
@@ -426,6 +426,19 @@ type fetchedTorrent struct {
 	filename string
 	body     []byte
 	infoHash string
+}
+
+// isProwlarrTorrentURL reports whether the URL belongs to the configured
+// Prowlarr origin. Only those URLs are fetched by Librarr and re-uploaded as
+// torrent bytes: a remote qBittorrent cannot reach a locally hosted Prowlarr,
+// but it can fetch public tracker URLs (e.g. Nyaa) itself, so those are passed
+// through unchanged and never receive the Prowlarr API key.
+func (q *QBittorrentClient) isProwlarrTorrentURL(rawURL string) bool {
+	if q.cfg == nil || q.cfg.ProwlarrURL == "" {
+		return false
+	}
+	_, err := netutil.ValidateSameOriginHTTPURL(rawURL, q.cfg.ProwlarrURL)
+	return err == nil
 }
 
 func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) {
