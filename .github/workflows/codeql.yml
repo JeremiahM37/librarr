@@ -1,8 +1,8 @@
 name: CodeQL
 on:
+  # No pull_request trigger: PR-gating CodeQL produced too many false
+  # positives. Scanning still runs on every push to main and weekly.
   push:
-    branches: [main]
-  pull_request:
     branches: [main]
   schedule:
     # Weekly scan so a published-after-merge CVE in a dependency surfaces.
