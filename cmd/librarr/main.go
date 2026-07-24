@@ -110,6 +110,14 @@ func main() {
 		},
 	})
 	organizer := organize.NewOrganizer(cfg)
+	if updated, err := database.BackfillLibraryMetadata(func(path string) (string, string) {
+		meta := organize.ExtractEbookMetadata(path)
+		return meta.Title, meta.Author
+	}); err != nil {
+		slog.Warn("ebook metadata backfill failed", "error", err)
+	} else if updated > 0 {
+		slog.Info("ebook metadata backfill complete", "updated", updated)
+	}
 	targets := organize.NewLibraryTargets(cfg)
 	downloadMgr := download.NewManager(cfg, database, torrentClient, sab, directDL, organizer, targets, health)
 

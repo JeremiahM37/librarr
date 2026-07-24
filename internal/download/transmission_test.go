@@ -116,7 +116,7 @@ func TestTransmission_AddTorrentSetsLabelAndDownloadDir(t *testing.T) {
 	defer srv.Close()
 
 	tc := newTestTransmission(srv.URL)
-	if err := tc.AddTorrent("magnet:?xt=urn:btih:abc", "Some Book", "/audiobooks-incoming", "audiobooks"); err != nil {
+	if err := tc.AddTorrent("magnet:?xt=urn:btih:abc", "Some Book", "/audiobooks-incoming", "audiobooks", ""); err != nil {
 		t.Fatalf("AddTorrent error: %v", err)
 	}
 	if mock.lastMethod != "torrent-add" {
@@ -140,7 +140,7 @@ func TestTransmission_AddTorrentFallsBackToDefaults(t *testing.T) {
 	defer srv.Close()
 
 	tc := newTestTransmission(srv.URL) // QBSavePath=/downloads, QBCategory=librarr
-	if err := tc.AddTorrent("http://x/t.torrent", "T", "", ""); err != nil {
+	if err := tc.AddTorrent("http://x/t.torrent", "T", "", "", ""); err != nil {
 		t.Fatalf("AddTorrent error: %v", err)
 	}
 	if mock.lastArgs["download-dir"] != "/downloads" {

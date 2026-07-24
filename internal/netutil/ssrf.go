@@ -115,6 +115,102 @@ func ValidateOutboundURL(rawURL string) error {
 	return nil
 }
 
+// ValidateSameOriginHTTPURL parses rawURL and verifies that it has the same
+// normalized host and effective port as allowedOrigin. It is intended for
+// integration-owned URLs, such as Prowlarr download links, where the server may
+// legitimately be private or loopback but redirects must not escape the configured
+// origin.
+func ValidateSameOriginHTTPURL(rawURL, allowedOrigin string) (*url.URL, error) {
+	u, err := parseStrictHTTPURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	allowed, err := parseStrictHTTPURL(allowedOrigin)
+	if err != nil {
+		return nil, fmt.Errorf("configured origin invalid: %w", err)
+	}
+	if normalizedHostname(u) != normalizedHostname(allowed) || effectivePort(u) != effectivePort(allowed) {
+		return nil, fmt.Errorf("URL host or port does not match configured origin")
+	}
+	return u, nil
+}
+
+func parseStrictHTTPURL(rawURL string) (*url.URL, error) {
+	u, err := parseHTTPURL(rawURL)
+	if err != nil {
+		return nil, err
+	}
+	if u.User != nil {
+		return nil, fmt.Errorf("URL must not include credentials")
+	}
+	if _, err := strictEffectivePort(u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+func normalizedHostname(u *url.URL) string {
+	return strings.TrimSuffix(strings.ToLower(u.Hostname()), ".")
+}
+
+func effectivePort(u *url.URL) string {
+	port, _ := strictEffectivePort(u)
+	return port
+}
+
+func strictEffectivePort(u *url.URL) (string, error) {
+	if port := u.Port(); port != "" {
+		return port, nil
+	}
+	host := u.Host
+	lastColon := strings.LastIndex(host, ":")
+	lastBracket := strings.LastIndex(host, "]")
+	if lastColon > lastBracket {
+		return "", fmt.Errorf("URL has malformed port")
+	}
+	switch u.Scheme {
+	case "http":
+		return "80", nil
+	case "https":
+		return "443", nil
+	default:
+		return "", fmt.Errorf("URL must use http or https")
+	}
+}
+
+// SanitizeLogValue strips line breaks from remote-derived values before they
+// reach structured logs, so a crafted value cannot forge additional log
+// entries.
+func SanitizeLogValue(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	s = strings.ReplaceAll(s, "\r", " ")
+	return s
+}
+
+// SanitizeSensitiveText redacts credentials and common secret query parameters
+// from error strings before they are logged or returned through API responses.
+// Line breaks are also removed so the result is safe to log.
+func SanitizeSensitiveText(text string) string {
+	text = SanitizeLogValue(text)
+	parts := strings.Fields(text)
+	for i, part := range parts {
+		trimmed := strings.Trim(part, "\"'(),")
+		if u, err := url.Parse(trimmed); err == nil && u.Scheme != "" && u.Host != "" {
+			u.User = nil
+			q := u.Query()
+			for key := range q {
+				lower := strings.ToLower(key)
+				if strings.Contains(lower, "key") || strings.Contains(lower, "token") || strings.Contains(lower, "pass") || strings.Contains(lower, "sid") {
+					q.Set(key, "REDACTED")
+				}
+			}
+			u.RawQuery = q.Encode()
+			parts[i] = strings.Replace(part, trimmed, u.String(), 1)
+		}
+	}
+	return strings.Join(parts, " ")
+}
+
 func isCloudMetadataIP(ip net.IP) bool {
 	ip4 := ip.To4()
 	return ip4 != nil && ip4[0] == 169 && ip4[1] == 254

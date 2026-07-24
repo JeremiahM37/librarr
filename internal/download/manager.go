@@ -95,11 +95,11 @@ func (m *Manager) StartAnnasDownload(md5, title string) (*models.DownloadJob, er
 }
 
 // StartTorrentDownload adds a torrent to the active torrent client.
-func (m *Manager) StartTorrentDownload(torrentURL, title, savePath, category string) error {
+func (m *Manager) StartTorrentDownload(torrentURL, title, savePath, category, expectedInfoHash string) error {
 	if m.torrent == nil {
 		return fmt.Errorf("no torrent download client configured")
 	}
-	return m.torrent.AddTorrent(torrentURL, title, savePath, category)
+	return m.torrent.AddTorrent(torrentURL, title, savePath, category, expectedInfoHash)
 }
 
 // StartNZBDownload sends an NZB URL to SABnzbd.

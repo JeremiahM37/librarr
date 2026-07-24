@@ -4,6 +4,7 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
@@ -205,9 +206,14 @@ func (s *Scheduler) startDownload(result models.SearchResult, title string) {
 		if url == "" {
 			url = "magnet:?xt=urn:btih:" + result.InfoHash
 		}
-		err := s.downloadMgr.StartTorrentDownload(url, title, "", "")
+		err := s.downloadMgr.StartTorrentDownload(url, title, "", "", result.InfoHash)
 		if err != nil {
-			slog.Error("scheduler: auto-download failed", "title", title, "error", err)
+			var verificationWarning *download.TorrentVerificationWarning
+			if errors.As(err, &verificationWarning) {
+				slog.Warn("scheduler: torrent accepted; verification pending", "title", title, "warning", err.Error())
+			} else {
+				slog.Error("scheduler: auto-download failed", "title", title, "error", err)
+			}
 		}
 	}
 }

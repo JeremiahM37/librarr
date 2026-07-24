@@ -268,7 +268,7 @@ func addLibraryItem(t *testing.T, database *db.DB, title, author, mediaType stri
 		Title:      title,
 		Author:     author,
 		MediaType:  mediaType,
-		FilePath:   "/library/" + title,
+		FilePath:   "/library/" + title + "/" + author,
 		FileFormat: "epub",
 		Source:     "test",
 	})

@@ -3,6 +3,7 @@ package db
 import (
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -153,6 +154,207 @@ func TestLibraryItems_CRUD(t *testing.T) {
 			t.Error("expected error deleting nonexistent item")
 		}
 	})
+}
+
+func TestBackfillLibraryMetadata(t *testing.T) {
+	dir := t.TempDir()
+	database, err := New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	metadataFile := filepath.Join(dir, "library", "Torrent Name", "book.epub")
+	if err := os.MkdirAll(filepath.Dir(metadataFile), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(metadataFile, []byte("ebook"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	missingFile := filepath.Join(dir, "library", "Missing", "book.epub")
+	userEditedFile := filepath.Join(dir, "library", "Torrent Name", "edited.epub")
+	if err := os.WriteFile(userEditedFile, []byte("edited"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, item := range []*models.LibraryItem{
+		{Title: "Torrent Name", Author: "", FilePath: metadataFile, OriginalPath: "/incoming/Torrent Name/book.epub", MediaType: "ebook"},
+		{Title: "Missing", Author: "", FilePath: missingFile, OriginalPath: "/incoming/Missing/book.epub", MediaType: "ebook"},
+		{Title: "User Edited", Author: "Someone", FilePath: userEditedFile, OriginalPath: "/incoming/Torrent Name/edited.epub", MediaType: "ebook"},
+	} {
+		if _, err := database.AddItem(item); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	updated, err := database.BackfillLibraryMetadata(func(path string) (string, string) {
+		if path == metadataFile {
+			return "The Guardian's Path", "Jane Doe"
+		}
+		return "", ""
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated != 1 {
+		t.Fatalf("BackfillLibraryMetadata updated %d rows, want 1", updated)
+	}
+
+	items, err := database.GetItems("ebook", 10, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	byPath := make(map[string]models.LibraryItem)
+	for _, item := range items {
+		byPath[item.FilePath] = item
+	}
+	if got := byPath[metadataFile]; got.Title != "The Guardian's Path" || got.Author != "Jane Doe" || got.FileFormat != "epub" {
+		t.Fatalf("metadata row = %+v, want corrected metadata and format", got)
+	}
+	if got := byPath[userEditedFile]; got.Title != "User Edited" || got.Author != "Someone" {
+		t.Fatalf("user-edited row changed: %+v", got)
+	}
+	if got := byPath[missingFile]; got.Title != "Missing" {
+		t.Fatalf("missing-file row changed: %+v", got)
+	}
+}
+
+func TestAddItemIsIdempotentByEquivalentPathAndContent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "book.epub")
+	if err := os.WriteFile(path, []byte("ebook bytes"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	d := newTestDB(t)
+
+	first := &models.LibraryItem{Title: "First title", Author: "First author", FilePath: path, FileFormat: "epub", MediaType: "ebook"}
+	firstOutcome, err := d.AddItemWithOutcome(first)
+	if err != nil || !firstOutcome.Inserted {
+		t.Fatalf("first AddItemWithOutcome = %+v, %v", firstOutcome, err)
+	}
+
+	equivalentPath := filepath.Join(dir, "nested", "..", "book.epub")
+	second := &models.LibraryItem{Title: "Different metadata", Author: "Different author", FilePath: equivalentPath, FileFormat: "epub", MediaType: "ebook"}
+	secondOutcome, err := d.AddItemWithOutcome(second)
+	if err != nil {
+		t.Fatalf("second AddItemWithOutcome: %v", err)
+	}
+	if secondOutcome.Inserted || secondOutcome.ID != firstOutcome.ID || secondOutcome.Reason != "duplicate_destination_path" {
+		t.Fatalf("second outcome = %+v, want reuse of first row", secondOutcome)
+	}
+
+	items, err := d.GetItems("ebook", 10, 0)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("GetItems = %d, %v; want one row", len(items), err)
+	}
+}
+
+func TestAddItemRemainsIdempotentAfterDatabaseReopen(t *testing.T) {
+	dir := t.TempDir()
+	dbPath := filepath.Join(dir, "library.db")
+	filePath := filepath.Join(dir, "book.epub")
+	if err := os.WriteFile(filePath, []byte("persistent ebook"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	firstID, err := d.AddItem(&models.LibraryItem{FilePath: filePath, FileFormat: "epub", MediaType: "ebook"})
+	if err != nil {
+		d.Close()
+		t.Fatal(err)
+	}
+	if err := d.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err = New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	secondID, err := d.AddItem(&models.LibraryItem{FilePath: filePath, FileFormat: "epub", MediaType: "ebook"})
+	if err != nil || secondID != firstID {
+		t.Fatalf("reopened AddItem = id %d, err %v; want existing id %d", secondID, err, firstID)
+	}
+}
+
+func TestAddItemDoesNotMergeDifferentFormatsOrFilesByMetadata(t *testing.T) {
+	d := newTestDB(t)
+	dir := t.TempDir()
+	epubPath := filepath.Join(dir, "book.epub")
+	mobiPath := filepath.Join(dir, "book.mobi")
+	otherPath := filepath.Join(dir, "other.epub")
+	for path, body := range map[string]string{epubPath: "same bytes", mobiPath: "same bytes", otherPath: "other epub bytes"} {
+		if err := os.WriteFile(path, []byte(body), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	items := []*models.LibraryItem{
+		{Title: "Same Book", Author: "Same Author", FilePath: epubPath, FileFormat: "epub", MediaType: "ebook"},
+		{Title: "Same Book", Author: "Same Author", FilePath: mobiPath, FileFormat: "mobi", MediaType: "ebook"},
+		{Title: "Same Book", Author: "Same Author", FilePath: otherPath, FileFormat: "epub", MediaType: "ebook"},
+	}
+	ids := make(map[int64]bool)
+	for _, item := range items {
+		id, err := d.AddItem(item)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids[id] = true
+	}
+	if len(ids) != len(items) {
+		t.Fatalf("metadata-similar files produced %d IDs, want %d", len(ids), len(items))
+	}
+}
+
+func TestAddItemConcurrentDuplicateImportsCreateOneRow(t *testing.T) {
+	d := newTestDB(t)
+	filePath := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(filePath, []byte("concurrent ebook"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	const attempts = 8
+	ids := make(chan int64, attempts)
+	errs := make(chan error, attempts)
+	var wg sync.WaitGroup
+	for i := 0; i < attempts; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			id, err := d.AddItem(&models.LibraryItem{FilePath: filePath, FileFormat: "epub", MediaType: "ebook"})
+			ids <- id
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(ids)
+	close(errs)
+
+	var wantID int64
+	for id := range ids {
+		if id == 0 {
+			t.Fatal("concurrent AddItem returned zero ID")
+		}
+		if wantID == 0 {
+			wantID = id
+		} else if id != wantID {
+			t.Fatalf("concurrent AddItem IDs differ: got %d and %d", id, wantID)
+		}
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent AddItem error: %v", err)
+		}
+	}
+	count, err := d.CountItems("ebook")
+	if err != nil || count != 1 {
+		t.Fatalf("CountItems = %d, %v; want one row", count, err)
+	}
 }
 
 func TestDownloadJobs_CRUD(t *testing.T) {
