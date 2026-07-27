@@ -19,28 +19,41 @@ const I18N = {
     // Header
     header_subtitle: 'Self-hosted book manager',
     home_kicker: 'Librarr 2.0',
-    home_title: 'A warmer, book-first library experience.',
-    home_subtitle: 'Browse your collection like a personal bookshelf, not a file inventory.',
-    home_open_library: 'Open Library',
+    home_title: 'Welcome back',
+    home_subtitle: 'Your self-hosted book library, downloads, and reading catalog in one place.',
+    home_open_library: 'Browse Library',
     home_discover: 'Discover Books',
     home_welcome_title: 'Welcome to Librarr',
-    home_welcome_subtitle: 'Import your existing collection or start discovering books.',
-    home_import_library: 'Import Existing Library',
-    home_import_hint: 'Follow these steps to bring your existing books into Librarr.',
-    home_onboarding_title: 'Get your library ready',
+    home_welcome_subtitle: 'Your library is ready for its first book.',
+    home_import_library: 'Configure Library',
+    home_scan_library: 'Scan Library',
+    home_import_hint: 'Set your folders, scan an existing collection, or discover a new book.',
+    home_onboarding_title: 'Your library is ready for its first book',
     home_step_admin_done: 'Create administrator account',
     home_step_configure_folders: 'Configure library folders',
     home_step_scan_library: 'Scan existing library',
     home_step_review_books: 'Review imported books',
+    home_step_opds: 'Connect an OPDS reader',
     dashboard_recent: 'Recently Added',
-    dashboard_downloading: 'Currently Downloading',
-    dashboard_wishlist: 'Reading Queue',
-    dashboard_activity: 'Recent Imports',
-    dashboard_totals: 'Library Totals',
+    dashboard_downloading: 'Download & Import Activity',
+    dashboard_activity: 'Recent Activity',
+    dashboard_totals: 'Library Summary',
     dashboard_formats: 'Format Distribution',
-    dashboard_empty: 'Nothing here yet.',
-    dashboard_continue_reading: 'Continue Reading',
-    dashboard_recently_read_placeholder: 'Reading progress will appear here in a future release.',
+    dashboard_empty: 'No recent activity yet.',
+    dashboard_attention: 'Needs Attention',
+    dashboard_quick_actions: 'Quick Actions',
+    dashboard_no_recent_books: 'Newly imported books will appear here.',
+    dashboard_all_clear: 'No active downloads or imports.',
+    dashboard_recent_count: 'Added in the last 30 days',
+    dashboard_authors: 'Authors',
+    dashboard_files: 'Files',
+    dashboard_ready_to_import: 'Ready to import',
+    dashboard_manual_review: 'Manual review',
+    dashboard_waiting: 'Waiting for files',
+    dashboard_failed: 'Failed',
+    dashboard_importing: 'Importing',
+    dashboard_downloading_count: 'Downloading',
+    dashboard_open_opds: 'Open OPDS Catalog',
     library_kicker: 'Bookshelf',
     library_title: 'Your Library',
     library_formats: 'Formats',
@@ -1145,14 +1158,14 @@ function setupLibrarr2Shell() {
     home.id = 'tab-home';
     home.className = 'tab-content active';
     home.innerHTML = `
-      <section class="home-hero rounded-[2rem] p-6 sm:p-8 mb-8">
-        <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+      <section class="home-hero rounded-[2rem] p-4 sm:p-5 mb-4">
+        <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-3">
           <div class="max-w-2xl">
-            <p class="text-xs uppercase tracking-[0.28em] text-amber-300/80 mb-3" data-i18n="home_kicker">Librarr 2.0</p>
-            <h2 id="home-hero-title" class="text-3xl sm:text-4xl font-semibold tracking-tight text-white mb-3" data-i18n="home_title">A warmer, book-first library experience.</h2>
-            <p id="home-hero-subtitle" class="text-stone-300/80 leading-7" data-i18n="home_subtitle">Browse your collection like a personal bookshelf, not a file inventory.</p>
+            <p class="text-[11px] uppercase tracking-[0.26em] text-amber-300/80 mb-1.5" data-i18n="home_kicker">Librarr 2.0</p>
+            <h2 id="home-hero-title" class="text-2xl sm:text-[1.7rem] font-semibold tracking-tight text-white mb-1.5" data-i18n="home_title">Welcome back</h2>
+            <p id="home-hero-subtitle" class="text-sm sm:text-base text-stone-300/80 leading-6" data-i18n="home_subtitle">Your self-hosted book library, downloads, and reading catalog in one place.</p>
           </div>
-          <div id="home-hero-actions" class="flex flex-wrap gap-3">
+          <div id="home-hero-actions" class="flex flex-wrap gap-2.5">
             <button data-action="switchTab" data-arg="library" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors" data-i18n="home_open_library">Open Library</button>
             <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors" data-i18n="home_discover">Discover Books</button>
           </div>
@@ -2099,16 +2112,16 @@ function goLibraryPage(page) {
 }
 
 async function loadHomeDashboard() {
-  const container = document.getElementById('home-dashboard');
-  if (!container) return;
-  try {
-    const useNormalized = normalizedLibraryMode();
-    const recentLibraryRequest = useNormalized
-      ? apiJson('/api/v1/books?limit=4&offset=0&sort=recently_added&order=desc')
-      : apiJson('/api/library?limit=8');
-    const statsRequest = useNormalized
-      ? apiJson('/api/v1/library/summary')
-      : apiJson('/api/stats');
+	const container = document.getElementById('home-dashboard');
+	if (!container) return;
+	try {
+		const useNormalized = normalizedLibraryMode();
+		const recentLibraryRequest = useNormalized
+			? apiJson('/api/v1/books?limit=8&offset=0&sort=recently_added&order=desc')
+			: apiJson('/api/library?limit=8');
+		const statsRequest = useNormalized
+			? apiJson('/api/v1/library/summary')
+			: apiJson('/api/stats');
     const [statsRes, downloadsRes, activityRes, libraryRes] = await Promise.allSettled([
       statsRequest,
       apiJson('/api/downloads'),
@@ -2116,90 +2129,101 @@ async function loadHomeDashboard() {
       recentLibraryRequest,
     ]);
 
-    const stats = statsRes.status === 'fulfilled' ? statsRes.value : {};
-    const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : [];
-    const activity = activityRes.status === 'fulfilled' ? (activityRes.value.events || []) : [];
-    const recentBooks = libraryRes.status === 'fulfilled'
-      ? (useNormalized
-          ? (libraryRes.value.items || []).map(mapV1BookToUIBook)
-          : groupLibraryItems(libraryRes.value.items || [], 'ebooks').slice(0, 4))
-      : [];
-    state.homeBooks = recentBooks;
-    const bookCount = currentLibraryCount(useNormalized, stats);
-    const showOnboarding = bookCount === 0;
-    updateHomeHero(showOnboarding);
-    const formatCounts = useNormalized
-      ? (stats.format_distribution || {})
-      : buildFormatCounts(recentBooks);
+		const stats = statsRes.status === 'fulfilled' ? statsRes.value : {};
+		const downloads = downloadsRes.status === 'fulfilled' ? normalizeDownloadsResponse(downloadsRes.value) : [];
+		const activity = activityRes.status === 'fulfilled' ? (activityRes.value.events || []) : [];
+		const recentBooks = libraryRes.status === 'fulfilled'
+			? (useNormalized
+				? (libraryRes.value.items || []).map(mapV1BookToUIBook)
+				: groupLibraryItems(libraryRes.value.items || [], 'ebooks').slice(0, 8))
+			: [];
+		state.homeBooks = recentBooks;
+		const bookCount = currentLibraryCount(useNormalized, stats);
+		const displayBookCount = bookCount || (recentBooks.length ? recentBooks.length : 0);
+		const showOnboarding = bookCount === 0 && recentBooks.length === 0;
+		updateHomeHero(showOnboarding, displayBookCount);
+		const formatCounts = useNormalized
+			? (stats.format_distribution || {})
+			: buildFormatCounts(recentBooks);
+		const activitySummary = buildDashboardActivitySummary(downloads, activity);
+		const attention = buildDashboardAttention(activitySummary);
 
-    container.innerHTML = buildHomeDashboardMarkup({
-      showOnboarding,
-      recentBooks,
-      formatCounts,
-      downloads,
-      activity,
-      stats,
-      bookCount,
-    });
-  } catch (err) {
-    updateHomeHero(false);
-    container.innerHTML = `<div class="dashboard-panel rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5 text-stone-400">${t('dashboard_empty')}</div>`;
-  }
+		container.innerHTML = buildHomeDashboardMarkup({
+			showOnboarding,
+			recentBooks,
+			formatCounts,
+			downloads,
+			activity,
+			activitySummary,
+			attention,
+			stats,
+			bookCount: displayBookCount,
+			isAdmin: isAdminUser(),
+		});
+	} catch (err) {
+		updateHomeHero(false, 0);
+		container.innerHTML = `<div class="dashboard-panel rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5 text-stone-400">${t('dashboard_empty')}</div>`;
+	}
 }
 
-function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, downloads, activity, stats, bookCount }) {
-  if (showOnboarding) {
-    return renderOnboardingChecklist();
-  }
+function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, downloads, activity, activitySummary, attention, stats, bookCount, isAdmin }) {
+	if (showOnboarding) {
+		return renderOnboardingChecklist(isAdmin);
+	}
 
-  return `
-      <section class="dashboard-panel lg:col-span-7 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-white">${t('dashboard_recent')}</h3>
-          <button data-action="switchTab" data-arg="library" class="text-sm text-amber-300 hover:text-amber-200">${t('quick_details')}</button>
-        </div>
-        <div class="grid gap-4 sm:grid-cols-2">
-          ${recentBooks.length ? recentBooks.map((book, index) => renderCompactBookCard(book, index)).join('') : renderDashboardEmpty()}
-        </div>
-      </section>
-      <section class="dashboard-panel lg:col-span-5 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_totals')}</h3>
-        <div class="grid grid-cols-2 gap-3">
-          ${renderMetricCard('Books', bookCount)}
-          ${renderMetricCard('Ebooks', stats.ebooks ?? 0)}
-          ${renderMetricCard('Audiobooks', stats.audiobooks ?? 0)}
-          ${renderMetricCard('Manga', stats.manga ?? 0)}
-        </div>
-        <div class="mt-6">
-          <h4 class="text-sm font-semibold uppercase tracking-[0.18em] text-stone-400 mb-3">${t('dashboard_formats')}</h4>
-          <div class="flex flex-wrap gap-2">
-            ${Object.entries(formatCounts).length ? Object.entries(formatCounts).map(([format, count]) => `<span class="inline-flex items-center gap-2 rounded-full bg-stone-800 px-3 py-1.5 text-xs text-stone-200"><span class="text-amber-300">${escapeHtml(format)}</span><span class="text-stone-500">${count}</span></span>`).join('') : `<span class="text-sm text-stone-500">${t('dashboard_empty')}</span>`}
-          </div>
-        </div>
-      </section>
-      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-white">${t('dashboard_downloading')}</h3>
-        </div>
-        <div class="space-y-3">${(downloads || []).slice(0, 4).map(renderCompactDownload).join('') || renderDashboardEmpty()}</div>
-      </section>
-      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-white">${t('dashboard_continue_reading')}</h3>
-        </div>
-        <div class="rounded-2xl border border-dashed border-stone-800 bg-stone-900/40 p-4 text-sm leading-6 text-stone-400">${t('dashboard_recently_read_placeholder')}</div>
-      </section>
-      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <div class="flex items-center justify-between mb-4">
-          <h3 class="text-lg font-semibold text-white">${t('dashboard_activity')}</h3>
-        </div>
-        <div class="space-y-3">${activity.slice(0, 4).map(renderActivityRow).join('') || renderDashboardEmpty()}</div>
-      </section>
+	const summary = activitySummary || {};
+	const attentionItems = attention || [];
+	return `
+		${attentionItems.length ? renderNeedsAttention(attentionItems) : ''}
+		<section class="dashboard-panel lg:col-span-8 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<div class="flex items-center justify-between gap-4 mb-4">
+				<div>
+					<h3 class="text-lg font-semibold text-white">${t('dashboard_recent')}</h3>
+					<p class="text-sm text-stone-500">${t('dashboard_recent_count')}: ${escapeHtml(String(stats.recently_added ?? recentBooks.length ?? 0))}</p>
+				</div>
+				<button data-action="switchTab" data-arg="library" class="text-sm text-amber-300 hover:text-amber-200">${t('home_open_library')}</button>
+			</div>
+			${renderRecentlyAddedShelf(recentBooks)}
+		</section>
+		<section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<h3 class="text-lg font-semibold text-white mb-3">${t('dashboard_downloading')}</h3>
+			${renderDashboardActivity(summary, isAdmin)}
+		</section>
+		<section class="dashboard-panel lg:col-span-5 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_totals')}</h3>
+			<div class="grid grid-cols-2 gap-3">
+				${renderMetricCard('Books', bookCount)}
+				${renderMetricCard(t('dashboard_authors'), stats.authors ?? 0)}
+				${renderMetricCard(t('dashboard_files'), stats.total_files ?? stats.total_items ?? 0)}
+				${renderMetricCard('Ebooks', stats.ebooks ?? 0)}
+				${renderMetricCard('Audiobooks', stats.audiobooks ?? 0)}
+				${renderMetricCard('Manga', stats.manga ?? 0)}
+			</div>
+			<div class="mt-5">
+				<h4 class="text-xs font-semibold uppercase tracking-[0.18em] text-stone-500 mb-3">${t('dashboard_formats')}</h4>
+				<div class="flex flex-wrap gap-2">
+					${Object.entries(formatCounts || {}).length ? Object.entries(formatCounts).map(([format, count]) => `<span class="inline-flex items-center gap-2 rounded-full bg-stone-800 px-3 py-1.5 text-xs text-stone-200"><span class="text-amber-300">${escapeHtml(String(format).toUpperCase())}</span><span class="text-stone-500">${escapeHtml(String(count))}</span></span>`).join('') : `<span class="text-sm text-stone-500">${t('dashboard_empty')}</span>`}
+				</div>
+			</div>
+		</section>
+		<section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_quick_actions')}</h3>
+			<div class="grid gap-2">
+				<button data-action="switchTab" data-arg="library" class="rounded-2xl bg-amber-500 px-4 py-3 text-left text-sm font-semibold text-stone-950 hover:bg-amber-400 transition-colors">${t('home_open_library')}</button>
+				<button data-action="switchTab" data-arg="search" class="rounded-2xl bg-stone-800 px-4 py-3 text-left text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_discover')}</button>
+				${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-stone-800 px-4 py-3 text-left text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_scan_library')}</button>` : ''}
+				<a href="/opds" target="_blank" rel="noreferrer" class="rounded-2xl bg-stone-800 px-4 py-3 text-left text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('dashboard_open_opds')}</a>
+			</div>
+		</section>
+		<section class="dashboard-panel lg:col-span-3 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_activity')}</h3>
+			<div class="space-y-3">${(activity || []).slice(0, 3).map(renderActivityRow).join('') || renderDashboardEmpty()}</div>
+		</section>
     `;
 }
 
 function renderCompactBookCard(book, index) {
-  return `
+	return `
     <button data-action="openHomeBookDetails" data-index="${index}" class="text-left rounded-[1.5rem] border border-stone-800 bg-stone-900/70 p-3 hover:border-amber-500/40 transition-colors">
       <div class="flex gap-4">
         <div class="w-20 shrink-0 overflow-hidden rounded-2xl">${renderBookCover(book, index, 'h-28')}</div>
@@ -2213,54 +2237,222 @@ function renderCompactBookCard(book, index) {
   `;
 }
 
+function renderRecentlyAddedShelf(books) {
+	if (!books || books.length === 0) {
+		return `<div class="rounded-[1.5rem] border border-dashed border-stone-800 bg-stone-900/30 p-6 text-sm text-stone-500">${t('dashboard_no_recent_books')}</div>`;
+	}
+	return `
+		<div class="-mx-1 flex gap-4 overflow-x-auto pb-3 pr-2 snap-x" aria-label="${t('dashboard_recent')}">
+			${books.map((book, index) => renderHomeBookCard(book, index)).join('')}
+		</div>
+	`;
+}
+
+function renderHomeBookCard(book, index) {
+	const author = book.author || book.series || t('details_placeholder_value');
+	return `
+		<button data-action="openHomeBookDetails" data-index="${index}" class="group w-44 sm:w-48 shrink-0 snap-start rounded-[1.35rem] bg-stone-900/60 p-2 text-left outline-none transition-all hover:-translate-y-0.5 hover:bg-stone-900 focus-visible:ring-2 focus-visible:ring-amber-400/70" aria-label="${escapeHtml(`${book.title || t('unknown_title')} details`)}">
+			<div class="relative overflow-hidden rounded-[1.1rem] shadow-[0_16px_40px_rgba(0,0,0,0.28)]">
+				${renderBookCover(book, index, 'h-52')}
+				<div class="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/45 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"></div>
+				<div class="pointer-events-none absolute bottom-2 left-2 right-2 translate-y-2 rounded-full bg-black/60 px-3 py-1.5 text-center text-xs font-medium text-white opacity-0 backdrop-blur transition-all group-hover:translate-y-0 group-hover:opacity-100 group-focus-visible:translate-y-0 group-focus-visible:opacity-100">${t('quick_details')}</div>
+			</div>
+			<h4 class="mt-3 text-sm font-semibold leading-snug text-white line-clamp-2">${escapeHtml(book.title || t('unknown_title'))}</h4>
+			<p class="mt-1 text-xs text-stone-400 line-clamp-1">${escapeHtml(author)}</p>
+		</button>
+	`;
+}
+
+function hasDashboardActivity(summary) {
+	return Boolean(summary && [
+		'downloading',
+		'waiting',
+		'ready',
+		'manualReview',
+		'importing',
+		'failed',
+	].some(key => Number(summary[key] || 0) > 0));
+}
+
+function renderDashboardActivity(summary, isAdmin) {
+	if (!hasDashboardActivity(summary)) {
+		return `<div class="rounded-2xl border border-dashed border-stone-800 bg-stone-900/30 px-4 py-5 text-sm text-stone-400">${t('dashboard_all_clear')}</div>`;
+	}
+	const chips = [
+		{ key: 'downloading', label: t('dashboard_downloading_count'), action: 'switchTab', arg: 'downloads' },
+		{ key: 'waiting', label: t('dashboard_waiting'), action: 'switchTab', arg: 'downloads' },
+		{ key: 'ready', label: t('dashboard_ready_to_import'), action: isAdmin ? 'openImportSettings' : '', arg: '' },
+		{ key: 'manualReview', label: t('dashboard_manual_review'), action: isAdmin ? 'openImportSettings' : '', arg: '' },
+		{ key: 'importing', label: t('dashboard_importing'), action: isAdmin ? 'openImportSettings' : '', arg: '' },
+		{ key: 'failed', label: t('dashboard_failed'), action: 'switchTab', arg: 'downloads' },
+	];
+	return `<div class="grid grid-cols-2 gap-2">${chips
+		.filter(chip => Number(summary[chip.key] || 0) > 0)
+		.map(chip => renderActivityChip(chip.label, summary[chip.key], chip.action, chip.arg))
+		.join('')}</div>`;
+}
+
+function renderNeedsAttention(items) {
+	return `
+		<section class="dashboard-panel lg:col-span-12 rounded-[1.75rem] border border-amber-500/25 bg-amber-500/8 p-5">
+			<div class="mb-4 flex items-center justify-between gap-3">
+				<h3 class="text-lg font-semibold text-amber-100">${t('dashboard_attention')}</h3>
+			</div>
+			<div class="grid gap-3 md:grid-cols-3">
+				${items.map(item => `
+					<div class="rounded-2xl border border-amber-500/20 bg-stone-950/35 p-4">
+						<p class="text-sm font-semibold text-white">${escapeHtml(item.title)}</p>
+						<p class="mt-1 text-sm text-amber-100/75">${escapeHtml(item.reason)}</p>
+						${item.action ? `<button data-action="${escapeHtml(item.action)}" ${item.arg ? `data-arg="${escapeHtml(item.arg)}"` : ''} class="mt-3 text-sm font-medium text-amber-300 hover:text-amber-200">${escapeHtml(item.label || t('quick_details'))}</button>` : ''}
+					</div>
+				`).join('')}
+			</div>
+		</section>
+	`;
+}
+
+function renderActivityChip(label, count, action, arg) {
+	const inner = `
+		<span class="block text-2xl font-semibold text-white">${escapeHtml(String(count))}</span>
+		<span class="mt-1 block text-xs text-stone-400">${escapeHtml(label)}</span>
+	`;
+	if (!action) {
+		return `<div class="rounded-2xl border border-stone-800 bg-stone-900/60 px-3 py-3 text-left">${inner}</div>`;
+	}
+	const attrs = action ? `data-action="${escapeHtml(action)}"${arg ? ` data-arg="${escapeHtml(arg)}"` : ''}` : '';
+	return `<button ${attrs} class="rounded-2xl border border-stone-800 bg-stone-900/60 px-3 py-3 text-left hover:border-amber-500/35 hover:bg-stone-800/90 transition-colors">${inner}</button>`;
+}
+
 function renderMetricCard(label, value) {
-  return `<div class="rounded-[1.5rem] bg-stone-900/70 p-4"><p class="text-xs uppercase tracking-[0.18em] text-stone-500">${escapeHtml(label)}</p><p class="mt-2 text-3xl font-semibold text-white">${escapeHtml(String(value))}</p></div>`;
+	return `<div class="rounded-[1.25rem] bg-stone-900/65 p-3.5"><p class="text-[10px] uppercase tracking-[0.18em] text-stone-500">${escapeHtml(label)}</p><p class="mt-1.5 text-3xl font-semibold tracking-tight text-white">${escapeHtml(String(value))}</p></div>`;
 }
 
 function currentLibraryCount(useNormalized, stats) {
-  if (!stats) return 0;
-  return useNormalized ? (stats.total_books ?? 0) : (stats.total_items ?? 0);
+	if (!stats) return 0;
+	return useNormalized ? (stats.total_books ?? 0) : (stats.total_items ?? 0);
 }
 
-function updateHomeHero(isOnboarding) {
-  const titleEl = document.getElementById('home-hero-title');
-  const subtitleEl = document.getElementById('home-hero-subtitle');
-  const actionsEl = document.getElementById('home-hero-actions');
-  if (!titleEl || !subtitleEl || !actionsEl) return;
+function normalizeDownloadsResponse(value) {
+	if (Array.isArray(value)) return value;
+	if (value && Array.isArray(value.downloads)) return value.downloads;
+	return [];
+}
 
-  if (isOnboarding) {
-    titleEl.textContent = t('home_welcome_title');
-    subtitleEl.textContent = t('home_welcome_subtitle');
-    actionsEl.innerHTML = `
-      <button data-action="openImportSettings" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>
-      <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors">${t('home_discover')}</button>
-    `;
-    return;
-  }
+function isAdminUser() {
+	return String(state.currentRole || '').toLowerCase() === 'admin';
+}
 
-  titleEl.textContent = t('home_title');
-  subtitleEl.textContent = t('home_subtitle');
-  actionsEl.innerHTML = `
+function homeDisplayName() {
+	const name = String(state.currentUser || '').trim();
+	if (!name) return '';
+	return name.replace(/[_-]+/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function buildDashboardActivitySummary(downloads, activity) {
+	const summary = {
+		downloading: 0,
+		waiting: 0,
+		ready: 0,
+		importing: 0,
+		manualReview: 0,
+		failed: 0,
+	};
+	(downloads || []).forEach(item => {
+		const status = String(item.status || '').toLowerCase();
+		if (['downloading', 'queued', 'searching'].includes(status)) summary.downloading++;
+		if (['waiting', 'pending', 'retry_wait', 'sync_wait', 'missing_files'].includes(status)) summary.waiting++;
+		if (['importing', 'organizing'].includes(status)) summary.importing++;
+		if (['error', 'failed', 'dead_letter'].includes(status)) summary.failed++;
+	});
+	(activity || []).forEach(event => {
+		const text = [event.action, event.event, event.detail, event.message, event.title, event.subject].filter(Boolean).join(' ').toLowerCase();
+		if (text.includes('manual review')) summary.manualReview++;
+		if (text.includes('ready to import')) summary.ready++;
+		if (text.includes('failed') || text.includes('error')) summary.failed++;
+	});
+	return summary;
+}
+
+function buildDashboardAttention(summary) {
+	const items = [];
+	if ((summary.manualReview || 0) > 0) {
+		items.push({
+			title: `${summary.manualReview} ${summary.manualReview === 1 ? 'book needs' : 'books need'} manual review`,
+			reason: 'Review metadata or destination before importing.',
+			action: isAdminUser() ? 'openImportSettings' : '',
+			label: 'Open Review',
+		});
+	}
+	if ((summary.failed || 0) > 0) {
+		items.push({
+			title: `${summary.failed} ${summary.failed === 1 ? 'import failed' : 'imports failed'}`,
+			reason: 'Check the failed download or import details.',
+			action: 'switchTab',
+			arg: 'downloads',
+			label: 'View Details',
+		});
+	}
+	if ((summary.waiting || 0) > 0) {
+		items.push({
+			title: `${summary.waiting} ${summary.waiting === 1 ? 'item is' : 'items are'} waiting for files`,
+			reason: 'Librarr is waiting for synchronized files to appear locally.',
+			action: 'switchTab',
+			arg: 'downloads',
+			label: 'Open Downloads',
+		});
+	}
+	return items;
+}
+
+function updateHomeHero(isOnboarding, bookCount = 0) {
+	const titleEl = document.getElementById('home-hero-title');
+	const subtitleEl = document.getElementById('home-hero-subtitle');
+	const actionsEl = document.getElementById('home-hero-actions');
+	if (!titleEl || !subtitleEl || !actionsEl) return;
+
+	if (isOnboarding) {
+		titleEl.textContent = t('home_welcome_title');
+		subtitleEl.textContent = t('home_welcome_subtitle');
+		actionsEl.innerHTML = `
+			${isAdminUser() ? `<button data-action="openImportSettings" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>` : ''}
+			<button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors">${t('home_discover')}</button>
+		`;
+		return;
+	}
+
+	const displayName = homeDisplayName();
+	titleEl.textContent = displayName ? `Welcome back, ${displayName}` : t('home_title');
+	subtitleEl.textContent = `${t('home_subtitle')} ${bookCount === 1 ? 'Your library has 1 book.' : `Your library has ${bookCount} books.`}`;
+	actionsEl.innerHTML = `
     <button data-action="switchTab" data-arg="library" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors">${t('home_open_library')}</button>
     <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors">${t('home_discover')}</button>
   `;
 }
 
-function renderOnboardingChecklist() {
-  const checklistItems = [
-    { done: Boolean(state.currentUser), label: t('home_step_admin_done') },
-    { done: false, label: t('home_step_configure_folders') },
-    { done: false, label: t('home_step_scan_library') },
-    { done: false, label: t('home_step_review_books') },
-  ];
+function renderOnboardingChecklist(isAdmin = isAdminUser()) {
+	const checklistItems = [
+		{ done: Boolean(state.currentUser), label: t('home_step_admin_done') },
+		{ done: Boolean(state.libraryImport?.completed), label: t('home_step_configure_folders') },
+		{ done: false, label: t('home_step_scan_library') },
+		{ done: false, label: t('home_step_review_books') },
+		{ done: false, label: t('home_step_opds') },
+	];
 
-  return `
+	return `
     <section class="dashboard-panel lg:col-span-12 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-      <div class="max-w-2xl">
-        <h3 class="text-xl font-semibold text-white mb-2">${t('home_onboarding_title')}</h3>
-        <p class="text-stone-400 leading-7">${t('home_import_hint')}</p>
+      <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+        <div class="max-w-2xl">
+          <h3 class="text-xl font-semibold text-white mb-2">${t('home_onboarding_title')}</h3>
+          <p class="text-stone-400 leading-7">${t('home_import_hint')}</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-950 hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>` : ''}
+          ${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_scan_library')}</button>` : ''}
+          <button data-action="switchTab" data-arg="search" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_discover')}</button>
+          <a href="/opds" target="_blank" rel="noreferrer" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('dashboard_open_opds')}</a>
+        </div>
       </div>
-      <div class="mt-6 grid gap-3 md:grid-cols-2">
+      <div class="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
         ${checklistItems.map(item => `
           <div class="flex items-center gap-3 rounded-2xl border ${item.done ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-stone-800 bg-stone-900/60 text-stone-200'} px-4 py-3">
             <span class="text-base">${item.done ? '✅' : '⬜'}</span>
@@ -2304,13 +2496,13 @@ function renderActivityRow(event) {
   const label = event.action || event.event || '';
   const detail = event.detail || event.message || '';
   const title = event.title || event.subject || '';
-  return `<div class="rounded-[1.25rem] border border-stone-800 bg-stone-900/60 p-4">
-    <div class="flex items-center justify-between gap-4">
+  return `<div class="rounded-[1rem] border border-stone-800 bg-stone-900/60 px-3.5 py-3">
+    <div class="flex items-start justify-between gap-3">
       <div class="min-w-0">
-        <p class="text-sm font-medium text-white line-clamp-1">${escapeHtml(title || label || 'Activity')}</p>
-        <p class="mt-1 text-xs text-stone-400 line-clamp-2">${escapeHtml(detail || label || '')}</p>
+        <p class="text-sm font-semibold leading-5 text-white line-clamp-1">${escapeHtml(title || label || 'Activity')}</p>
+        <p class="mt-0.5 text-xs leading-5 text-stone-400 line-clamp-2">${escapeHtml(detail || label || '')}</p>
       </div>
-      <span class="shrink-0 text-xs text-stone-500">${escapeHtml(formatRelativeTime(timestamp))}</span>
+      <span class="shrink-0 pt-0.5 text-[11px] text-stone-500">${escapeHtml(formatRelativeTime(timestamp))}</span>
     </div>
   </div>`;
 }

@@ -38,6 +38,8 @@ Librarr 2.0 currently has:
 - first-run administrator setup
 - a redesigned Librarr 2.0 shell and simplified navigation
 - Home onboarding for empty libraries
+- a signed-in Home dashboard with recently added books, attention items,
+  import/download status, library summary, and quick actions
 - Library & Import settings with guided folder configuration
 - recursive library scanning
 - scan progress tracking

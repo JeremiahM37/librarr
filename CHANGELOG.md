@@ -12,6 +12,8 @@ public Librarr 2.0 release. Librarr 2.0 is not yet stable.
 - Backfill and validation framework for migration from legacy `library_items`.
 - Import planner, executor, and feature-flagged import engine.
 - First-run administrator setup and empty-library onboarding.
+- Book-first Home dashboard with recently added shelf, attention summary,
+  activity counts, library totals, and role-aware quick actions.
 - Library scanner with scan jobs, progress, review results, duplicate detection,
   manual review, and explicit import actions.
 - Metadata editor for scan-review candidates and imported library books.

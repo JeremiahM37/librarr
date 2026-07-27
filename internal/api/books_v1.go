@@ -341,6 +341,7 @@ func (s *Server) handleV1LibrarySummary(w http.ResponseWriter, r *http.Request) 
 		"total_books":         summary.TotalBooks,
 		"total_editions":      summary.TotalEditions,
 		"total_files":         summary.TotalFiles,
+		"authors":             summary.AuthorCount,
 		"ebooks":              summary.EbookCount,
 		"audiobooks":          summary.AudiobookCount,
 		"manga":               summary.MangaCount,

@@ -26,6 +26,7 @@ The current codebase already provides a useful foundation, including:
 - OPDS support
 - REST endpoints
 - first-run setup and empty-library onboarding
+- book-first Home dashboard with recently added books and operational status
 - recursive library scanner
 - scan review with filters, search, duplicate details, and manual review
 - explicit import from scan review results
@@ -119,6 +120,7 @@ Replace the file-centric library core with a normalized domain model while prese
 - [x] Hide unfinished Devices, Activity, and send-to-device UI.
 - [x] Add first-run administrator setup.
 - [x] Add empty-library onboarding.
+- [x] Replace the placeholder Home page with a practical dashboard.
 - [x] Add Library & Import folder configuration.
 - [x] Add clear scan, review, duplicate, manual-review, and import-error states.
 - [ ] Continue refining logical book cards as normalized data becomes the default.

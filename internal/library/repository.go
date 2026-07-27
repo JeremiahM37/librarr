@@ -115,6 +115,7 @@ type LibrarySummary struct {
 	TotalBooks       int
 	TotalEditions    int
 	TotalFiles       int
+	AuthorCount      int
 	EbookCount       int
 	AudiobookCount   int
 	MangaCount       int

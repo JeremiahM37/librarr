@@ -261,7 +261,7 @@ func TestV1BooksSupportAudiobooksAndMangaAndSummary(t *testing.T) {
 	if err := json.Unmarshal(rr.Body.Bytes(), &summary); err != nil {
 		t.Fatal(err)
 	}
-	if summary["total_books"].(float64) != 4 || summary["ebooks"].(float64) != 2 || summary["audiobooks"].(float64) != 1 || summary["manga"].(float64) != 1 {
+	if summary["total_books"].(float64) != 4 || summary["authors"].(float64) != 2 || summary["ebooks"].(float64) != 2 || summary["audiobooks"].(float64) != 1 || summary["manga"].(float64) != 1 {
 		t.Fatalf("summary = %+v", summary)
 	}
 	formats := summary["format_distribution"].(map[string]any)

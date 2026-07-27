@@ -257,6 +257,14 @@ func (r *NormalizedRepository) GetLibrarySummary(ctx context.Context) (LibrarySu
 	if err := r.queryRowContext(ctx, `SELECT COUNT(*) FROM files`).Scan(&summary.TotalFiles); err != nil {
 		return LibrarySummary{}, err
 	}
+	if err := r.queryRowContext(ctx, `
+		SELECT COUNT(DISTINCT c.id)
+		FROM contributors c
+		JOIN edition_contributors ec ON ec.contributor_id = c.id
+		WHERE ec.role = ?
+	`, RoleAuthor).Scan(&summary.AuthorCount); err != nil {
+		return LibrarySummary{}, err
+	}
 	rows, err := r.queryContext(ctx, `SELECT media_type, COUNT(*) FROM books GROUP BY media_type`)
 	if err != nil {
 		return LibrarySummary{}, err
