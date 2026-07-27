@@ -108,7 +108,7 @@ Replace the file-centric library core with a normalized domain model while prese
 - [x] Add `/api/v1/books` and explicit file resources.
 - [x] Add `/api/v1/library/summary` and local cover delivery for normalized reads.
 - [ ] Keep existing library endpoints available during transition.
-- [ ] Return one logical book with a `formats` list and `files` collection.
+- [x] Return one logical book with a `formats` list and `files` collection.
 - [ ] Preserve a preferred/default file in compatibility responses.
 - [ ] Add `total_books`, `total_files`, and format counts to stats.
 - [ ] Document transitional fields.
@@ -123,7 +123,10 @@ Replace the file-centric library core with a normalized domain model while prese
 - [x] Replace the placeholder Home page with a practical dashboard.
 - [x] Add Library & Import folder configuration.
 - [x] Add clear scan, review, duplicate, manual-review, and import-error states.
-- [ ] Continue refining logical book cards as normalized data becomes the default.
+- [x] Render normalized Library cards as one logical book with grouped format chips.
+- [x] Add safe catalog-only and delete-files actions from normalized book details.
+- [x] Add explicit duplicate logical-record repair tooling for historical data.
+- [x] Add explicit dry-run-first nested ebook path repair for `/books/ebooks/ebooks/...`.
 - [ ] Defer complex editing until the normalized model is stable.
 
 ### 2.0.8 Connection diagnostics

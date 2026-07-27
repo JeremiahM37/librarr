@@ -604,6 +604,12 @@ const state = {
     draft: null,
     errors: [],
   },
+  bookDeleteDialog: {
+    open: false,
+    deleteFiles: false,
+    loading: false,
+    error: '',
+  },
   libraryImport: {
     completed: false,
     dirty: false,
@@ -642,6 +648,15 @@ const state = {
         unsupported: false,
         unreadable: false,
       },
+      error: '',
+    },
+  },
+  libraryRepair: {
+    nestedEbookPaths: {
+      loading: false,
+      running: false,
+      plan: null,
+      result: null,
       error: '',
     },
   },
@@ -1937,7 +1952,7 @@ function mapV1BookToUIBook(book) {
     series: book.series?.name || '',
     coverUrl: book.cover?.available ? (book.cover?.url || '') : '',
     mediaType: book.media_type || 'ebook',
-    formats: (book.formats || []).map(format => String(format).toUpperCase()),
+    formats: normalizeFormatLabels(book.formats || []),
     files: [],
     sourceRows: [],
     size: 0,
@@ -1946,6 +1961,29 @@ function mapV1BookToUIBook(book) {
     placeholderIndex: 0,
     nativeV1: true,
   };
+}
+
+function normalizeFormatLabels(formats) {
+  const order = new Map([
+    ['EPUB', 10],
+    ['PDF', 20],
+    ['AZW3', 30],
+    ['MOBI', 40],
+    ['CBZ', 50],
+    ['CBR', 51],
+    ['M4B', 60],
+    ['MP3', 61],
+  ]);
+  const seen = new Set();
+  return (formats || [])
+    .map(format => String(format || '').trim().toUpperCase())
+    .filter(Boolean)
+    .filter(format => {
+      if (seen.has(format)) return false;
+      seen.add(format);
+      return true;
+    })
+    .sort((a, b) => (order.get(a) ?? 100) - (order.get(b) ?? 100) || a.localeCompare(b));
 }
 
 function filterLibraryItems(items, query) {
@@ -2010,7 +2048,7 @@ function groupLibraryItems(items, tab) {
 
   return Array.from(groups.values()).map(group => ({
     ...group,
-    formats: Array.from(group.formats).sort(),
+    formats: normalizeFormatLabels(Array.from(group.formats)),
   }));
 }
 
@@ -2630,6 +2668,7 @@ async function openBookDetails(index, collection = 'libraryBooks') {
             <div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-900/30 p-4 text-sm text-stone-500">${t('dashboard_empty')}</div>
           </div>
         </section>
+        ${detailBook.id && normalizedLibraryMode() ? renderBookDeletionPanel(detailBook, detailFiles) : ''}
       </div>
     </div>
   `;
@@ -2643,10 +2682,162 @@ function closeBookDetails() {
   if (!modal) return;
   modal.classList.add('hidden');
   modal.classList.remove('flex');
+  state.bookDeleteDialog = { open: false, deleteFiles: false, loading: false, error: '' };
 }
 
 function openHomeBookDetails(index) {
   openBookDetails(index, 'homeBooks');
+}
+
+function renderBookDeletionPanel(book, files = []) {
+  const dialog = state.bookDeleteDialog || {};
+  const formats = normalizeFormatLabels((book.formats || []).concat((files || []).map(file => file.format)));
+  const fileList = (files || []).map(file => ({
+    filename: (file.path || file.originalPath || '').split('/').pop() || file.format || 'file',
+    format: String(file.format || '').toUpperCase(),
+    size: file.size || 0,
+  }));
+  return `
+    <section class="mt-8 rounded-[1.5rem] border border-red-500/20 bg-red-500/5 p-4">
+      <div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div>
+          <h3 class="text-lg font-semibold text-white">Library Management</h3>
+          <p class="mt-1 text-sm text-stone-400">Remove this book from Librarr, or delete its catalog entry and managed files.</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          ${isAdminUser() ? `<button data-action="mergeMatchingBookDuplicates" class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-100 hover:bg-amber-500/20">Merge Matching Duplicates</button>` : ''}
+          <button data-action="openBookDeleteDialog" data-delete-files="false" class="rounded-xl border border-stone-700 px-3 py-2 text-sm font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200">Remove from Library</button>
+          ${isAdminUser() ? `<button data-action="openBookDeleteDialog" data-delete-files="true" class="rounded-xl border border-red-500/40 bg-red-500/10 px-3 py-2 text-sm font-medium text-red-100 hover:bg-red-500/20">Delete Book and Files</button>` : ''}
+        </div>
+      </div>
+      ${dialog.open ? renderBookDeleteConfirmation(book, fileList, formats, dialog) : ''}
+    </section>
+  `;
+}
+
+function renderBookDeleteConfirmation(book, files, formats, dialog) {
+  const deleteFiles = Boolean(dialog.deleteFiles);
+  const title = book.title || t('unknown_title');
+  const author = book.author || t('details_placeholder_value');
+  const fileCount = files.length;
+  if (!deleteFiles) {
+    return `
+      <div class="mt-4 rounded-2xl border border-amber-500/25 bg-stone-950/70 p-4">
+        <p class="text-sm font-semibold text-white">Remove “${escapeHtml(title)}” from Librarr?</p>
+        <p class="mt-2 text-sm text-stone-400">The ${escapeHtml(formats.join(' · ') || 'book')} files will remain on disk and may return during a future library scan.</p>
+        ${dialog.error ? `<p class="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">${escapeHtml(dialog.error)}</p>` : ''}
+        <div class="mt-4 flex flex-wrap gap-2">
+          <button data-action="confirmBookDelete" ${dialog.loading ? 'disabled' : ''} class="rounded-xl bg-amber-500 px-4 py-2 text-sm font-semibold text-stone-950 hover:bg-amber-400 disabled:opacity-60">Remove from Library</button>
+          <button data-action="cancelBookDeleteDialog" ${dialog.loading ? 'disabled' : ''} class="rounded-xl bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 hover:bg-stone-700 disabled:opacity-60">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+  return `
+    <div class="mt-4 rounded-2xl border border-red-500/35 bg-red-500/10 p-4">
+      <p class="text-sm font-semibold text-red-50">Delete “${escapeHtml(title)}” and ${fileCount} ${fileCount === 1 ? 'file' : 'files'}?</p>
+      <p class="mt-1 text-sm text-red-100/80">${escapeHtml(author)} · ${escapeHtml(formats.join(' · ') || 'Files')}</p>
+      <p class="mt-3 text-sm text-red-100/80">This removes the catalog record and deletes the managed files listed below. This cannot be undone.</p>
+      <div class="mt-3 max-h-44 overflow-y-auto rounded-xl border border-red-500/20 bg-stone-950/50">
+        ${files.length ? files.map(file => `
+          <div class="flex items-center justify-between gap-3 border-b border-red-500/10 px-3 py-2 last:border-0">
+            <span class="min-w-0 truncate text-sm text-stone-100">${escapeHtml(file.filename)}</span>
+            <span class="shrink-0 text-xs text-stone-400">${escapeHtml(file.format || '')}${file.size ? ` · ${escapeHtml(formatSize(file.size))}` : ''}</span>
+          </div>
+        `).join('') : `<p class="px-3 py-2 text-sm text-stone-400">No files are currently attached to this book.</p>`}
+      </div>
+      ${dialog.error ? `<p class="mt-3 rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-sm text-red-100">${escapeHtml(dialog.error)}</p>` : ''}
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button data-action="confirmBookDelete" ${dialog.loading ? 'disabled' : ''} class="rounded-xl bg-red-500 px-4 py-2 text-sm font-semibold text-white hover:bg-red-400 disabled:opacity-60">Delete Book and ${fileCount} ${fileCount === 1 ? 'File' : 'Files'}</button>
+        <button data-action="cancelBookDeleteDialog" ${dialog.loading ? 'disabled' : ''} class="rounded-xl bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 hover:bg-stone-700 disabled:opacity-60">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+async function mergeMatchingBookDuplicates() {
+  const book = state.activeDetailBook;
+  if (!book?.id) return;
+  try {
+    const response = await apiJson(`/api/v1/books/${book.id}/merge-matching`, { method: 'POST' });
+    await loadLibrary();
+    await loadStats();
+    if (state.currentTab === 'home') {
+      await loadHomeDashboard();
+    }
+    const targetID = response.target_book_id || book.id;
+    const refreshedIndex = state.libraryBooks.findIndex(item => item.id === targetID);
+    if (refreshedIndex >= 0) {
+      await openBookDetails(refreshedIndex, 'libraryBooks');
+    } else {
+      closeBookDetails();
+    }
+    const mergedCount = response.merged_count || (Array.isArray(response.merged_book_ids) ? response.merged_book_ids.length : 0);
+    showToast(mergedCount ? `Merged ${mergedCount} duplicate ${mergedCount === 1 ? 'book' : 'books'}.` : 'No matching duplicates found.', mergedCount ? 'success' : 'warning');
+  } catch (err) {
+    showToast(err.message || 'Failed to merge matching duplicates', 'error');
+  }
+}
+
+function openBookDeleteDialog(deleteFiles) {
+  state.bookDeleteDialog = {
+    open: true,
+    deleteFiles: deleteFiles === true || String(deleteFiles) === 'true',
+    loading: false,
+    error: '',
+  };
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+}
+
+function cancelBookDeleteDialog() {
+  state.bookDeleteDialog = { open: false, deleteFiles: false, loading: false, error: '' };
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+}
+
+async function confirmBookDelete() {
+  const book = state.activeDetailBook;
+  const dialog = state.bookDeleteDialog || {};
+  if (!book?.id || dialog.loading) return;
+  state.bookDeleteDialog = { ...dialog, loading: true, error: '' };
+  const context = state.activeDetailContext || {};
+  await openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+  try {
+    const resp = await api(`/api/v1/books/${book.id}?delete_files=${dialog.deleteFiles ? 'true' : 'false'}`, { method: 'DELETE' });
+    const response = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      throw new Error(formatBookDeleteError(response, resp.status));
+    }
+    state.bookDeleteDialog = { open: false, deleteFiles: false, loading: false, error: '' };
+    closeBookDetails();
+    await loadLibrary();
+    await loadStats();
+    if (state.currentTab === 'home') {
+      await loadHomeDashboard();
+    }
+    const title = response.title || book.title || t('unknown_title');
+    if (dialog.deleteFiles) {
+      showToast(`Deleted “${title}” and ${response.deleted_files || 0} ${(response.deleted_files || 0) === 1 ? 'file' : 'files'}.`, 'success');
+    } else {
+      showToast(`Removed “${title}” from Librarr. Files were left on disk.`, 'success');
+    }
+  } catch (err) {
+    state.bookDeleteDialog = { ...dialog, loading: false, error: err.message || 'Failed to delete book' };
+    await openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+  }
+}
+
+function formatBookDeleteError(response = {}, status = 0) {
+  const message = response.error || (status ? `API error: ${status}` : 'Failed to delete book');
+  const files = Array.isArray(response.files) ? response.files : [];
+  const details = files
+    .filter(file => file?.error)
+    .map(file => `${file.filename || 'file'}: ${file.error}`);
+  if (details.length === 0) {
+    return message;
+  }
+  return `${message}: ${details.join('; ')}`;
 }
 
 function renderDetailMetaCard(label, value) {
@@ -3049,10 +3240,142 @@ async function loadSettings() {
   loadSources();
   loadTOTPStatus();
   loadSettingToggles();
+  updateLibraryRepairCardVisibility();
   showChangePasswordIfMultiUser();
   if (state.currentRole === 'admin') {
     loadUsers();
     loadInviteCodes();
+  }
+}
+
+function updateLibraryRepairCardVisibility() {
+  const card = document.getElementById('settings-library-repairs');
+  if (!card) return;
+  card.classList.toggle('hidden', !isAdminUser());
+  renderNestedEbookPathRepair();
+}
+
+function renderNestedEbookPathRepair() {
+  const out = document.getElementById('settings-library-repairs-output');
+  if (!out) return;
+  const repair = state.libraryRepair?.nestedEbookPaths || {};
+  if (repair.loading || repair.running) {
+    out.innerHTML = `<div class="rounded-lg border border-slate-700 bg-slate-800/40 px-4 py-3 text-sm text-slate-300">${repair.running ? 'Running repair…' : 'Building repair preview…'}</div>`;
+    return;
+  }
+  if (repair.error) {
+    out.innerHTML = `<div class="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">${escapeHtml(repair.error)}</div>`;
+    return;
+  }
+  const plan = repair.result || repair.plan;
+  if (!plan) {
+    out.innerHTML = `<p class="text-sm text-slate-500">Run a preview to see cataloged files under the legacy nested ebook folder before making changes.</p>`;
+    return;
+  }
+  const summary = plan.summary || {};
+  const entries = Array.isArray(plan.entries) ? plan.entries : [];
+  const visibleEntries = entries.slice(0, 25);
+  out.innerHTML = `
+    <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
+      <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        ${renderRepairMetric('Affected files', plan.total_affected_files || 0)}
+        ${renderRepairMetric('Ready', summary.ready || 0)}
+        ${renderRepairMetric('Moved', summary.moved || 0)}
+        ${renderRepairMetric('Needs attention', (summary.collision || 0) + (summary.missing || 0) + (summary.unsafe || 0) + (summary.failed || 0))}
+      </div>
+      <p class="mt-3 text-xs text-slate-500">Legacy root: ${escapeHtml(plan.legacy_root || '')}</p>
+      ${plan.executed ? `<p class="mt-2 text-sm text-emerald-200">Repair complete. ${plan.legacy_root_removed ? 'The legacy nested directory was removed because it was empty.' : 'Non-empty legacy directories were preserved.'}</p>` : ''}
+      <details class="mt-4">
+        <summary class="cursor-pointer text-sm font-medium text-slate-200">File plan (${entries.length})</summary>
+        <div class="mt-3 max-h-80 overflow-y-auto rounded-lg border border-slate-800">
+          ${visibleEntries.length ? visibleEntries.map(renderRepairEntry).join('') : `<p class="px-3 py-2 text-sm text-slate-500">No nested ebook paths were found.</p>`}
+        </div>
+        ${entries.length > visibleEntries.length ? `<p class="mt-2 text-xs text-slate-500">Showing first ${visibleEntries.length} entries.</p>` : ''}
+      </details>
+    </div>
+  `;
+}
+
+function renderRepairMetric(label, value) {
+  return `
+    <div class="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-2">
+      <p class="text-xs uppercase tracking-[0.18em] text-slate-500">${escapeHtml(label)}</p>
+      <p class="mt-1 text-xl font-semibold text-white">${escapeHtml(value)}</p>
+    </div>
+  `;
+}
+
+function renderRepairEntry(entry) {
+  const status = String(entry.status || '').replace(/_/g, ' ');
+  const tone = repairStatusClass(entry.status);
+  return `
+    <div class="border-b border-slate-800 px-3 py-2 last:border-0">
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}">${escapeHtml(status || 'unknown')}</span>
+        <span class="text-sm font-medium text-slate-100">${escapeHtml(entry.book_title || `File ${entry.file_id || ''}`)}</span>
+        ${entry.format ? `<span class="text-xs uppercase tracking-[0.18em] text-amber-300">${escapeHtml(entry.format)}</span>` : ''}
+      </div>
+      <p class="mt-1 truncate text-xs text-slate-500">${escapeHtml(entry.source_path || '')}</p>
+      <p class="truncate text-xs text-slate-400">→ ${escapeHtml(entry.destination_path || '')}</p>
+      ${entry.message ? `<p class="mt-1 text-xs text-slate-500">${escapeHtml(entry.message)}</p>` : ''}
+    </div>
+  `;
+}
+
+function repairStatusClass(status) {
+  switch (status) {
+    case 'ready':
+      return 'bg-amber-500/15 text-amber-200';
+    case 'moved':
+      return 'bg-emerald-500/15 text-emerald-200';
+    case 'already_repaired':
+      return 'bg-sky-500/15 text-sky-200';
+    case 'collision':
+    case 'missing':
+    case 'unsafe':
+    case 'failed':
+      return 'bg-red-500/15 text-red-200';
+    default:
+      return 'bg-slate-700 text-slate-200';
+  }
+}
+
+async function previewNestedEbookPathRepair() {
+  const repair = state.libraryRepair.nestedEbookPaths;
+  repair.loading = true;
+  repair.error = '';
+  repair.result = null;
+  renderNestedEbookPathRepair();
+  try {
+    repair.plan = await apiJson('/api/v1/library/repairs/nested-ebook-paths');
+  } catch (err) {
+    repair.error = err.message || 'Failed to preview nested ebook path repair';
+  } finally {
+    repair.loading = false;
+    renderNestedEbookPathRepair();
+  }
+}
+
+async function runNestedEbookPathRepair() {
+  const repair = state.libraryRepair.nestedEbookPaths;
+  const ready = repair.plan?.summary?.ready || 0;
+  const affected = repair.plan?.total_affected_files || ready;
+  const ok = window.confirm(`Move ${ready} cataloged files from the legacy nested ebook folder and update their Librarr paths?\n\nFiles with collisions or missing sources will be skipped.`);
+  if (!ok) return;
+  repair.running = true;
+  repair.error = '';
+  renderNestedEbookPathRepair();
+  try {
+    repair.result = await apiJson('/api/v1/library/repairs/nested-ebook-paths', { method: 'POST' });
+    repair.plan = repair.result;
+    await loadLibrary();
+    showToast(`Nested ebook path repair complete: ${repair.result.summary?.moved || 0} moved, ${affected - ready} skipped.`, 'success');
+  } catch (err) {
+    repair.error = err.message || 'Failed to run nested ebook path repair';
+    showToast(repair.error, 'error');
+  } finally {
+    repair.running = false;
+    renderNestedEbookPathRepair();
   }
 }
 
@@ -3643,6 +3966,7 @@ function renderLibraryScanDuplicate(duplicate) {
 
 function renderLibraryScanManualReview(candidate, title, author) {
   const review = candidate.manual_review || {};
+  const canMergeMatches = /multiple existing books/i.test(review.reason || candidate.classification_reason || '');
   return `
     <div class="mt-3 rounded-md border border-orange-500/25 bg-orange-500/8 p-3">
       <p class="text-xs font-semibold text-orange-100">Manual Review Required</p>
@@ -3653,6 +3977,7 @@ function renderLibraryScanManualReview(candidate, title, author) {
         ${review.suggested_destination ? `<div class="md:col-span-2"><dt class="text-orange-200/70">Suggested Destination</dt><dd class="break-all">${escapeHtml(review.suggested_destination)}</dd></div>` : ''}
       </dl>
       <div class="mt-3 flex flex-wrap gap-2">
+        ${canMergeMatches ? `<button data-action="mergeMatchingLibraryScanBooks" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-amber-500 px-3 py-2 text-xs font-medium text-stone-950 hover:bg-amber-400">Merge Matching Books</button>` : ''}
         <button data-action="useSuggestedLibraryScanCandidate" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-orange-500 px-3 py-2 text-xs font-medium text-stone-950 hover:bg-orange-400">Use Suggested</button>
         <button data-action="editLibraryScanCandidateMetadata" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Edit Metadata</button>
         <button data-action="skipLibraryScanCandidate" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Skip</button>
@@ -4174,7 +4499,12 @@ async function resolveLibraryScanCandidate(candidateID, action, values = {}, opt
     }
     renderLibraryScanWorkspace();
     await refreshLibraryAfterScanImport();
-    showToast(action === 'edit_metadata' ? 'Metadata updated for import' : 'Candidate ready to import', 'success');
+    const successMessage = action === 'edit_metadata'
+      ? 'Metadata updated for import'
+      : action === 'merge_matching_books'
+        ? 'Matching books merged'
+        : 'Candidate ready to import';
+    showToast(successMessage, 'success');
     return result;
   } catch (err) {
     showToast(err.message || 'Could not resolve review item', 'error');
@@ -5102,6 +5432,8 @@ const CLICK_ACTIONS = {
   openImportSettings: () => openImportSettings(),
   saveLibraryImportStandard: () => saveLibraryImportSettings(false),
   saveLibraryImportContinue: () => saveLibraryImportSettings(true),
+  previewNestedEbookPathRepair: () => previewNestedEbookPathRepair(),
+  runNestedEbookPathRepair: () => runNestedEbookPathRepair(),
   startLibraryScan: () => startLibraryScan(),
   startLibraryImportSelected: () => startLibraryImport(false),
   startLibraryImportAllReady: () => startLibraryImport(true),
@@ -5117,6 +5449,7 @@ const CLICK_ACTIONS = {
     renderLibraryScanWorkspace();
   },
   useSuggestedLibraryScanCandidate: el => resolveLibraryScanCandidate(el.dataset.candidateId, 'use_suggested'),
+  mergeMatchingLibraryScanBooks: el => resolveLibraryScanCandidate(el.dataset.candidateId, 'merge_matching_books'),
   editLibraryScanCandidateMetadata: el => openScanMetadataEditor(el.dataset.candidateId),
   saveMetadataEditor: () => saveMetadataEditor(false),
   saveAndImportMetadataEditor: () => saveMetadataEditor(true),
@@ -5173,6 +5506,14 @@ const CLICK_ACTIONS = {
   openBookDetails: el => openBookDetails(+el.dataset.index),
   openHomeBookDetails: el => openHomeBookDetails(+el.dataset.index),
   closeBookDetails: () => closeBookDetails(),
+  openLibraryMetadataEditor: () => openLibraryMetadataEditor(),
+  cancelLibraryMetadataEditor: () => closeLibraryMetadataEditor(),
+  resetLibraryMetadataEditor: () => resetLibraryMetadataEditor(),
+  saveLibraryMetadataEditor: () => saveLibraryMetadataEditor(),
+  mergeMatchingBookDuplicates: () => mergeMatchingBookDuplicates(),
+  openBookDeleteDialog: el => openBookDeleteDialog(el.dataset.deleteFiles),
+  cancelBookDeleteDialog: () => cancelBookDeleteDialog(),
+  confirmBookDelete: () => confirmBookDelete(),
   // Dynamically rendered rows/cards:
   startDownload: el => {
     // data-idx indexes the *rendered* (sorted) list, not state.searchResults.

@@ -155,6 +155,12 @@ func (m *Manager) UpdateCandidates(jobID string, updates []CandidateUpdate) (*Re
 		}
 		if update.Classification != "" {
 			job.Result.Candidates[i].Classification = update.Classification
+			if update.Classification != ClassificationManualReview {
+				job.Result.Candidates[i].ManualReview = nil
+			}
+			if update.Classification != ClassificationDuplicate && update.Classification != ClassificationAlreadyImported {
+				job.Result.Candidates[i].Duplicate = nil
+			}
 		}
 		job.Result.Candidates[i].ClassificationReason = update.ClassificationReason
 		if update.ExistingPath != "" {
@@ -680,7 +686,7 @@ func applyPlan(candidate *Candidate, plan libraryimport.ImportPlan) {
 	candidate.Metadata = meta
 	candidate.Title = meta.Title
 	candidate.Author = meta.Author
-	candidate.DestinationPath = proposedDestination(plan)
+	candidate.DestinationPath = collapseRepeatedLibrarySegment(proposedDestination(plan))
 	if plan.Book.Existing != nil {
 		candidate.ExistingBookID = plan.Book.Existing.ID
 	}

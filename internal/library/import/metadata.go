@@ -36,12 +36,18 @@ func (r *MetadataResolver) resolveEbook(candidate *ImportCandidate) {
 	embedded := organize.ExtractEmbeddedEbookMetadata(candidate.Path)
 	filename := organize.ExtractFilenameEbookMetadata(candidate.Path)
 	if strings.EqualFold(candidate.Format, "mobi") && embedded.Title == "" && embedded.Author == "" {
-		filename = parsePlannerMOBIFilename(candidate.Path)
+		filename = parsePlannerEbookFilename(candidate.Path)
+	} else if !strings.EqualFold(candidate.Format, "mobi") {
+		plannerFilename := parsePlannerEbookFilename(candidate.Path)
+		if shouldUsePlannerFilename(filename, plannerFilename) {
+			filename = plannerFilename
+		}
 	}
 	selected := organize.ExtractEbookMetadata(candidate.Path)
 	if strings.EqualFold(candidate.Format, "mobi") && embedded.Title == "" && embedded.Author == "" {
 		selected = filename
 	}
+	selected = selectEbookMetadata(embedded, filename, selected)
 	candidate.Metadata = CandidateMetadata{
 		EmbeddedTitle:  strings.TrimSpace(embedded.Title),
 		EmbeddedAuthor: strings.TrimSpace(embedded.Author),
@@ -211,7 +217,7 @@ func cleanTags(tags []string) []string {
 	return out
 }
 
-func parsePlannerMOBIFilename(path string) organize.EbookMetadata {
+func parsePlannerEbookFilename(path string) organize.EbookMetadata {
 	name := strings.TrimSpace(strings.TrimSuffix(filepath.Base(path), filepath.Ext(path)))
 	name = plannerBracketRe.ReplaceAllString(name, "")
 	name = plannerParenRe.ReplaceAllString(name, "")
@@ -246,7 +252,81 @@ func parsePlannerMOBIFilename(path string) organize.EbookMetadata {
 	}
 }
 
+func shouldUsePlannerFilename(current, planner organize.EbookMetadata) bool {
+	if strings.TrimSpace(planner.Title) == "" && strings.TrimSpace(planner.Author) == "" {
+		return false
+	}
+	if looksLikePublisherName(current.Author) && strings.TrimSpace(planner.Author) != "" {
+		return true
+	}
+	if !looksLikePersonName(current.Author) && looksLikePersonName(planner.Author) {
+		return true
+	}
+	if strings.TrimSpace(current.Author) == "" && strings.TrimSpace(planner.Author) != "" {
+		return true
+	}
+	return false
+}
+
+func selectEbookMetadata(embedded, filename, fallback organize.EbookMetadata) organize.EbookMetadata {
+	selected := fallback
+	if strings.TrimSpace(selected.Title) == "" {
+		selected.Title = filename.Title
+	}
+	if strings.TrimSpace(selected.Author) == "" {
+		selected.Author = filename.Author
+	}
+	if shouldPreferFilenameAuthor(embedded.Author, filename.Author) {
+		selected.Author = strings.TrimSpace(filename.Author)
+	}
+	return selected
+}
+
+func shouldPreferFilenameAuthor(embeddedAuthor, filenameAuthor string) bool {
+	embeddedAuthor = strings.TrimSpace(embeddedAuthor)
+	filenameAuthor = strings.TrimSpace(filenameAuthor)
+	if filenameAuthor == "" {
+		return false
+	}
+	if embeddedAuthor == "" {
+		return true
+	}
+	return looksLikePublisherName(embeddedAuthor) && !looksLikePublisherName(filenameAuthor)
+}
+
+func looksLikePublisherName(value string) bool {
+	normalized := library.NormalizeKey(value)
+	if normalized == "" {
+		return false
+	}
+	terms := []string{
+		"book group",
+		"books",
+		"publisher",
+		"publishers",
+		"publishing",
+		"press",
+		"media",
+		"group",
+		"company",
+		"corporation",
+		"corp",
+		"inc",
+		"llc",
+		"ltd",
+	}
+	for _, term := range terms {
+		if strings.Contains(normalized, term) {
+			return true
+		}
+	}
+	return false
+}
+
 func looksLikePersonName(value string) bool {
+	if looksLikePublisherName(value) {
+		return false
+	}
 	words := strings.Fields(value)
 	if len(words) < 2 || len(words) > 4 {
 		return false
@@ -292,6 +372,12 @@ func metadataEvidence(signal, value, source string, explanation ...string) Plann
 }
 
 func selectedTitleSource(meta CandidateMetadata) string {
+	if meta.EmbeddedTitle != "" && strings.EqualFold(meta.SelectedTitle, meta.EmbeddedTitle) {
+		return "embedded_metadata"
+	}
+	if meta.FilenameTitle != "" && strings.EqualFold(meta.SelectedTitle, meta.FilenameTitle) {
+		return "filename_fallback"
+	}
 	if meta.EmbeddedTitle != "" {
 		return "embedded_metadata"
 	}
@@ -302,6 +388,12 @@ func selectedTitleSource(meta CandidateMetadata) string {
 }
 
 func selectedAuthorSource(meta CandidateMetadata) string {
+	if meta.EmbeddedAuthor != "" && strings.EqualFold(meta.SelectedAuthor, meta.EmbeddedAuthor) {
+		return "embedded_metadata"
+	}
+	if meta.FilenameAuthor != "" && strings.EqualFold(meta.SelectedAuthor, meta.FilenameAuthor) {
+		return "filename_fallback"
+	}
 	if meta.EmbeddedAuthor != "" {
 		return "embedded_metadata"
 	}

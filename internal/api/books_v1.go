@@ -121,6 +121,15 @@ type v1FileSummary struct {
 	UpdatedAt    string `json:"updated_at"`
 }
 
+type v1BookMergeMatchingResponse struct {
+	Success       bool    `json:"success"`
+	TargetBookID  int64   `json:"target_book_id,omitempty"`
+	MergedBookIDs []int64 `json:"merged_book_ids,omitempty"`
+	MergedCount   int     `json:"merged_count,omitempty"`
+	Title         string  `json:"title,omitempty"`
+	Error         string  `json:"error,omitempty"`
+}
+
 type v1MetadataFieldSummary struct {
 	Value           string `json:"value"`
 	Source          string `json:"source"`
@@ -262,6 +271,119 @@ func (s *Server) handleV1Book(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, detail)
+}
+
+func (s *Server) handleV1BookMergeMatching(w http.ResponseWriter, r *http.Request) {
+	if !s.ensureNormalizedReadAPI(w) {
+		return
+	}
+	bookID, ok := parseIDPathValue(w, r, "id", "Invalid book ID")
+	if !ok {
+		return
+	}
+
+	matches, err := s.findMatchingLibraryBooks(r.Context(), bookID)
+	if errors.Is(err, library.ErrBookNotFound) {
+		writeJSON(w, http.StatusNotFound, v1BookMergeMatchingResponse{Success: false, Error: "Book not found"})
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to find matching books", err)
+		return
+	}
+	if len(matches) < 2 {
+		writeJSON(w, http.StatusConflict, v1BookMergeMatchingResponse{Success: false, Error: "No matching duplicate books were found"})
+		return
+	}
+
+	target := selectMergeTarget(matches)
+	mergedIDs := make([]int64, 0, len(matches)-1)
+	for _, source := range matches {
+		if source.Book.ID == target.Book.ID {
+			continue
+		}
+		if _, err := s.library().MergeBooks(r.Context(), source.Book.ID, target.Book.ID); err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to merge matching books", err)
+			return
+		}
+		mergedIDs = append(mergedIDs, source.Book.ID)
+	}
+	if s.db != nil {
+		username, _ := r.Context().Value(ctxUsername).(string)
+		s.db.LogActivity(username, "library_merge", strconv.FormatInt(target.Book.ID, 10), fmt.Sprintf("Merged %d duplicate book records into %s", len(mergedIDs), target.Book.Title))
+	}
+	writeJSON(w, http.StatusOK, v1BookMergeMatchingResponse{
+		Success:       true,
+		TargetBookID:  target.Book.ID,
+		MergedBookIDs: mergedIDs,
+		MergedCount:   len(mergedIDs),
+		Title:         target.Book.Title,
+	})
+}
+
+func (s *Server) findMatchingLibraryBooks(ctx context.Context, bookID int64) ([]library.BookReadModel, error) {
+	book, err := s.library().GetBook(ctx, bookID)
+	if err != nil {
+		return nil, err
+	}
+	author, err := s.primaryBookAuthor(ctx, bookID)
+	if err != nil {
+		return nil, err
+	}
+	titleKey := library.TitleMatchKey(book.Title)
+	authorKey := library.ContributorMatchKey(author)
+	if titleKey == "" || authorKey == "" {
+		return nil, nil
+	}
+
+	seen := map[int64]struct{}{}
+	matches := []library.BookReadModel{}
+	for _, search := range bookMatchSearchTerms(book.Title, author) {
+		items, err := s.library().ListBookReadModels(ctx, library.ListBooksQuery{
+			MediaType: book.MediaType,
+			Search:    search,
+			Limit:     500,
+		})
+		if err != nil {
+			return nil, err
+		}
+		for _, item := range items {
+			if _, ok := seen[item.Book.ID]; ok {
+				continue
+			}
+			if library.TitleMatchKey(item.Book.Title) != titleKey {
+				continue
+			}
+			if library.ContributorMatchKey(primaryReadModelAuthor(item)) != authorKey {
+				continue
+			}
+			seen[item.Book.ID] = struct{}{}
+			matches = append(matches, item)
+		}
+	}
+	return matches, nil
+}
+
+func (s *Server) primaryBookAuthor(ctx context.Context, bookID int64) (string, error) {
+	editions, err := s.library().ListBookEditions(ctx, bookID)
+	if err != nil {
+		return "", err
+	}
+	for _, edition := range editions {
+		contributors, err := s.library().GetEditionContributors(ctx, edition.ID)
+		if err != nil {
+			return "", err
+		}
+		for _, contributor := range contributors {
+			if strings.TrimSpace(contributor.Name) == "" {
+				continue
+			}
+			if len(contributor.Roles) == 0 || slices.Contains(contributor.Roles, library.RoleAuthor) {
+				return contributor.Name, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 func (s *Server) handleV1BookFiles(w http.ResponseWriter, r *http.Request) {
@@ -515,7 +637,7 @@ func buildV1BookSummary(item library.BookReadModel) v1BookSummary {
 		PrimaryAuthor: mapPrimaryAuthor(item.PrimaryAuthor),
 		Contributors:  mapContributors(item.Contributors),
 		Identifiers:   mapIdentifiers(item.Identifiers),
-		Formats:       item.Formats,
+		Formats:       orderedUniqueFormats(item.Formats),
 		EditionCount:  item.EditionCount,
 		FileCount:     item.FileCount,
 		Cover:         mapBookCover(item.Book.ID, item.LocalCover),
@@ -699,8 +821,54 @@ func uniqueFormats(files []library.BookFile) []string {
 		seen[format] = struct{}{}
 		formats = append(formats, format)
 	}
-	slices.Sort(formats)
+	return orderedUniqueFormats(formats)
+}
+
+func orderedUniqueFormats(values []string) []string {
+	seen := map[string]struct{}{}
+	formats := make([]string, 0, len(values))
+	for _, value := range values {
+		format := strings.TrimSpace(strings.ToLower(value))
+		if format == "" {
+			continue
+		}
+		if _, ok := seen[format]; ok {
+			continue
+		}
+		seen[format] = struct{}{}
+		formats = append(formats, format)
+	}
+	slices.SortStableFunc(formats, func(a, b string) int {
+		ar, br := formatOrderRank(a), formatOrderRank(b)
+		if ar != br {
+			return ar - br
+		}
+		return strings.Compare(a, b)
+	})
 	return formats
+}
+
+func formatOrderRank(format string) int {
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "epub":
+		return 10
+	case "pdf":
+		return 20
+	case "azw3":
+		return 30
+	case "mobi":
+		return 40
+	case "cbz":
+		return 50
+	case "cbr":
+		return 51
+	case "m4b":
+		return 60
+	case "mp3":
+		return 61
+	default:
+		return 100
+	}
 }
 
 func formatAPITime(value time.Time) string {

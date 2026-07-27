@@ -37,6 +37,62 @@ func TestImportPlannerEPUBAndMOBISameBook(t *testing.T) {
 	}
 }
 
+func TestImportPlannerTreatsColonAndDashTitleVariantsAsSameBookForSameAuthor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Ameritopia-The Unmaking of America - Mark R. Levin.mobi")
+	writeFile(t, path, "mobi")
+
+	catalog := newFakeCatalog()
+	catalog.addBookWithEditionAndFile("Ameritopia: The Unmaking of America", "Mark R. Levin", library.MediaTypeEbook, "epub", "/books/ameritopia.epub", "hash-ameritopia")
+
+	planner := NewImportPlanner(catalog)
+	result, err := planner.Plan(context.Background(), PlanningContext{
+		Source:   library.ImportSource{Name: "manual", MediaType: library.MediaTypeEbook},
+		RootPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := result.Plans[0]
+	if plan.Disposition != DispositionAttachNewFormat {
+		t.Fatalf("disposition = %s, want %s; plan=%+v", plan.Disposition, DispositionAttachNewFormat, plan)
+	}
+	if plan.Book.Existing == nil || plan.Book.Existing.Title != "Ameritopia: The Unmaking of America" {
+		t.Fatalf("book match = %+v", plan.Book)
+	}
+}
+
+func TestImportPlannerTreatsAuthorPunctuationVariantsAsSameContributor(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Mark R Levin - Men in Black- How the Supreme Court is Destroying America.mobi")
+	writeFile(t, path, "mobi")
+
+	catalog := newFakeCatalog()
+	catalog.addBookWithEditionAndFile("Men in Black: How the Supreme Court is Destroying America", "Mark R. Levin", library.MediaTypeEbook, "epub", "/books/men-in-black.epub", "hash-men-in-black")
+
+	planner := NewImportPlanner(catalog)
+	result, err := planner.Plan(context.Background(), PlanningContext{
+		Source:   library.ImportSource{Name: "manual", MediaType: library.MediaTypeEbook},
+		RootPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := result.Plans[0]
+	if plan.Candidate.Metadata.SelectedTitle != "Men in Black- How the Supreme Court is Destroying America" {
+		t.Fatalf("selected title = %q", plan.Candidate.Metadata.SelectedTitle)
+	}
+	if plan.Candidate.Metadata.SelectedAuthor != "Mark R Levin" {
+		t.Fatalf("selected author = %q", plan.Candidate.Metadata.SelectedAuthor)
+	}
+	if plan.Disposition != DispositionAttachNewFormat {
+		t.Fatalf("disposition = %s, want %s; plan=%+v", plan.Disposition, DispositionAttachNewFormat, plan)
+	}
+	if plan.Book.Existing == nil || plan.Book.Existing.ID == 0 {
+		t.Fatalf("book match = %+v", plan.Book)
+	}
+}
+
 func TestImportPlannerSameTitleDifferentAuthorNeedsManualReview(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "Someone Else - Dune.azw3")
@@ -121,6 +177,35 @@ func TestImportPlannerEmbeddedMetadataWins(t *testing.T) {
 	}
 	if meta.FilenameTitle != "Torrent Name" {
 		t.Fatalf("filename title = %q, want %q", meta.FilenameTitle, "Torrent Name")
+	}
+}
+
+func TestImportPlannerUsesFilenameAuthorWhenEmbeddedAuthorLooksPublisher(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Disney - [Prince of Persia- The Sands of Time] - The Guardian's Path - Carla Jablonski (retail) (epub).epub")
+	writeEPUB(t, path, "The Guardian's Path", "Disney Book Group")
+
+	catalog := newFakeCatalog()
+	catalog.addBookWithEditionAndFile("The Guardian's Path", "Carla Jablonski", library.MediaTypeEbook, "mobi", "/books/guardian.mobi", "hash-guardian-mobi")
+
+	planner := NewImportPlanner(catalog)
+	result, err := planner.Plan(context.Background(), PlanningContext{
+		Source:   library.ImportSource{Name: "manual", MediaType: library.MediaTypeEbook},
+		RootPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	plan := result.Plans[0]
+	meta := plan.Candidate.Metadata
+	if meta.EmbeddedAuthor != "Disney Book Group" || meta.FilenameAuthor != "Carla Jablonski" || meta.SelectedAuthor != "Carla Jablonski" {
+		t.Fatalf("metadata = %+v", meta)
+	}
+	if plan.Disposition != DispositionAttachNewFormat {
+		t.Fatalf("disposition = %s, want %s; plan=%+v", plan.Disposition, DispositionAttachNewFormat, plan)
+	}
+	if plan.Book.Existing == nil || plan.Book.Existing.Title != "The Guardian's Path" {
+		t.Fatalf("book match = %+v", plan.Book)
 	}
 }
 
@@ -343,11 +428,15 @@ func (c *fakeCatalog) FindBookByIdentifier(context.Context, library.Identifier) 
 
 func (c *fakeCatalog) SearchBooks(_ context.Context, query library.BookQuery) ([]library.Book, error) {
 	var books []library.Book
+	titleQuery := library.TitleMatchKey(query.Title)
+	authorQuery := library.ContributorMatchKey(query.Title)
 	for _, book := range c.books {
 		if query.MediaType != "" && book.MediaType != query.MediaType {
 			continue
 		}
-		if strings.EqualFold(library.NormalizeKey(book.Title), library.NormalizeKey(query.Title)) {
+		bookTitle := library.TitleMatchKey(book.Title)
+		bookAuthor := library.ContributorMatchKey(primaryContributorName(&book))
+		if strings.Contains(bookTitle, titleQuery) || strings.Contains(bookAuthor, authorQuery) {
 			books = append(books, book)
 		}
 	}

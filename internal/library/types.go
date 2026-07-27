@@ -1,6 +1,9 @@
 package library
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
 
 type MediaType string
 
@@ -69,4 +72,18 @@ const (
 
 func NormalizeKey(value string) string {
 	return strings.Join(strings.Fields(strings.ToLower(strings.TrimSpace(value))), " ")
+}
+
+var titleSeparatorPattern = regexp.MustCompile(`[\p{Pd}:;]+`)
+
+func TitleMatchKey(value string) string {
+	value = titleSeparatorPattern.ReplaceAllString(value, " ")
+	return NormalizeKey(value)
+}
+
+var contributorSeparatorPattern = regexp.MustCompile(`[^\p{L}\p{N}]+`)
+
+func ContributorMatchKey(value string) string {
+	value = contributorSeparatorPattern.ReplaceAllString(value, " ")
+	return NormalizeKey(value)
 }

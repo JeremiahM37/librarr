@@ -94,13 +94,15 @@ func (r *BookResolver) Resolve(ctx context.Context, _ PlanningContext, candidate
 		}, nil
 	}
 
-	books, err := r.catalog.SearchBooks(ctx, library.BookQuery{Title: title, MediaType: candidate.MediaType})
-	if err != nil && !errors.Is(err, library.ErrNotFound) {
+	books, err := searchBooksByTerms(ctx, r.catalog, candidate.MediaType, bookSearchTerms(title, author))
+	if err != nil {
 		return ResolvedBook{}, err
 	}
 
 	var exactTitleMatches []library.Book
 	var exactAuthorMatches []library.Book
+	titleKey := importTitleMatchKey(title)
+	authorKey := library.ContributorMatchKey(author)
 	for _, book := range books {
 		fullBook := book
 		if fullBook.ID != 0 {
@@ -108,12 +110,12 @@ func (r *BookResolver) Resolve(ctx context.Context, _ PlanningContext, candidate
 				fullBook = *loaded
 			}
 		}
-		if library.NormalizeKey(fullBook.Title) != library.NormalizeKey(title) {
+		if library.TitleMatchKey(fullBook.Title) != titleKey {
 			continue
 		}
 		exactTitleMatches = append(exactTitleMatches, fullBook)
-		bookAuthor := library.NormalizeKey(primaryContributorName(&fullBook))
-		if author != "" && bookAuthor == library.NormalizeKey(author) {
+		bookAuthor := library.ContributorMatchKey(primaryContributorName(&fullBook))
+		if authorKey != "" && bookAuthor == authorKey {
 			exactAuthorMatches = append(exactAuthorMatches, fullBook)
 		}
 	}
@@ -196,6 +198,86 @@ func (r *BookResolver) Resolve(ctx context.Context, _ PlanningContext, candidate
 			Explanation: "No existing logical book matched the candidate",
 		}},
 	}, nil
+}
+
+func importTitleMatchKey(value string) string {
+	return library.TitleMatchKey(value)
+}
+
+type bookSearcher interface {
+	SearchBooks(context.Context, library.BookQuery) ([]library.Book, error)
+}
+
+func searchBooksByTerms(ctx context.Context, searcher bookSearcher, mediaType library.MediaType, terms []string) ([]library.Book, error) {
+	var books []library.Book
+	for _, term := range uniqueSearchTerms(terms) {
+		found, err := searcher.SearchBooks(ctx, library.BookQuery{Title: term, MediaType: mediaType})
+		if err != nil {
+			if errors.Is(err, library.ErrNotFound) || errors.Is(err, library.ErrBookNotFound) {
+				continue
+			}
+			return nil, err
+		}
+		books = appendUniqueBooksByID(books, found)
+	}
+	return books, nil
+}
+
+func bookSearchTerms(title, author string) []string {
+	var terms []string
+	terms = append(terms, strings.TrimSpace(title))
+	terms = append(terms, leadingMatchWords(library.TitleMatchKey(title), 3))
+	terms = append(terms, strings.TrimSpace(author))
+	terms = append(terms, leadingMatchWords(library.ContributorMatchKey(author), 2))
+	return terms
+}
+
+func uniqueSearchTerms(terms []string) []string {
+	seen := map[string]struct{}{}
+	unique := make([]string, 0, len(terms))
+	for _, term := range terms {
+		term = strings.TrimSpace(term)
+		if term == "" {
+			continue
+		}
+		key := library.NormalizeKey(term)
+		if key == "" {
+			continue
+		}
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		unique = append(unique, term)
+	}
+	return unique
+}
+
+func leadingMatchWords(value string, count int) string {
+	fields := strings.Fields(value)
+	if len(fields) <= count {
+		return strings.Join(fields, " ")
+	}
+	return strings.Join(fields[:count], " ")
+}
+
+func appendUniqueBooksByID(books []library.Book, extra []library.Book) []library.Book {
+	seen := make(map[int64]struct{}, len(books))
+	for _, book := range books {
+		if book.ID != 0 {
+			seen[book.ID] = struct{}{}
+		}
+	}
+	for _, book := range extra {
+		if book.ID != 0 {
+			if _, ok := seen[book.ID]; ok {
+				continue
+			}
+			seen[book.ID] = struct{}{}
+		}
+		books = append(books, book)
+	}
+	return books
 }
 
 type EditionResolver struct {

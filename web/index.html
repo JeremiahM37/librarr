@@ -349,6 +349,22 @@
         </div>
       </div>
 
+      <div id="settings-library-repairs" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-2">Maintenance</p>
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Repair Nested Ebook Paths</h3>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Older Librarr builds could create <code class="rounded bg-slate-950 px-1 py-0.5 text-amber-200">/books/ebooks/ebooks/...</code>. Preview this repair before moving cataloged files into the configured ebook root and updating Librarr’s paths.</p>
+            <p class="mt-2 text-xs text-slate-500">Recommended order: merge matching duplicate books, preview this repair, run it, verify Library and OPDS, then rescan only if needed.</p>
+          </div>
+          <div class="flex shrink-0 flex-wrap gap-2">
+            <button data-action="previewNestedEbookPathRepair" class="rounded-lg bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Preview Repair</button>
+            <button data-action="runNestedEbookPathRepair" class="rounded-lg bg-amber-500 px-3 py-2 text-xs font-semibold text-stone-950 hover:bg-amber-400">Run Repair</button>
+          </div>
+        </div>
+        <div id="settings-library-repairs-output" class="mt-4"></div>
+      </div>
+
       <div id="settings-users" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <div class="flex items-start justify-between mb-4 gap-3">
           <div>

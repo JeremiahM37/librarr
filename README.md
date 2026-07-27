@@ -48,6 +48,8 @@ Librarr 2.0 currently has:
 - manual-review detection and resolution controls
 - explicit import actions from scan review results
 - partial-failure reporting and retry of failed imports
+- logical book cards that group available formats such as EPUB and MOBI
+- safe library removal with separate catalog-only and delete-files actions
 - embedded EPUB cover extraction with local cover caching
 - expanded User Management with local accounts, roles, status, password resets, and invite codes
 - rich connection diagnostics for Prowlarr and qBittorrent
@@ -118,6 +120,51 @@ Representative real-world scan results during development were roughly:
 - 2 manual review
 
 Treat those numbers as an example, not a benchmark or guarantee.
+
+### Library management
+
+In normalized Librarr 2.0 mode, the Library displays one card per logical book.
+Available formats are shown as compact chips on the card and as individual files
+in the details view. For example, a single book can show both `EPUB` and `MOBI`
+without appearing as two separate books.
+
+Book details provide two distinct admin actions:
+
+- **Remove from Library** removes the normalized catalog record and leaves files
+  untouched. Those files may return during a future scan.
+- **Delete Book and Files** deletes the managed files attached to that book and
+  then removes the catalog record. Librarr only deletes paths already associated
+  with the selected book and only when they resolve inside configured library
+  roots.
+- **Merge Matching Duplicates** repairs historical split logical-book records
+  when normalized title and contributor matching show they are the same book.
+
+Librarr does not run automatic destructive repair on startup. Administrators can
+explicitly repair historical duplicate rows from Book Details and can preview
+the nested ebook path repair from Settings before any files are moved.
+
+### Nested ebook path repair
+
+Older development builds could create cataloged files under a repeated ebook
+folder such as `/books/ebooks/ebooks/...`. Manual filesystem moves would break
+Library and OPDS records because normalized file paths are stored in the
+database.
+
+Administrators can use **Settings → Maintenance → Repair Nested Ebook Paths**:
+
+1. Merge matching duplicate books if needed.
+2. Preview the nested ebook path repair.
+3. Review ready, collision, missing, unsafe, and already-repaired entries.
+4. Run the repair only after taking a backup.
+5. Verify Library and OPDS.
+6. Rescan only if needed.
+
+The repair targets only the configured ebook root plus one repeated terminal
+segment, for example `EbookDir=/books/ebooks` repairs
+`/books/ebooks/ebooks/...` to `/books/ebooks/...`. It skips missing files,
+collisions, unsafe paths, and unknown files that are not represented in the
+catalog. Scanner imports from `/data/incoming` remain unmanaged/in-place until a
+separate organization workflow is implemented.
 
 ### Review and import
 

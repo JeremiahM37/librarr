@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -482,6 +483,83 @@ func TestV1LibraryScanUseSuggestedDoesNotOverwriteExistingCover(t *testing.T) {
 	}
 	if cover.LocalPath != existingCoverPath {
 		t.Fatalf("cover path = %q, want existing %q", cover.LocalPath, existingCoverPath)
+	}
+}
+
+func TestV1LibraryScanMergeMatchingBooksRepairsColonDashDuplicate(t *testing.T) {
+	s, _, cleanup := newNormalizedLibraryScanAPIServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	ebookPath := filepath.Join(s.cfg.EbookDir, "Ameritopia-The Unmaking of America - Mark R. Levin.mobi")
+	if err := os.WriteFile(ebookPath, []byte("mobi bytes"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	targetBook, targetEdition := createAPIScanBook(t, s.libraryService, "Ameritopia: The Unmaking of America", "Mark R. Levin")
+	sourceBook, sourceEdition := createAPIScanBook(t, s.libraryService, "Ameritopia-The Unmaking of America", "Mark R Levin")
+	if _, err := s.libraryService.AttachFile(ctx, library.BookFile{
+		EditionID:  targetEdition.ID,
+		MediaType:  library.MediaTypeEbook,
+		Format:     "epub",
+		Path:       filepath.Join(s.cfg.EbookDir, "Ameritopia The Unmaking of America.epub"),
+		SourceType: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.libraryService.AttachFile(ctx, library.BookFile{
+		EditionID:  sourceEdition.ID,
+		MediaType:  library.MediaTypeEbook,
+		Format:     "mobi",
+		Path:       ebookPath,
+		SourceType: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	scanJobID := startAPIScanWithCurrentRoots(t, s)
+	result := getAPIScanResult(t, s, scanJobID)
+	if len(result.Candidates) != 1 {
+		t.Fatalf("candidates = %+v", result.Candidates)
+	}
+	candidate := result.Candidates[0]
+	if candidate.Classification != libraryscanner.ClassificationManualReview || !strings.Contains(candidate.ClassificationReason, "Multiple existing books") {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"id":     candidate.ID,
+		"action": "merge_matching_books",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/library/scan/"+scanJobID+"/resolve", bytes.NewReader(body))
+	req.SetPathValue("job_id", scanJobID)
+	req.Header.Set("X-Api-Key", s.cfg.APIKey)
+	rr := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("merge status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resolved libraryscanner.Result
+	if err := json.Unmarshal(rr.Body.Bytes(), &resolved); err != nil {
+		t.Fatal(err)
+	}
+	got := resolved.Candidates[0]
+	if got.Classification != libraryscanner.ClassificationAlreadyImported || got.ExistingBookID != targetBook.ID {
+		t.Fatalf("resolved candidate = %+v", got)
+	}
+	if got.ManualReview != nil {
+		t.Fatalf("manual review was not cleared: %+v", got.ManualReview)
+	}
+	if strings.Contains(filepath.ToSlash(got.DestinationPath), "/ebooks/ebooks/") {
+		t.Fatalf("destination contains duplicated ebooks segment: %q", got.DestinationPath)
+	}
+	if _, err := s.libraryService.GetBook(ctx, sourceBook.ID); !errors.Is(err, library.ErrNotFound) {
+		t.Fatalf("source book error = %v", err)
+	}
+	files, err := s.libraryService.GetBookFiles(ctx, targetBook.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %+v", files)
 	}
 }
 

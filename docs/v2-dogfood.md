@@ -200,10 +200,17 @@ If you want to walk the flow manually in the UI:
    Unreadable sections.
 8. Use Import Selected or Import All Ready.
 9. Verify the review refreshes and imported books move to Already Imported.
-10. If Prowlarr or qBittorrent are configured, run Connection Diagnostics and
+10. If the library contains historical duplicate cards, open Book Details and
+    use **Merge Matching Duplicates** where title/contributor variants refer to
+    the same logical book.
+11. If older files appear under a repeated ebook folder such as
+    `/books/ebooks/ebooks/...`, open Settings → Maintenance and run **Preview
+    Repair** before **Run Repair**. Back up first; collisions, missing files,
+    unsafe paths, and unknown non-cataloged files are skipped.
+12. If Prowlarr or qBittorrent are configured, run Connection Diagnostics and
     verify staged results render in Settings.
-11. Restart the container.
-12. Verify onboarding remains complete and imported books remain present.
+13. Restart the container.
+14. Verify onboarding remains complete and imported books remain present.
 
 ## Health check
 
@@ -223,5 +230,7 @@ against container port `5050`.
   import pipeline, not full real-world metadata extraction.
 - qBittorrent, Prowlarr, and other external integrations are optional and are
   not configured by default in the dogfood stack.
+- Scanner imports from `/data/incoming` are still cataloged in place unless a
+  separate organization workflow moves them later.
 - If a contributor wants to test against a copied real library, they should use
   a copied or read-only source, not the production write destination.

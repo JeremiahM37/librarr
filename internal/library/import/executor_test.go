@@ -105,6 +105,124 @@ func TestImportExecutorExistingBookAndNewFormat(t *testing.T) {
 	}
 }
 
+func TestImportExecutorReusesExistingBookForColonDashTitleVariant(t *testing.T) {
+	service, cleanup := newNormalizedLibraryService(t)
+	defer cleanup()
+
+	existingBook, err := service.CreateBook(context.Background(), library.Book{Title: "Ameritopia: The Unmaking of America", MediaType: library.MediaTypeEbook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingEdition, err := service.CreateEdition(context.Background(), library.Edition{BookID: existingBook.ID, Title: "Ameritopia: The Unmaking of America"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AttachContributor(context.Background(), existingEdition.ID, library.Contributor{Name: "Mark R. Levin", Roles: []library.ContributorRole{library.RoleAuthor}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AttachFile(context.Background(), library.BookFile{EditionID: existingEdition.ID, MediaType: library.MediaTypeEbook, Format: "epub", Path: "/books/ameritopia.epub", OriginalPath: "/books/ameritopia.epub", ContentHash: "hash-ameritopia-epub"}); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Ameritopia-The Unmaking of America - Mark R. Levin.mobi")
+	writeFile(t, path, "mobi-bytes")
+
+	planner := NewImportPlanner(service)
+	planned, err := planner.Plan(context.Background(), PlanningContext{
+		Source:   library.ImportSource{Name: "manual", MediaType: library.MediaTypeEbook},
+		RootPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.Plans[0].Disposition != DispositionAttachNewFormat {
+		t.Fatalf("plan = %+v", planned.Plans[0])
+	}
+
+	executor := NewImportExecutor(service)
+	summary, err := executor.Execute(context.Background(), ExecutionContext{}, planned.Plans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Results[0].Status != ExecutionStatusSuccess || summary.Results[0].BookID != existingBook.ID {
+		t.Fatalf("summary = %+v", summary)
+	}
+	books, err := service.ListBooks(context.Background(), library.ListBooksQuery{MediaType: library.MediaTypeEbook, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 1 {
+		t.Fatalf("books = %+v", books)
+	}
+	files, err := service.GetBookFiles(context.Background(), existingBook.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %+v", files)
+	}
+}
+
+func TestImportExecutorReusesExistingBookForAuthorPunctuationVariant(t *testing.T) {
+	service, cleanup := newNormalizedLibraryService(t)
+	defer cleanup()
+
+	existingBook, err := service.CreateBook(context.Background(), library.Book{Title: "Men in Black: How the Supreme Court is Destroying America", MediaType: library.MediaTypeEbook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	existingEdition, err := service.CreateEdition(context.Background(), library.Edition{BookID: existingBook.ID, Title: "Men in Black: How the Supreme Court is Destroying America"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := service.AttachContributor(context.Background(), existingEdition.ID, library.Contributor{Name: "Mark R. Levin", Roles: []library.ContributorRole{library.RoleAuthor}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := service.AttachFile(context.Background(), library.BookFile{EditionID: existingEdition.ID, MediaType: library.MediaTypeEbook, Format: "epub", Path: "/books/men-in-black.epub", OriginalPath: "/books/men-in-black.epub", ContentHash: "hash-men-in-black-epub"}); err != nil {
+		t.Fatal(err)
+	}
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "Mark R Levin - Men in Black- How the Supreme Court is Destroying America.mobi")
+	writeFile(t, path, "mobi-bytes")
+
+	planner := NewImportPlanner(service)
+	planned, err := planner.Plan(context.Background(), PlanningContext{
+		Source:   library.ImportSource{Name: "manual", MediaType: library.MediaTypeEbook},
+		RootPath: path,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if planned.Plans[0].Disposition != DispositionAttachNewFormat {
+		t.Fatalf("plan = %+v", planned.Plans[0])
+	}
+
+	executor := NewImportExecutor(service)
+	summary, err := executor.Execute(context.Background(), ExecutionContext{}, planned.Plans)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if summary.Results[0].Status != ExecutionStatusSuccess || summary.Results[0].BookID != existingBook.ID {
+		t.Fatalf("summary = %+v", summary)
+	}
+	books, err := service.ListBooks(context.Background(), library.ListBooksQuery{MediaType: library.MediaTypeEbook, Limit: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(books) != 1 {
+		t.Fatalf("books = %+v", books)
+	}
+	files, err := service.GetBookFiles(context.Background(), existingBook.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %+v", files)
+	}
+}
+
 func TestImportExecutorExistingEdition(t *testing.T) {
 	service, cleanup := newNormalizedLibraryService(t)
 	defer cleanup()

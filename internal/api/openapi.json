@@ -173,6 +173,35 @@
           "summary": {"type": "string"},
           "steps": {"type": "array", "items": {"$ref": "#/components/schemas/DiagnosticStep"}}
         }
+      },
+      "NestedEbookPathRepairEntry": {
+        "type": "object",
+        "properties": {
+          "book_id": {"type": "integer"},
+          "book_title": {"type": "string"},
+          "file_id": {"type": "integer"},
+          "format": {"type": "string"},
+          "source_path": {"type": "string"},
+          "destination_path": {"type": "string"},
+          "status": {"type": "string", "enum": ["ready", "collision", "missing", "unsafe", "already_repaired", "moved", "failed"]},
+          "message": {"type": "string"}
+        }
+      },
+      "NestedEbookPathRepairPlan": {
+        "type": "object",
+        "properties": {
+          "success": {"type": "boolean"},
+          "executed": {"type": "boolean"},
+          "ebook_root": {"type": "string"},
+          "legacy_root": {"type": "string"},
+          "total_affected_files": {"type": "integer"},
+          "total_affected_books": {"type": "integer"},
+          "summary": {"type": "object", "additionalProperties": {"type": "integer"}},
+          "entries": {"type": "array", "items": {"$ref": "#/components/schemas/NestedEbookPathRepairEntry"}},
+          "legacy_root_removed": {"type": "boolean"},
+          "removed_empty_folders": {"type": "array", "items": {"type": "string"}},
+          "error": {"type": "string"}
+        }
       }
     }
   },
@@ -311,6 +340,21 @@
       "get": {
         "summary": "Get a normalized Librarr 2.0 book",
         "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+      },
+      "delete": {
+        "summary": "Remove a normalized book from the catalog, optionally deleting managed files",
+        "description": "Admin-only. With delete_files=false, removes the normalized catalog record and leaves files on disk. With delete_files=true, Librarr resolves attached files from the selected book, verifies each path is inside configured library roots, deletes files first, then removes catalog records. The client never supplies filesystem paths.",
+        "parameters": [
+          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}},
+          {"name": "delete_files", "in": "query", "schema": {"type": "boolean", "default": false}}
+        ],
+        "responses": {
+          "200": {"description": "Book removed or deleted"},
+          "400": {"description": "Invalid or unsafe attached file path"},
+          "403": {"description": "Admin access required"},
+          "404": {"description": "Book not found"},
+          "409": {"description": "One or more files could not be deleted; catalog record was retained"}
+        }
       }
     },
     "/api/v1/books/{id}/metadata": {
@@ -351,6 +395,26 @@
       "get": {
         "summary": "Return normalized library totals and format distribution",
         "description": "Returns native counts from normalized Librarr 2.0 tables. Requires LIBRARR_LIBRARY_REPOSITORY_MODE=normalized."
+      }
+    },
+    "/api/v1/library/repairs/nested-ebook-paths": {
+      "get": {
+        "summary": "Preview nested ebook path repair",
+        "description": "Admin-only dry run for cataloged ebook files under a repeated ebook root such as /books/ebooks/ebooks. No files or database paths are changed.",
+        "responses": {
+          "200": {"description": "Repair preview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NestedEbookPathRepairPlan"}}}},
+          "400": {"description": "Repair cannot be planned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "403": {"description": "Admin access required", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      },
+      "post": {
+        "summary": "Run nested ebook path repair",
+        "description": "Admin-only explicit repair. Moves only ready entries, updates normalized file paths through LibraryService, skips collisions/missing/unsafe entries, and removes only empty legacy directories.",
+        "responses": {
+          "200": {"description": "Repair execution result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NestedEbookPathRepairPlan"}}}},
+          "400": {"description": "Repair cannot be planned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "403": {"description": "Admin access required", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
       }
     },
     "/api/v1/library/scan": {

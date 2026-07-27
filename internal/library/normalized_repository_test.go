@@ -126,6 +126,92 @@ func TestNormalizedRepositorySearchCountRecentAndDelete(t *testing.T) {
 	}
 }
 
+func TestNormalizedRepositoryMergeBooksMovesEditionsFilesAndKeepsTargetCover(t *testing.T) {
+	repo, cleanup := newNormalizedRepo(t)
+	defer cleanup()
+	ctx := context.Background()
+
+	target, err := repo.CreateBook(ctx, Book{Title: "Ameritopia: The Unmaking of America", MediaType: MediaTypeEbook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	targetEdition, err := repo.CreateEdition(ctx, Edition{BookID: target.ID, Title: target.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	source, err := repo.CreateBook(ctx, Book{Title: "Ameritopia-The Unmaking of America", MediaType: MediaTypeEbook})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sourceEdition, err := repo.CreateEdition(ctx, Edition{BookID: source.ID, Title: source.Title})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachContributor(ctx, targetEdition.ID, Contributor{Name: "Mark R. Levin", Roles: []ContributorRole{RoleAuthor}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachContributor(ctx, sourceEdition.ID, Contributor{Name: "Mark R. Levin", Roles: []ContributorRole{RoleAuthor}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := repo.AttachContributor(ctx, sourceEdition.ID, Contributor{Name: "Source Narrator", Roles: []ContributorRole{RoleNarrator}}); err != nil {
+		t.Fatal(err)
+	}
+	targetCoverPath := filepath.Join(t.TempDir(), "target-cover.jpg")
+	if err := os.WriteFile(targetCoverPath, []byte("target cover"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AttachCover(ctx, Cover{BookID: target.ID, LocalPath: targetCoverPath, MimeType: "image/jpeg", IsPrimary: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AttachCover(ctx, Cover{BookID: source.ID, LocalPath: filepath.Join(t.TempDir(), "source-cover.jpg"), MimeType: "image/jpeg", IsPrimary: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AttachFile(ctx, BookFile{EditionID: targetEdition.ID, MediaType: MediaTypeEbook, Format: "epub", Path: filepath.Join(t.TempDir(), "ameritopia.epub")}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := repo.AttachFile(ctx, BookFile{EditionID: sourceEdition.ID, MediaType: MediaTypeEbook, Format: "mobi", Path: filepath.Join(t.TempDir(), "ameritopia.mobi")}); err != nil {
+		t.Fatal(err)
+	}
+
+	merged, err := repo.MergeBooks(ctx, source.ID, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if merged.ID != target.ID {
+		t.Fatalf("merged book id = %d, want %d", merged.ID, target.ID)
+	}
+	if _, err := repo.GetBook(ctx, source.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("source book error = %v", err)
+	}
+	files, err := repo.GetBookFiles(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 2 {
+		t.Fatalf("files = %+v", files)
+	}
+	contributors, err := repo.GetEditionContributors(ctx, targetEdition.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundNarrator := false
+	for _, contributor := range contributors {
+		if contributor.Name == "Source Narrator" {
+			foundNarrator = true
+		}
+	}
+	if !foundNarrator {
+		t.Fatalf("source-only contributor was not moved: %+v", contributors)
+	}
+	cover, err := repo.GetPrimaryCover(ctx, target.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover.LocalPath != targetCoverPath {
+		t.Fatalf("cover path = %q, want %q", cover.LocalPath, targetCoverPath)
+	}
+}
+
 func TestNormalizedRepositoryContributorsSeriesIdentifiersAndCovers(t *testing.T) {
 	repo, cleanup := newNormalizedRepo(t)
 	defer cleanup()

@@ -71,9 +71,17 @@ const functionBundle = [
   extractFunctionSource('renderActivityChip'),
   extractFunctionSource('renderOnboardingChecklist'),
   extractFunctionSource('mapV1BookToUIBook'),
+  extractFunctionSource('normalizeFormatLabels'),
   extractFunctionSource('renderBookCover'),
   extractFunctionSource('makePlaceholderHtml'),
   extractFunctionSource('renderLibraryBookCard'),
+  extractFunctionSource('renderBookDeletionPanel'),
+  extractFunctionSource('renderBookDeleteConfirmation'),
+  extractFunctionSource('openBookDeleteDialog'),
+  extractFunctionSource('cancelBookDeleteDialog'),
+  extractFunctionSource('mergeMatchingBookDuplicates'),
+  extractFunctionSource('confirmBookDelete'),
+  extractFunctionSource('formatBookDeleteError'),
   extractFunctionSource('renderMetricCard'),
   extractFunctionSource('renderCompactDownload'),
   extractFunctionSource('renderActivityRow'),
@@ -85,6 +93,13 @@ const functionBundle = [
   extractFunctionSource('libraryImportSummaryLines'),
   extractFunctionSource('applyLibraryImportLoadedState'),
   extractFunctionSource('setLibraryImportStep2State'),
+  extractFunctionSource('updateLibraryRepairCardVisibility'),
+  extractFunctionSource('renderNestedEbookPathRepair'),
+  extractFunctionSource('renderRepairMetric'),
+  extractFunctionSource('renderRepairEntry'),
+  extractFunctionSource('repairStatusClass'),
+  extractFunctionSource('previewNestedEbookPathRepair'),
+  extractFunctionSource('runNestedEbookPathRepair'),
   extractFunctionSource('renderLibraryScanWorkspace'),
   extractFunctionSource('renderLibraryScanReady'),
   extractFunctionSource('renderLibraryScanProgress'),
@@ -235,12 +250,15 @@ function createContext(overrides = {}) {
     state: {
       libraryImport: libraryImportState(),
       libraryMetadataEditor: { open: false, draft: null, errors: [] },
+      bookDeleteDialog: { open: false, deleteFiles: false, loading: false, error: '' },
       libraryBooks: [],
       activeDetailBook: null,
       activeDetailContext: null,
+      libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: null, result: null, error: '' } },
       config: { library_repository_mode: 'normalized' },
     },
     document: { getElementById: () => null, querySelector: () => null },
+    api: async () => ({ ok: true, json: async () => ({ success: true }) }),
     apiJson: async () => ({ success: true }),
     showToast: () => {},
     scrollToSettingsSection: () => {},
@@ -843,6 +861,118 @@ test('index.html keeps the standard Settings save control', () => {
   assert.match(indexHTML, />Save<\/button>/);
 });
 
+test('admin nested ebook path repair card renders and normal users do not see it', () => {
+  const card = { classList: fakeClassList(['hidden']) };
+  const output = { innerHTML: '' };
+  const context = createContext({
+    state: {
+      currentRole: 'user',
+      libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: null, result: null, error: '' } },
+    },
+    document: { getElementById: id => id === 'settings-library-repairs' ? card : (id === 'settings-library-repairs-output' ? output : null) },
+  });
+
+  context.updateLibraryRepairCardVisibility();
+  assert.equal(card.classList.contains('hidden'), true);
+
+  context.state.currentRole = 'admin';
+  context.updateLibraryRepairCardVisibility();
+  assert.equal(card.classList.contains('hidden'), false);
+  assert.match(indexHTML, /Repair Nested Ebook Paths/);
+  assert.match(indexHTML, /data-action="previewNestedEbookPathRepair"/);
+  assert.match(indexHTML, /data-action="runNestedEbookPathRepair"/);
+});
+
+test('nested ebook path repair preview renders summary and statuses', async () => {
+  const output = { innerHTML: '' };
+  const plan = {
+    success: true,
+    legacy_root: '/books/ebooks/ebooks',
+    total_affected_files: 3,
+    summary: { ready: 1, collision: 1, missing: 1 },
+    entries: [
+      { book_title: 'Ready', file_id: 1, format: 'epub', source_path: '/books/ebooks/ebooks/A/Ready.epub', destination_path: '/books/ebooks/A/Ready.epub', status: 'ready', message: 'ready to move' },
+      { book_title: 'Collision', file_id: 2, format: 'mobi', source_path: '/books/ebooks/ebooks/A/Collision.mobi', destination_path: '/books/ebooks/A/Collision.mobi', status: 'collision', message: 'destination already exists' },
+      { book_title: 'Missing', file_id: 3, format: 'pdf', source_path: '/books/ebooks/ebooks/A/Missing.pdf', destination_path: '/books/ebooks/A/Missing.pdf', status: 'missing', message: 'source file is missing' },
+    ],
+  };
+  const context = createContext({
+    state: { libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: null, result: null, error: '' } } },
+    document: { getElementById: id => id === 'settings-library-repairs-output' ? output : null },
+    apiJson: async url => {
+      assert.equal(url, '/api/v1/library/repairs/nested-ebook-paths');
+      return plan;
+    },
+  });
+
+  await context.previewNestedEbookPathRepair();
+
+  assert.match(output.innerHTML, /Affected files/);
+  assert.match(output.innerHTML, /Ready/);
+  assert.match(output.innerHTML, /Collision/);
+  assert.match(output.innerHTML, /source file is missing/);
+});
+
+test('nested ebook path repair execution requires confirmation and renders success', async () => {
+  const calls = [];
+  const output = { innerHTML: '' };
+  const context = createContext({
+    state: {
+      libraryRepair: {
+        nestedEbookPaths: {
+          loading: false,
+          running: false,
+          error: '',
+          plan: { total_affected_files: 2, summary: { ready: 2 }, entries: [] },
+          result: null,
+        },
+      },
+    },
+    document: { getElementById: id => id === 'settings-library-repairs-output' ? output : null },
+    window: { confirm: () => false, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} },
+    apiJson: async () => {
+      calls.push('api');
+      return {};
+    },
+  });
+
+  await context.runNestedEbookPathRepair();
+  assert.deepEqual(calls, []);
+
+  context.window.confirm = () => true;
+  context.apiJson = async (url, options = {}) => {
+    calls.push(`${options.method}:${url}`);
+    return { executed: true, legacy_root_removed: true, total_affected_files: 2, summary: { moved: 2 }, entries: [] };
+  };
+  context.loadLibrary = async () => calls.push('loadLibrary');
+  context.showToast = (message, kind) => calls.push(`${kind}:${message}`);
+
+  await context.runNestedEbookPathRepair();
+
+  assert.deepEqual(calls.slice(0, 2), ['POST:/api/v1/library/repairs/nested-ebook-paths', 'loadLibrary']);
+  assert.match(output.innerHTML, /Repair complete/);
+  assert.match(output.innerHTML, /legacy nested directory was removed/);
+});
+
+test('nested ebook path repair API failure remains actionable', async () => {
+  const output = { innerHTML: '' };
+  const toasts = [];
+  const context = createContext({
+    state: {
+      libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: { summary: { ready: 1 }, entries: [] }, result: null, error: '' } },
+    },
+    document: { getElementById: id => id === 'settings-library-repairs-output' ? output : null },
+    window: { confirm: () => true, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} },
+    apiJson: async () => { throw new Error('permission denied'); },
+    showToast: (message, kind) => toasts.push({ message, kind }),
+  });
+
+  await context.runNestedEbookPathRepair();
+
+  assert.match(output.innerHTML, /permission denied/);
+  assert.deepEqual(toasts, [{ message: 'permission denied', kind: 'error' }]);
+});
+
 test('main navigation is focused on Librarr 2.0 primary destinations', () => {
   assert.match(indexHTML, /data-arg="home"/);
   assert.match(indexHTML, /data-arg="library"/);
@@ -880,6 +1010,184 @@ test('library book card renders returned cover URL', () => {
 	}, 0);
 
 	assert.match(html, /<img src="\/api\/v1\/books\/42\/cover"/);
+});
+
+test('normalized book cards render one card with sorted unique format chips', () => {
+  const context = createContext({
+    renderBookCover: () => '<cover />',
+    renderFormatBadge: format => `<format>${format}</format>`,
+  });
+  const book = context.mapV1BookToUIBook({
+    id: 42,
+    title: 'Ameritopia',
+    primary_author: { name: 'Mark R. Levin' },
+    media_type: 'ebook',
+    formats: ['mobi', 'EPUB', 'epub', 'azw3'],
+  });
+  const html = context.renderLibraryBookCard(book, 0);
+
+  assert.deepEqual(book.formats, ['EPUB', 'AZW3', 'MOBI']);
+  assert.equal((html.match(/<format>/g) || []).length, 3);
+  assert.match(html, /Ameritopia/);
+  assert.match(html, /Mark R\. Levin/);
+});
+
+test('book management panel exposes admin duplicate merge repair', () => {
+  const context = createContext({
+    state: {
+      currentRole: 'admin',
+      bookDeleteDialog: { open: false, deleteFiles: false, loading: false, error: '' },
+    },
+  });
+  const html = context.renderBookDeletionPanel(
+    { id: 42, title: 'Men in Black', author: 'Mark R. Levin', formats: ['EPUB', 'MOBI'] },
+    [{ path: '/books/men-in-black.epub', format: 'EPUB', size: 10 }],
+  );
+
+  assert.match(html, /Merge Matching Duplicates/);
+  assert.match(html, /data-action="mergeMatchingBookDuplicates"/);
+});
+
+test('merge matching duplicate books posts repair endpoint and reopens surviving book', async () => {
+  const calls = [];
+  const context = createContext({
+    state: {
+      currentTab: 'library',
+      activeDetailBook: { id: 17, title: 'Men in Black- How the Supreme Court is Destroying America' },
+      libraryBooks: [{ id: 16, title: 'Men in Black: How the Supreme Court is Destroying America' }],
+    },
+    apiJson: async (url, options = {}) => {
+      calls.push({ type: 'api', url, method: options.method });
+      return { success: true, target_book_id: 16, merged_count: 1 };
+    },
+    loadLibrary: async () => {
+      calls.push({ type: 'loadLibrary' });
+      context.state.libraryBooks = [{ id: 16, title: 'Men in Black: How the Supreme Court is Destroying America' }];
+    },
+    openBookDetails: async (index, collection) => calls.push({ type: 'openBookDetails', index, collection }),
+    closeBookDetails: () => calls.push({ type: 'closeBookDetails' }),
+    showToast: (message, kind) => calls.push({ type: 'toast', message, kind }),
+  });
+  context.loadStats = async () => calls.push({ type: 'loadStats' });
+
+  await context.mergeMatchingBookDuplicates();
+
+  assert.deepEqual(calls.map(call => call.type), ['api', 'loadLibrary', 'loadStats', 'openBookDetails', 'toast']);
+  assert.equal(calls[0].url, '/api/v1/books/17/merge-matching');
+  assert.equal(calls[0].method, 'POST');
+  assert.deepEqual(calls[3], { type: 'openBookDetails', index: 0, collection: 'libraryBooks' });
+  assert.match(calls[4].message, /Merged 1 duplicate book/);
+});
+
+test('book deletion panel explains remove-only and hides disk delete from non-admin users', () => {
+  const context = createContext({
+    state: {
+      currentRole: 'user',
+      bookDeleteDialog: { open: true, deleteFiles: false, loading: false, error: '' },
+    },
+  });
+  const html = context.renderBookDeletionPanel(
+    { id: 42, title: 'Ameritopia', author: 'Mark R. Levin', formats: ['EPUB', 'MOBI'] },
+    [{ path: '/books/Ameritopia.epub', format: 'EPUB', size: 10 }, { path: '/books/Ameritopia.mobi', format: 'MOBI', size: 10 }],
+  );
+
+  assert.match(html, /Remove “Ameritopia” from Librarr/);
+  assert.match(html, /files will remain on disk/);
+  assert.doesNotMatch(html, /Delete Book and Files/);
+});
+
+test('admin destructive delete confirmation lists files and explicit count', () => {
+  const context = createContext({
+    state: {
+      currentRole: 'admin',
+      bookDeleteDialog: { open: true, deleteFiles: true, loading: false, error: '' },
+    },
+  });
+  const html = context.renderBookDeletionPanel(
+    { id: 42, title: 'Ameritopia', author: 'Mark R. Levin', formats: ['mobi', 'epub'] },
+    [{ path: '/books/Ameritopia.epub', format: 'EPUB', size: 10 }, { path: '/books/Ameritopia.mobi', format: 'MOBI', size: 20 }],
+  );
+
+  assert.match(html, /Delete “Ameritopia” and 2 files/);
+  assert.match(html, /Ameritopia\.epub/);
+  assert.match(html, /Ameritopia\.mobi/);
+  assert.match(html, /Delete Book and 2 Files/);
+});
+
+test('cancel book deletion makes no API request', async () => {
+  const calls = [];
+  const context = createContext({
+    state: {
+      bookDeleteDialog: { open: true, deleteFiles: true, loading: false, error: '' },
+      activeDetailContext: { index: 0, collection: 'libraryBooks' },
+    },
+    apiJson: async () => {
+      calls.push('api');
+      return {};
+    },
+    openBookDetails: async () => calls.push('openBookDetails'),
+  });
+
+  context.cancelBookDeleteDialog();
+
+  assert.equal(calls.includes('api'), false);
+  assert.equal(context.state.bookDeleteDialog.open, false);
+});
+
+test('successful normalized book deletion refreshes library and home state', async () => {
+  const calls = [];
+  const context = createContext({
+    state: {
+      currentTab: 'home',
+      activeDetailBook: { id: 42, title: 'Ameritopia' },
+      bookDeleteDialog: { open: true, deleteFiles: true, loading: false, error: '' },
+      activeDetailContext: { index: 0, collection: 'libraryBooks' },
+    },
+    api: async (url, options) => {
+      calls.push({ type: 'api', url, method: options?.method });
+      return { ok: true, json: async () => ({ success: true, title: 'Ameritopia', deleted_files: 2 }) };
+    },
+    openBookDetails: async () => calls.push({ type: 'openBookDetails' }),
+    closeBookDetails: () => calls.push({ type: 'closeBookDetails' }),
+    loadLibrary: async () => calls.push({ type: 'loadLibrary' }),
+    loadStats: async () => calls.push({ type: 'loadStats' }),
+    loadHomeDashboard: async () => calls.push({ type: 'loadHomeDashboard' }),
+    showToast: (message, kind) => calls.push({ type: 'toast', message, kind }),
+    normalizedLibraryMode: () => true,
+  });
+
+  await context.confirmBookDelete();
+
+  assert.deepEqual(calls.map(call => call.type), ['openBookDetails', 'api', 'closeBookDetails', 'loadLibrary', 'loadHomeDashboard', 'toast']);
+  assert.equal(calls[1].url, '/api/v1/books/42?delete_files=true');
+  assert.equal(calls[1].method, 'DELETE');
+});
+
+test('failed normalized book deletion keeps dialog open with structured error details', async () => {
+  const context = createContext({
+    state: {
+      activeDetailBook: { id: 42, title: 'Ameritopia' },
+      bookDeleteDialog: { open: true, deleteFiles: false, loading: false, error: '' },
+      activeDetailContext: { index: 0, collection: 'libraryBooks' },
+    },
+    api: async () => ({
+      ok: false,
+      status: 409,
+      json: async () => ({
+        success: false,
+        error: 'One or more files could not be deleted. The book remains in the catalog so deletion can be retried.',
+        files: [{ filename: '9781260721485.pdf', error: 'delete failed' }],
+      }),
+    }),
+    openBookDetails: async () => {},
+  });
+
+  await context.confirmBookDelete();
+
+  assert.equal(context.state.bookDeleteDialog.open, true);
+  assert.match(context.state.bookDeleteDialog.error, /One or more files could not be deleted/);
+  assert.match(context.state.bookDeleteDialog.error, /9781260721485\.pdf: delete failed/);
+  assert.doesNotMatch(context.state.bookDeleteDialog.error, /^API error: 409$/);
 });
 
 test('onboarding checklist does not duplicate the import action', () => {
@@ -1049,6 +1357,32 @@ test('renderLibraryScanReview shows manual review details and resolution control
   assert.match(html, /Use Suggested/);
   assert.match(html, /Edit Metadata/);
   assert.match(html, /Skip/);
+});
+
+test('ambiguous library scan manual review exposes merge matching books action', async () => {
+  const ambiguous = manualReviewScanResult();
+  ambiguous.candidates[0].classification_reason = 'Multiple existing books share the same title and author';
+  ambiguous.candidates[0].manual_review.reason = 'Multiple existing books share the same title and author';
+  const calls = [];
+  const context = createContext({
+    state: { libraryImport: libraryImportState({ completed: true, scan: { ...libraryImportState().scan, result: ambiguous } }) },
+    apiJson: async (url, options) => {
+      calls.push({ url, method: options?.method, body: options?.body });
+      return {
+        ...ambiguous,
+        candidates: [{ ...ambiguous.candidates[0], classification: 'already_imported', manual_review: null }],
+      };
+    },
+    refreshLibraryAfterScanImport: async () => {},
+  });
+
+  const html = context.renderLibraryScanReview(ambiguous);
+  assert.match(html, /Merge Matching Books/);
+
+  await context.resolveLibraryScanCandidate('review-1', 'merge_matching_books');
+
+  assert.equal(calls[0].url, '/api/v1/library/scan/job-1/resolve');
+  assert.match(calls[0].body, /"action":"merge_matching_books"/);
 });
 
 test('renderLibraryScanReview shows duplicate details', () => {
@@ -1382,6 +1716,10 @@ function sampleDetailBook() {
 
 test('library book details metadata button uses delegated action instead of inline onclick', () => {
   assert.match(appSource, /data-action="openLibraryMetadataEditor"/);
+  assert.match(appSource, /openLibraryMetadataEditor:\s*\(\)\s*=>\s*openLibraryMetadataEditor\(\)/);
+  assert.match(appSource, /saveLibraryMetadataEditor:\s*\(\)\s*=>\s*saveLibraryMetadataEditor\(\)/);
+  assert.match(appSource, /cancelLibraryMetadataEditor:\s*\(\)\s*=>\s*closeLibraryMetadataEditor\(\)/);
+  assert.match(appSource, /resetLibraryMetadataEditor:\s*\(\)\s*=>\s*resetLibraryMetadataEditor\(\)/);
   assert.doesNotMatch(appSource, /onclick="openMetadataEditor\(\)"/);
 });
 

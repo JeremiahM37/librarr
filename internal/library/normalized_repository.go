@@ -139,6 +139,158 @@ func (r *NormalizedRepository) DeleteBook(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *NormalizedRepository) MergeBooks(ctx context.Context, sourceID, targetID int64) (*Book, error) {
+	if sourceID == 0 || targetID == 0 || sourceID == targetID {
+		return nil, fmt.Errorf("%w: source and target book ids must be different", ErrInvalidDomainObject)
+	}
+	returning := (*Book)(nil)
+	err := r.WithinTransaction(ctx, func(txCtx context.Context) error {
+		source, err := r.GetBook(txCtx, sourceID)
+		if err != nil {
+			return err
+		}
+		target, err := r.GetBook(txCtx, targetID)
+		if err != nil {
+			return err
+		}
+		if source.MediaType != "" && target.MediaType != "" && source.MediaType != target.MediaType {
+			return fmt.Errorf("%w: books must have the same media type", ErrInvalidDomainObject)
+		}
+		if err := r.mergeBookEditions(txCtx, sourceID, targetID); err != nil {
+			return err
+		}
+		if err := r.mergeBookIdentifiers(txCtx, sourceID, targetID); err != nil {
+			return err
+		}
+		if err := r.mergeBookSeries(txCtx, sourceID, targetID); err != nil {
+			return err
+		}
+		if err := r.mergeBookCovers(txCtx, sourceID, targetID); err != nil {
+			return err
+		}
+		if _, err := r.exec(txCtx).ExecContext(txCtx, `DELETE FROM books WHERE id = ?`, sourceID); err != nil {
+			return err
+		}
+		merged, err := r.GetBook(txCtx, targetID)
+		if err != nil {
+			return err
+		}
+		returning = merged
+		return nil
+	})
+	if err != nil {
+		return nil, mapConstraintError(err)
+	}
+	return returning, nil
+}
+
+func (r *NormalizedRepository) mergeBookEditions(ctx context.Context, sourceID, targetID int64) error {
+	sourceEditions, err := r.ListBookEditions(ctx, sourceID)
+	if err != nil {
+		return err
+	}
+	targetEditions, err := r.ListBookEditions(ctx, targetID)
+	if err != nil {
+		return err
+	}
+	targetByTitle := make(map[string]int64, len(targetEditions))
+	for _, edition := range targetEditions {
+		targetByTitle[TitleMatchKey(edition.Title)] = edition.ID
+	}
+	for _, sourceEdition := range sourceEditions {
+		if targetEditionID := targetByTitle[TitleMatchKey(sourceEdition.Title)]; targetEditionID != 0 {
+			if _, err := r.exec(ctx).ExecContext(ctx, `UPDATE files SET edition_id = ?, updated_at = datetime('now') WHERE edition_id = ?`, targetEditionID, sourceEdition.ID); err != nil {
+				return err
+			}
+			if err := r.mergeEditionIdentifiers(ctx, sourceEdition.ID, targetEditionID); err != nil {
+				return err
+			}
+			if err := r.mergeEditionContributors(ctx, sourceEdition.ID, targetEditionID); err != nil {
+				return err
+			}
+			if err := r.mergeEditionCovers(ctx, sourceEdition.ID, targetEditionID); err != nil {
+				return err
+			}
+			if _, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM editions WHERE id = ?`, sourceEdition.ID); err != nil {
+				return err
+			}
+			continue
+		}
+		if _, err := r.exec(ctx).ExecContext(ctx, `UPDATE editions SET book_id = ?, updated_at = datetime('now') WHERE id = ?`, targetID, sourceEdition.ID); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (r *NormalizedRepository) mergeBookIdentifiers(ctx context.Context, sourceID, targetID int64) error {
+	if _, err := r.exec(ctx).ExecContext(ctx, `
+		INSERT OR IGNORE INTO identifiers (book_id, edition_id, provider, identifier)
+		SELECT ?, NULL, provider, identifier FROM identifiers WHERE book_id = ?`, targetID, sourceID); err != nil {
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM identifiers WHERE book_id = ?`, sourceID)
+	return err
+}
+
+func (r *NormalizedRepository) mergeEditionIdentifiers(ctx context.Context, sourceID, targetID int64) error {
+	if _, err := r.exec(ctx).ExecContext(ctx, `
+		INSERT OR IGNORE INTO identifiers (book_id, edition_id, provider, identifier)
+		SELECT NULL, ?, provider, identifier FROM identifiers WHERE edition_id = ?`, targetID, sourceID); err != nil {
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM identifiers WHERE edition_id = ?`, sourceID)
+	return err
+}
+
+func (r *NormalizedRepository) mergeEditionContributors(ctx context.Context, sourceID, targetID int64) error {
+	if _, err := r.exec(ctx).ExecContext(ctx, `
+		INSERT OR IGNORE INTO edition_contributors (edition_id, contributor_id, role, position)
+		SELECT ?, contributor_id, role, position FROM edition_contributors WHERE edition_id = ?`, targetID, sourceID); err != nil {
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM edition_contributors WHERE edition_id = ?`, sourceID)
+	return err
+}
+
+func (r *NormalizedRepository) mergeBookSeries(ctx context.Context, sourceID, targetID int64) error {
+	if _, err := r.exec(ctx).ExecContext(ctx, `
+		INSERT OR IGNORE INTO book_series (book_id, series_id, position, display_position)
+		SELECT ?, series_id, position, display_position FROM book_series WHERE book_id = ?`, targetID, sourceID); err != nil {
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM book_series WHERE book_id = ?`, sourceID)
+	return err
+}
+
+func (r *NormalizedRepository) mergeBookCovers(ctx context.Context, sourceID, targetID int64) error {
+	_, targetErr := r.PrimaryCover(ctx, targetID)
+	targetHasPrimary := targetErr == nil
+	if !targetHasPrimary && !errors.Is(targetErr, ErrNotFound) {
+		return targetErr
+	}
+	if targetHasPrimary {
+		_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM covers WHERE book_id = ?`, sourceID)
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `UPDATE covers SET book_id = ?, updated_at = datetime('now') WHERE book_id = ?`, targetID, sourceID)
+	return err
+}
+
+func (r *NormalizedRepository) mergeEditionCovers(ctx context.Context, sourceID, targetID int64) error {
+	_, targetErr := r.getPrimaryEditionCover(ctx, targetID)
+	targetHasPrimary := targetErr == nil
+	if !targetHasPrimary && !errors.Is(targetErr, ErrNotFound) {
+		return targetErr
+	}
+	if targetHasPrimary {
+		_, err := r.exec(ctx).ExecContext(ctx, `DELETE FROM covers WHERE edition_id = ?`, sourceID)
+		return err
+	}
+	_, err := r.exec(ctx).ExecContext(ctx, `UPDATE covers SET edition_id = ?, updated_at = datetime('now') WHERE edition_id = ?`, targetID, sourceID)
+	return err
+}
+
 func (r *NormalizedRepository) GetBook(ctx context.Context, id int64) (*Book, error) {
 	row := r.exec(ctx).QueryRowContext(ctx, `SELECT id, title, sort_title, description, publication_year,
 		language, media_type, monitored, status, created_at, updated_at FROM books WHERE id = ?`, id)
@@ -928,6 +1080,13 @@ func (r *NormalizedRepository) PrimaryCover(ctx context.Context, bookID int64) (
 	row := r.exec(ctx).QueryRowContext(ctx, `SELECT id, book_id, edition_id, source, source_url, local_path,
 		mime_type, width, height, is_primary, created_at, updated_at FROM covers
 		WHERE book_id = ? AND is_primary = 1 ORDER BY id LIMIT 1`, bookID)
+	return scanCover(row)
+}
+
+func (r *NormalizedRepository) getPrimaryEditionCover(ctx context.Context, editionID int64) (*Cover, error) {
+	row := r.exec(ctx).QueryRowContext(ctx, `SELECT id, book_id, edition_id, source, source_url, local_path,
+		mime_type, width, height, is_primary, created_at, updated_at FROM covers
+		WHERE edition_id = ? AND is_primary = 1 ORDER BY id LIMIT 1`, editionID)
 	return scanCover(row)
 }
 
