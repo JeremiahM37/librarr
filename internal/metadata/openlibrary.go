@@ -140,7 +140,7 @@ func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchD
 	q.Set("fields", "key,title,author_name,first_publish_year,cover_i,isbn,publisher,language,number_of_pages_median")
 	q.Set("limit", "3")
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
+	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/jamie75/librarr)")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -171,7 +171,7 @@ func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookM
 	if err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
+	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/jamie75/librarr)")
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {

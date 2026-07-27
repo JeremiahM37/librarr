@@ -1,0 +1,44 @@
+services:
+  librarr-v2:
+    build:
+      context: .
+    image: librarr:v2-dogfood
+    container_name: librarr-v2
+    restart: unless-stopped
+    ports:
+      - "5051:5050"
+    environment:
+      LIBRARR_PORT: "5050"
+      LIBRARR_DB_PATH: /data/librarr-v2.db
+      SETTINGS_FILE: /data/settings.json
+      LIBRARR_LIBRARY_REPOSITORY_MODE: normalized
+      LIBRARR_IMPORT_ENGINE: v2
+      FILE_ORG_ENABLED: "true"
+      EBOOK_DIR: /books/ebooks
+      AUDIOBOOK_DIR: /books/audiobooks
+      MANGA_DIR: /books/manga
+      INCOMING_DIR: /data/incoming
+      MANGA_INCOMING_DIR: /data/manga-incoming
+      QB_SAVE_PATH: /downloads
+      QB_AUDIOBOOK_SAVE_PATH: /audiobooks-incoming
+      QB_MANGA_SAVE_PATH: /manga-incoming
+      QB_CATEGORY: librarr-v2
+      QB_AUDIOBOOK_CATEGORY: librarr-v2-audiobooks
+      QB_MANGA_CATEGORY: librarr-v2-manga
+      WISHLIST_CLEANUP_ENABLED: "false"
+      WISHLIST_CLEANUP_DRY_RUN: "true"
+      OIDC_PROXY_HEADERS_ENABLED: "false"
+    volumes:
+    - /opt/docker/compose/librarr-v2/data:/data
+    - /opt/docker/compose/librarr-v2/library/ebooks:/books/ebooks
+    - /opt/docker/compose/librarr-v2/library/audiobooks:/books/audiobooks
+    - /opt/docker/compose/librarr-v2/library/manga:/books/manga
+    - /opt/docker/compose/librarr-v2/incoming:/data/incoming
+    - /opt/docker/compose/librarr-v2/manga-incoming:/data/manga-incoming
+
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:5050/api/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s

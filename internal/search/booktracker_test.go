@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 // booktrackerSearchPage is a minimal phpBB-style search results page with one

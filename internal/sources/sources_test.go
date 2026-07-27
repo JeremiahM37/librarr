@@ -7,8 +7,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/sources"
-	"github.com/JeremiahM37/librarr/internal/sources/sourcestest"
+	"github.com/jamie75/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/sources/sourcestest"
 )
 
 // TestCanonicalRegistryIsComplete validates that the librarr-sources companion
@@ -125,6 +125,40 @@ func TestLoad_DefaultURLWritesCache(t *testing.T) {
 	_ = sources.Load("", "", cache)
 	if _, err := os.Stat(cache); err != nil {
 		t.Fatalf("expected cache written: %v", err)
+	}
+}
+
+func TestLoad_DefaultURLUnavailableFallsBackToCache(t *testing.T) {
+	_, bad, _ := loadTestServers(t)
+	t.Cleanup(sources.SwapDefaultRegistryURL(bad.URL))
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "sources-cache.json")
+	if err := os.WriteFile(cache, []byte(`{"version":11,"annas":{"domain":"offline-cache.test"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := sources.Load("", "", cache)
+	if r.Annas.Domain != "offline-cache.test" || r.Version != 11 {
+		t.Fatalf("expected cached registry when default URL is unavailable, got version=%d annas=%q", r.Version, r.Annas.Domain)
+	}
+}
+
+func TestLoad_RejectsOversizedRegistryResponseAndUsesCache(t *testing.T) {
+	oversized := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write(append([]byte(`{"version":1,"padding":"`), append(make([]byte, 1<<20), []byte(`"}`)...)...))
+	}))
+	defer oversized.Close()
+	t.Cleanup(sources.SwapDefaultRegistryURL(oversized.URL))
+
+	dir := t.TempDir()
+	cache := filepath.Join(dir, "sources-cache.json")
+	if err := os.WriteFile(cache, []byte(`{"version":12,"annas":{"domain":"bounded-cache.test"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := sources.Load("", "", cache)
+	if r.Annas.Domain != "bounded-cache.test" || r.Version != 12 {
+		t.Fatalf("expected cached registry after oversized response rejection, got version=%d annas=%q", r.Version, r.Annas.Domain)
 	}
 }
 

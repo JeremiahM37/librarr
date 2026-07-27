@@ -48,10 +48,6 @@
   .hamburger-btn { display: none; }
   .mobile-nav-overlay { display: none; }
 
-  /* Russian locale adjustments */
-  html[lang="ru"] .sub-tab { font-size: 0.75rem; }
-  html[lang="ru"] #tab-settings h3 { letter-spacing: 0.02em; }
-
   /* Mobile responsive */
   @media (max-width: 640px) {
     /* Hamburger menu toggle */
@@ -95,4 +91,93 @@
   @media (max-width: 768px) {
     /* Slightly smaller grid for tablets */
     #search-results { grid-template-columns: repeat(3, 1fr) !important; }
+  }
+
+  .librarr-2-body {
+    background:
+      radial-gradient(circle at top left, rgba(245, 158, 11, 0.10), transparent 28%),
+      radial-gradient(circle at top right, rgba(251, 191, 36, 0.08), transparent 24%),
+      linear-gradient(180deg, #171311 0%, #12100f 100%);
+    color: #e7e0d9;
+  }
+
+  .librarr-2-header {
+    background: rgba(19, 17, 15, 0.86);
+    backdrop-filter: blur(18px);
+    border-bottom: 1px solid rgba(120, 113, 108, 0.18);
+  }
+
+  .librarr-2-shell .nav-tab {
+    color: #a8a29e;
+    border-bottom-color: transparent;
+  }
+
+  .librarr-2-shell .nav-tab:hover {
+    color: #f5f5f4;
+  }
+
+  .librarr-2-shell .nav-tab.active {
+    color: #fff7ed;
+    border-bottom-color: #f59e0b;
+  }
+
+  .librarr-2-shell .sub-tab.active,
+  .librarr-2-shell .lib-tab.active {
+    background: rgba(245, 158, 11, 0.18);
+    color: #fde68a;
+  }
+
+  .home-hero {
+    background:
+      linear-gradient(135deg, rgba(120, 53, 15, 0.52), rgba(41, 37, 36, 0.92)),
+      linear-gradient(180deg, rgba(255,255,255,0.02), rgba(0,0,0,0.12));
+    border: 1px solid rgba(245, 158, 11, 0.14);
+    box-shadow: 0 20px 50px rgba(0, 0, 0, 0.28);
+  }
+
+  .dashboard-panel {
+    box-shadow: 0 16px 44px rgba(0, 0, 0, 0.18);
+  }
+
+  .shelf-card {
+    transition: transform 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease;
+  }
+
+  .shelf-card:hover {
+    transform: translateY(-4px);
+    border-color: rgba(245, 158, 11, 0.28);
+    box-shadow: 0 22px 55px rgba(0, 0, 0, 0.26);
+  }
+
+  .shelf-card .cover-placeholder {
+    font-size: 2.6rem;
+    letter-spacing: -0.04em;
+  }
+
+  #library-search,
+  #search-input {
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.02);
+  }
+
+  #book-detail-modal .cover-placeholder {
+    font-size: 4rem;
+  }
+
+  @media (max-width: 640px) {
+    .home-hero {
+      border-radius: 1.5rem;
+    }
+
+    .shelf-card {
+      border-radius: 1.5rem;
+    }
+
+    #main-nav.mobile-open {
+      background: #171311;
+      border-bottom-color: rgba(120, 113, 108, 0.18);
+    }
+
+    .librarr-2-shell .nav-tab.active {
+      border-left-color: #f59e0b !important;
+    }
   }

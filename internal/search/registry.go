@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"sync"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 // SourceFactory is a function that creates a Searcher from config and HTTP client.

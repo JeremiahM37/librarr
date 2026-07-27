@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/search"
 )
 
 func newTestHandler(apiKey string) *Handler {

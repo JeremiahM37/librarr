@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -8,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/organize"
+	"github.com/jamie75/librarr/internal/library"
+	libraryimport "github.com/jamie75/librarr/internal/library/import"
+	"github.com/jamie75/librarr/internal/organize"
 )
 
 // importableExtensions are file extensions that can be imported.
@@ -195,28 +197,23 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 
-		info, _ := os.Stat(destPath)
-		var fileSize int64
-		if info != nil {
-			fileSize = info.Size()
-		}
-
-		item := &models.LibraryItem{
-			Title:        title,
-			Author:       f.Author,
-			FilePath:     destPath,
+		result, err := s.importer().Import(context.Background(), libraryimport.ImportRequest{
+			Source: library.ImportSource{
+				Name:      "manual_import",
+				MediaType: manualImportMediaType(mediaType),
+			},
+			RootPath:     destPath,
 			OriginalPath: f.Path,
-			FileSize:     fileSize,
-			FileFormat:   strings.TrimPrefix(filepath.Ext(destPath), "."),
-			MediaType:    mediaType,
-			Source:       "manual_import",
-		}
-
-		if _, err := s.db.AddItem(item); err != nil {
+			TitleHint:    title,
+			AuthorHint:   f.Author,
+		})
+		if err != nil {
 			errors = append(errors, fmt.Sprintf("Failed to save %s: %v", title, err))
 			continue
 		}
-		imported++
+		if result == nil || result.InsertedCount >= 0 {
+			imported++
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -224,4 +221,17 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 		"imported": imported,
 		"errors":   errors,
 	})
+}
+
+func manualImportMediaType(value string) library.MediaType {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "audiobook":
+		return library.MediaTypeAudiobook
+	case "manga":
+		return library.MediaTypeManga
+	case "comic":
+		return library.MediaTypeComic
+	default:
+		return library.MediaTypeEbook
+	}
 }

@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/download"
+	"github.com/jamie75/librarr/internal/download"
 )
 
 // allowedUploadExts defines accepted file extensions for upload.

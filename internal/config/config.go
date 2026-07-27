@@ -4,13 +4,14 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/sources"
 )
 
 // Config holds all application configuration loaded from environment variables.
@@ -57,6 +58,15 @@ type Config struct {
 	// mirrors, and per-site config from here instead of from hardcoded
 	// constants. Always non-nil after Load() returns.
 	Sources *sources.Registry
+
+	// LibraryRepositoryMode selects the production library storage backend.
+	// Supported values are "legacy" and "normalized"; legacy is the safe
+	// default for existing installations.
+	LibraryRepositoryMode string
+
+	// ImportEngine selects the production import persistence engine.
+	// Supported values are "legacy" and "v2"; legacy is the safe default.
+	ImportEngine string
 
 	// Circuit Breaker
 	CircuitBreakerThreshold int
@@ -283,6 +293,9 @@ func buildFromEnv() *Config {
 		Port:           getEnvInt("LIBRARR_PORT", 5050),
 		DBPath:         dbPath,
 		TrustedProxies: splitCSV(getEnv("LIBRARR_TRUSTED_PROXIES", "")),
+
+		LibraryRepositoryMode: getEnv("LIBRARR_LIBRARY_REPOSITORY_MODE", "legacy"),
+		ImportEngine:          getEnv("LIBRARR_IMPORT_ENGINE", "legacy"),
 
 		QBUrl:               getEnv("QB_URL", ""),
 		QBUser:              getEnv("QB_USER", "admin"),
@@ -555,6 +568,12 @@ func (c *Config) applySettingsFileOverrides() {
 		"qb_url":                    &c.QBUrl,
 		"qb_user":                   &c.QBUser,
 		"qb_pass":                   &c.QBPass,
+		"qb_save_path":              &c.QBSavePath,
+		"qb_category":               &c.QBCategory,
+		"qb_audiobook_save_path":    &c.QBAudiobookSavePath,
+		"qb_audiobook_category":     &c.QBAudiobookCategory,
+		"qb_manga_save_path":        &c.QBMangaSavePath,
+		"qb_manga_category":         &c.QBMangaCategory,
 		"transmission_url":          &c.TransmissionURL,
 		"transmission_user":         &c.TransmissionUser,
 		"transmission_pass":         &c.TransmissionPass,
@@ -590,6 +609,8 @@ func (c *Config) applySettingsFileOverrides() {
 		"incoming_dir":              &c.IncomingDir,
 		"manga_incoming_dir":        &c.MangaIncomingDir,
 		"flibusta_url":              &c.FlibustaURL,
+		"library_repository_mode":   &c.LibraryRepositoryMode,
+		"import_engine":             &c.ImportEngine,
 	}
 	for key, fieldPtr := range strPtrs {
 		v, ok := raw[key]
@@ -652,6 +673,32 @@ func (c *Config) applySettingsFileOverrides() {
 				*fieldPtr = n
 			}
 		}
+	}
+}
+
+func (c *Config) NormalizedLibraryRepositoryMode() (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(c.LibraryRepositoryMode))
+	if mode == "" {
+		return "legacy", nil
+	}
+	switch mode {
+	case "legacy", "normalized":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid LIBRARR_LIBRARY_REPOSITORY_MODE %q: expected \"legacy\" or \"normalized\"", c.LibraryRepositoryMode)
+	}
+}
+
+func (c *Config) ImportEngineMode() (string, error) {
+	mode := strings.ToLower(strings.TrimSpace(c.ImportEngine))
+	if mode == "" {
+		return "legacy", nil
+	}
+	switch mode {
+	case "legacy", "v2":
+		return mode, nil
+	default:
+		return "", fmt.Errorf("invalid LIBRARR_IMPORT_ENGINE %q: expected \"legacy\" or \"v2\"", c.ImportEngine)
 	}
 }
 

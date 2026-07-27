@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 // validateAllowedPath ensures path resolves under one of the configured library roots.

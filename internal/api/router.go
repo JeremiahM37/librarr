@@ -7,19 +7,23 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/download"
-	"github.com/JeremiahM37/librarr/internal/metadata"
-	"github.com/JeremiahM37/librarr/internal/organize"
-	"github.com/JeremiahM37/librarr/internal/scheduler"
-	"github.com/JeremiahM37/librarr/internal/search"
-	"github.com/JeremiahM37/librarr/internal/torznab"
-	"github.com/JeremiahM37/librarr/internal/webhook"
-	"github.com/JeremiahM37/librarr/web"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/download"
+	"github.com/jamie75/librarr/internal/library"
+	libraryimport "github.com/jamie75/librarr/internal/library/import"
+	libraryscanner "github.com/jamie75/librarr/internal/library/scanner"
+	"github.com/jamie75/librarr/internal/metadata"
+	"github.com/jamie75/librarr/internal/organize"
+	"github.com/jamie75/librarr/internal/scheduler"
+	"github.com/jamie75/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/torznab"
+	"github.com/jamie75/librarr/internal/webhook"
+	"github.com/jamie75/librarr/web"
 )
 
 // indexHTML holds the embedded web UI.
@@ -27,30 +31,51 @@ var indexHTML = web.IndexHTML
 
 // Server holds the API dependencies.
 type Server struct {
-	cfg            *config.Config
-	db             *db.DB
-	searchMgr      *search.Manager
-	downloadMgr    *download.Manager
-	qb             *download.QBittorrentClient
-	transmission   *download.TransmissionClient
-	sab            *download.SABnzbdClient
-	mux            *http.ServeMux
-	sessions       *SessionStore
-	metrics        *MetricsCollector
-	rateLimiter    *RateLimiter
-	oidc           *OIDCHandler
-	metadataClient *metadata.Client
-	organizer      *organize.Organizer
-	targets        *organize.LibraryTargets
-	webhookSender  *webhook.Sender
-	scheduler      *scheduler.Scheduler
-	wishlistClean  *scheduler.WishlistCleaner
-	seriesDetector *scheduler.SeriesDetector
-	authorMonitor  *scheduler.AuthorMonitor
+	cfg                 *config.Config
+	db                  *db.DB
+	libraryService      *library.LibraryService
+	coverCache          *library.CoverCache
+	importEngine        libraryimport.ImportEngine
+	libraryScanner      *libraryscanner.Manager
+	libraryScanImporter *libraryImportJobManager
+	searchMgr           *search.Manager
+	downloadMgr         *download.Manager
+	qb                  *download.QBittorrentClient
+	transmission        *download.TransmissionClient
+	sab                 *download.SABnzbdClient
+	mux                 *http.ServeMux
+	sessions            *SessionStore
+	metrics             *MetricsCollector
+	rateLimiter         *RateLimiter
+	oidc                *OIDCHandler
+	metadataClient      *metadata.Client
+	organizer           *organize.Organizer
+	targets             *organize.LibraryTargets
+	webhookSender       *webhook.Sender
+	scheduler           *scheduler.Scheduler
+	wishlistClean       *scheduler.WishlistCleaner
+	seriesDetector      *scheduler.SeriesDetector
+	authorMonitor       *scheduler.AuthorMonitor
 }
 
 // NewServer creates the HTTP API server.
 func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, transmission *download.TransmissionClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets) *Server {
+	slog.Warn("NewServer called without explicit LibraryService; using legacy repository compatibility fallback")
+	librarySvc, err := library.NewLegacyLibraryService(database)
+	if err != nil {
+		panic(err)
+	}
+	return NewServerWithServices(cfg, database, searchMgr, downloadMgr, qb, transmission, sab, organizer, targets, librarySvc, libraryimport.NewLegacyImportEngine(database))
+}
+
+func NewServerWithLibraryService(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, transmission *download.TransmissionClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets, librarySvc *library.LibraryService) *Server {
+	return NewServerWithServices(cfg, database, searchMgr, downloadMgr, qb, transmission, sab, organizer, targets, librarySvc, nil)
+}
+
+func NewServerWithServices(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, transmission *download.TransmissionClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets, librarySvc *library.LibraryService, importEngine libraryimport.ImportEngine) *Server {
+	if librarySvc == nil {
+		panic("api.NewServerWithLibraryService requires an explicit LibraryService")
+	}
 	sessions := NewSessionStore()
 
 	// Configure which reverse proxies may set forwarded headers we honor.
@@ -100,9 +125,14 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	seriesDet := scheduler.NewSeriesDetector(database, searchMgr, ws)
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
 
+	coverCache := library.NewCoverCache(defaultCoverCacheDir(cfg))
 	s := &Server{
 		cfg:            cfg,
 		db:             database,
+		libraryService: librarySvc,
+		coverCache:     coverCache,
+		importEngine:   importEngine,
+		libraryScanner: libraryscanner.NewManager(librarySvc, libraryscanner.WithCoverCache(coverCache)),
 		searchMgr:      searchMgr,
 		downloadMgr:    downloadMgr,
 		qb:             qb,
@@ -137,6 +167,56 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 
 	s.registerRoutes()
 	return s
+}
+
+func defaultCoverCacheDir(cfg *config.Config) string {
+	if cfg != nil && strings.TrimSpace(cfg.DBPath) != "" {
+		return filepath.Join(filepath.Dir(cfg.DBPath), "covers")
+	}
+	if cfg != nil && strings.TrimSpace(cfg.SettingsFile) != "" {
+		return filepath.Join(filepath.Dir(cfg.SettingsFile), "covers")
+	}
+	return "/data/covers"
+}
+
+func (s *Server) library() *library.LibraryService {
+	if s.libraryService != nil {
+		return s.libraryService
+	}
+	if s.cfg != nil {
+		mode, err := s.cfg.NormalizedLibraryRepositoryMode()
+		if err == nil && mode == "normalized" {
+			panic("api.Server missing LibraryService while normalized repository mode is configured")
+		}
+	}
+	if s.db == nil {
+		return nil
+	}
+	slog.Warn("api.Server missing LibraryService; lazily using legacy repository compatibility fallback")
+	librarySvc, err := library.NewLegacyLibraryService(s.db)
+	if err != nil {
+		return nil
+	}
+	s.libraryService = librarySvc
+	return s.libraryService
+}
+
+func (s *Server) importer() libraryimport.ImportEngine {
+	if s.importEngine != nil {
+		return s.importEngine
+	}
+	if s.cfg != nil {
+		mode, err := s.cfg.ImportEngineMode()
+		if err == nil && mode == libraryimport.EngineModeV2 {
+			panic("api.Server missing ImportEngine while LIBRARR_IMPORT_ENGINE=v2 is configured")
+		}
+	}
+	if s.db == nil {
+		return nil
+	}
+	slog.Warn("api.Server missing ImportEngine; lazily using legacy import engine fallback")
+	s.importEngine = libraryimport.NewLegacyImportEngine(s.db)
+	return s.importEngine
 }
 
 // StartScheduler starts the background scheduler loop.
@@ -302,6 +382,25 @@ func (s *Server) registerDownloadRoutes() {
 // registerLibraryRoutes wires the library, wishlist, tags, reading history,
 // series tracking, and monitored authors.
 func (s *Server) registerLibraryRoutes() {
+	// Librarr 2.0 native normalized read API.
+	s.mux.HandleFunc("GET /api/v1/library/summary", s.handleV1LibrarySummary)
+	s.mux.HandleFunc("GET /api/v1/books", s.handleV1Books)
+	s.mux.HandleFunc("GET /api/v1/books/{id}", s.handleV1Book)
+	s.mux.HandleFunc("GET /api/v1/books/{id}/metadata", s.handleV1BookMetadata)
+	s.mux.HandleFunc("PATCH /api/v1/books/{id}/metadata", s.handleV1BookMetadataPatch)
+	s.mux.HandleFunc("GET /api/v1/books/{id}/provenance", s.handleV1BookProvenance)
+	s.mux.HandleFunc("GET /api/v1/books/{id}/files", s.handleV1BookFiles)
+	s.mux.HandleFunc("GET /api/v1/books/{id}/editions", s.handleV1BookEditions)
+	s.mux.HandleFunc("GET /api/v1/books/{id}/cover", s.handleV1BookCover)
+	s.mux.HandleFunc("POST /api/v1/library/scan", requireAdmin(s.handleV1LibraryScanStart))
+	s.mux.HandleFunc("GET /api/v1/library/scan/{job_id}", requireAdmin(s.handleV1LibraryScanJob))
+	s.mux.HandleFunc("GET /api/v1/library/scan/{job_id}/results", requireAdmin(s.handleV1LibraryScanResults))
+	s.mux.HandleFunc("GET /api/v1/library/scan/{job_id}/cover/{candidate_id}", requireAdmin(s.handleV1LibraryScanCover))
+	s.mux.HandleFunc("POST /api/v1/library/scan/{job_id}/resolve", requireAdmin(s.handleV1LibraryScanResolve))
+	s.mux.HandleFunc("POST /api/v1/library/import", requireAdmin(s.handleV1LibraryImportStart))
+	s.mux.HandleFunc("GET /api/v1/library/import/{job_id}", requireAdmin(s.handleV1LibraryImportJob))
+	s.mux.HandleFunc("GET /api/v1/library/import/{job_id}/results", requireAdmin(s.handleV1LibraryImportResults))
+
 	// Library.
 	s.mux.HandleFunc("GET /api/library", s.handleLibrary)
 	s.mux.HandleFunc("GET /api/library/audiobooks", s.handleLibraryAudiobooks)
@@ -448,12 +547,16 @@ func (s *Server) registerAdminRoutes() {
 // Torznab indexer API.
 func (s *Server) registerFeedRoutes() {
 	// OPDS feed (Feature 14).
-	s.mux.HandleFunc("GET /opds", s.handleOPDSRoot)
-	s.mux.HandleFunc("GET /opds/", s.handleOPDSRoot)
-	s.mux.HandleFunc("GET /opds/books", s.handleOPDSBooks)
-	s.mux.HandleFunc("GET /opds/search", s.handleOPDSSearch)
-	s.mux.HandleFunc("GET /opds/download/{id}", s.handleOPDSDownload)
-	s.mux.HandleFunc("GET /opds/opensearch.xml", s.handleOPDSOpenSearch)
+	s.mux.HandleFunc("GET /opds", s.requireOPDSAuth(s.handleOPDSRoot))
+	s.mux.HandleFunc("GET /opds/", s.requireOPDSAuth(s.handleOPDSRoot))
+	s.mux.HandleFunc("GET /opds/books", s.requireOPDSAuth(s.handleOPDSBooks))
+	s.mux.HandleFunc("GET /opds/recent", s.requireOPDSAuth(s.handleOPDSRecent))
+	s.mux.HandleFunc("GET /opds/authors", s.requireOPDSAuth(s.handleOPDSAuthors))
+	s.mux.HandleFunc("GET /opds/authors/{key}", s.requireOPDSAuth(s.handleOPDSAuthorBooks))
+	s.mux.HandleFunc("GET /opds/search", s.requireOPDSAuth(s.handleOPDSSearch))
+	s.mux.HandleFunc("GET /opds/download/{id}", s.requireOPDSAuth(s.handleOPDSDownload))
+	s.mux.HandleFunc("GET /opds/cover/{id}", s.requireOPDSAuth(s.handleOPDSCover))
+	s.mux.HandleFunc("GET /opds/opensearch.xml", s.requireOPDSAuth(s.handleOPDSOpenSearch))
 
 	// Prometheus metrics (Feature 16).
 	if s.cfg.MetricsEnabled {

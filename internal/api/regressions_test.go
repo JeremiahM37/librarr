@@ -6,9 +6,9 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/sources/sourcestest"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/sources/sourcestest"
 )
 
 // queryBoundedInt rejects out-of-range and unparseable values, returning fallback.

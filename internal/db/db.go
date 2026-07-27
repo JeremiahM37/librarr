@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -30,6 +31,11 @@ func New(path string) (*DB, error) {
 	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=10000")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
+	}
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA foreign_keys = ON"); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
 	d := &DB{db: db, path: path}
@@ -61,6 +67,7 @@ func (d *DB) migrate() error {
 			source TEXT NOT NULL DEFAULT '',
 			source_id TEXT NOT NULL DEFAULT '',
 			metadata TEXT NOT NULL DEFAULT '{}',
+			content_hash TEXT NOT NULL DEFAULT '',
 			added_at REAL NOT NULL DEFAULT (strftime('%s','now'))
 		)`,
 		`CREATE TABLE IF NOT EXISTS activity_log (
@@ -109,6 +116,7 @@ func (d *DB) migrate() error {
 		username TEXT UNIQUE NOT NULL,
 		password_hash TEXT NOT NULL,
 		role TEXT NOT NULL DEFAULT 'user',
+		enabled INTEGER NOT NULL DEFAULT 1,
 		totp_secret TEXT,
 		totp_enabled INTEGER DEFAULT 0,
 		created_at REAL NOT NULL DEFAULT (strftime('%s','now')),
@@ -295,20 +303,34 @@ func (d *DB) migrate() error {
 	// fails. Duplicate-column errors are expected on already-upgraded DBs
 	// and are ignored.
 	addColumns := []string{
+		`ALTER TABLE library_items ADD COLUMN content_hash TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE download_jobs ADD COLUMN status_history TEXT NOT NULL DEFAULT '[]'`,
 		`ALTER TABLE download_jobs ADD COLUMN source_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE activity_log ADD COLUMN user TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reading_history ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE users ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1`,
 	}
 	for _, stmt := range addColumns {
-		d.db.Exec(stmt)
+		if _, err := d.db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
+			return fmt.Errorf("additive migration failed: %w\nSQL: %s", err, stmt)
+		}
+	}
+	if _, err := d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_library_items_content_hash ON library_items(content_hash)`); err != nil {
+		return fmt.Errorf("create library content hash index: %w", err)
+	}
+	if err := d.backfillLibraryContentHashes(); err != nil {
+		return fmt.Errorf("backfill library content hashes: %w", err)
 	}
 
-	return nil
+	return d.runVersionedMigrations()
 }
 
 func (d *DB) GetDBPath() string {
 	return d.path
+}
+
+func (d *DB) SQLDB() *sql.DB {
+	return d.db
 }
 
 // ItemToJSON converts a LibraryItem to a JSON-friendly map.

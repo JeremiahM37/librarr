@@ -9,13 +9,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/api"
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/download"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/organize"
-	"github.com/JeremiahM37/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/api"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/download"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/organize"
+	"github.com/jamie75/librarr/internal/search"
 )
 
 type pipelineMockSource struct{}

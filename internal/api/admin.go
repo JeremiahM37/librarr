@@ -10,11 +10,11 @@ import (
 
 // startTime is declared in health.go
 
-func (s *Server) handleAdminDashboard(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleAdminDashboard(w http.ResponseWriter, r *http.Request) {
 	// Library stats.
-	ebookCount, _ := s.db.CountItems("ebook")
-	audiobookCount, _ := s.db.CountItems("audiobook")
-	mangaCount, _ := s.db.CountItems("manga")
+	ebookCount, _ := s.library().CountLegacyItems(r.Context(), "ebook")
+	audiobookCount, _ := s.library().CountLegacyItems(r.Context(), "audiobook")
+	mangaCount, _ := s.library().CountLegacyItems(r.Context(), "manga")
 
 	// Active downloads.
 	downloads := s.downloadMgr.GetDownloads()

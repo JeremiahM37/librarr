@@ -133,7 +133,7 @@ func (s *Server) handleCSVImport(w http.ResponseWriter, r *http.Request) {
 				if url == "" {
 					url = "magnet:?xt=urn:btih:" + best.InfoHash
 				}
-				s.downloadMgr.StartTorrentDownload(url, title, "", "")
+				s.downloadMgr.StartTorrentDownload(url, title, "", "", best.InfoHash)
 			} else {
 				slog.Warn("CSV import: no downloadable result", "title", title)
 			}

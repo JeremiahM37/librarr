@@ -10,8 +10,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -59,6 +59,13 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore) ht
 				writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 					"success": false,
 					"error":   "Invalid credentials",
+				})
+				return
+			}
+			if !user.Enabled {
+				writeJSON(w, http.StatusForbidden, map[string]interface{}{
+					"success": false,
+					"error":   "Account is disabled",
 				})
 				return
 			}
@@ -174,6 +181,13 @@ func handleLoginTOTP(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 			})
 			return
 		}
+		if !user.Enabled {
+			writeJSON(w, http.StatusForbidden, map[string]interface{}{
+				"success": false,
+				"error":   "Account is disabled",
+			})
+			return
+		}
 
 		// Try TOTP code first.
 		if validateTOTPCode(user.TOTPSecret, req.Code) {
@@ -237,6 +251,7 @@ func handleRegister(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 			Username   string `json:"username"`
 			Password   string `json:"password"`
 			InviteCode string `json:"invite_code"`
+			Role       string `json:"role,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
@@ -291,6 +306,15 @@ func handleRegister(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 					"error":   "Registration requires an invite code",
 				})
 				return
+			} else if req.Role != "" {
+				if req.Role != "admin" && req.Role != "user" {
+					writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+						"success": false,
+						"error":   "Role must be 'admin' or 'user'",
+					})
+					return
+				}
+				role = req.Role
 			}
 		}
 
@@ -364,10 +388,11 @@ func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStor
 		userCount, _ := database.CountUsers()
 
 		resp := map[string]any{
-			"multi_user":    userCount > 0,
-			"has_users":     userCount > 0,
-			"authenticated": false,
-			"oidc_enabled":  false,
+			"multi_user":     userCount > 0,
+			"has_users":      userCount > 0,
+			"setup_required": normalizedInitialSetupRequired(cfg, userCount),
+			"authenticated":  false,
+			"oidc_enabled":   false,
 		}
 
 		// OIDC hints
@@ -419,6 +444,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 			ID          int64  `json:"id"`
 			Username    string `json:"username"`
 			Role        string `json:"role"`
+			Enabled     bool   `json:"enabled"`
 			TOTPEnabled bool   `json:"totp_enabled"`
 			CreatedAt   string `json:"created_at"`
 			LastLogin   string `json:"last_login,omitempty"`
@@ -430,6 +456,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 				ID:          u.ID,
 				Username:    u.Username,
 				Role:        u.Role,
+				Enabled:     u.Enabled,
 				TOTPEnabled: u.TOTPEnabled,
 				CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 			}
@@ -460,8 +487,10 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 		}
 
 		var req struct {
+			Username string `json:"username,omitempty"`
 			Role     string `json:"role"`
 			Password string `json:"password,omitempty"`
+			Enabled  *bool  `json:"enabled,omitempty"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
@@ -480,8 +509,30 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 			return
 		}
 
-		if req.Role != "" && (req.Role == "admin" || req.Role == "user") {
-			if err := database.UpdateUser(id, user.Username, req.Role); err != nil {
+		username := strings.TrimSpace(req.Username)
+		if username == "" {
+			username = user.Username
+		} else if len(username) < 3 || len(username) > 64 {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "Username must be 3-64 characters",
+			})
+			return
+		}
+		role := user.Role
+		if req.Role != "" {
+			if req.Role != "admin" && req.Role != "user" {
+				writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+					"success": false,
+					"error":   "Role must be 'admin' or 'user'",
+				})
+				return
+			}
+			role = req.Role
+		}
+
+		if username != user.Username || role != user.Role {
+			if err := database.UpdateUser(id, username, role); err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 					"success": false,
 					"error":   "Failed to update user",
@@ -491,6 +542,13 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 		}
 
 		if req.Password != "" {
+			if len(req.Password) < 6 || len(req.Password) > 72 {
+				writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+					"success": false,
+					"error":   "Password must be 6-72 characters",
+				})
+				return
+			}
 			hash, err := hashPassword(req.Password)
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
@@ -503,6 +561,41 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 					"success": false,
 					"error":   "Failed to update password",
+				})
+				return
+			}
+		}
+		if req.Enabled != nil {
+			currentID := getUserIDFromContext(r)
+			if currentID == id && !*req.Enabled {
+				writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+					"success": false,
+					"error":   "Cannot disable your own account",
+				})
+				return
+			}
+			if user.Role == "admin" && !*req.Enabled {
+				users, err := database.ListUsers()
+				if err == nil {
+					enabledAdmins := 0
+					for _, existing := range users {
+						if existing.Role == "admin" && existing.Enabled {
+							enabledAdmins++
+						}
+					}
+					if enabledAdmins <= 1 {
+						writeJSON(w, http.StatusConflict, map[string]interface{}{
+							"success": false,
+							"error":   "Cannot disable the last enabled admin account",
+						})
+						return
+					}
+				}
+			}
+			if err := database.SetUserEnabled(id, *req.Enabled); err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to update account status",
 				})
 				return
 			}
@@ -615,28 +708,20 @@ func handleDeleteUser(database *db.DB) http.HandlerFunc {
 			return
 		}
 
-		// Prevent leaving the system with no admins. API-key callers have no
-		// userID (id=0), so the self-delete check above does not protect them;
-		// without this guard, a leaked API key (or a misclicked SPA button)
-		// could nuke the only admin.
-		if users, err := database.ListUsers(); err == nil {
-			admins := 0
-			targetIsAdmin := false
-			for _, u := range users {
-				if u.Role == "admin" {
-					admins++
-					if u.ID == id {
-						targetIsAdmin = true
-					}
-				}
-			}
-			if targetIsAdmin && admins <= 1 {
-				writeJSON(w, http.StatusConflict, map[string]interface{}{
-					"success": false,
-					"error":   "Cannot delete the last admin account",
-				})
-				return
-			}
+		target, err := database.GetUser(id)
+		if err != nil {
+			writeJSON(w, http.StatusNotFound, map[string]interface{}{
+				"success": false,
+				"error":   "User not found",
+			})
+			return
+		}
+		if target.Role == "admin" {
+			writeJSON(w, http.StatusConflict, map[string]interface{}{
+				"success": false,
+				"error":   "Administrator accounts cannot be deleted",
+			})
+			return
 		}
 
 		if err := database.DeleteUser(id); err != nil {

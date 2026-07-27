@@ -6,7 +6,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 func TestSABnzbdClient_AddNZB(t *testing.T) {

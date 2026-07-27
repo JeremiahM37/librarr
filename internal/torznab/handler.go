@@ -11,9 +11,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/search"
 )
 
 // Handler serves Torznab API endpoints.

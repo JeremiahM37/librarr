@@ -3,7 +3,7 @@ package db
 import (
 	"fmt"
 
-	"github.com/JeremiahM37/librarr/internal/webhook"
+	"github.com/jamie75/librarr/internal/webhook"
 )
 
 // --- Webhook Configs ---

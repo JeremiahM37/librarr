@@ -8,8 +8,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
 )
 
 // exemptPaths are paths that do not require authentication.
@@ -62,39 +62,15 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 		// Check if multi-user is active (any users in DB).
 		userCount, _ := database.CountUsers()
 		multiUser := userCount > 0
+		setupRequired := normalizedInitialSetupRequired(cfg, userCount)
 
-		// Trusted reverse-proxy SSO headers should short-circuit the normal
-		// login flow when OIDC is configured. This lets Authentik-backed
-		// deployments log users in transparently instead of requiring a second
-		// click on the Librarr login button.
-		if cfg != nil && cfg.HasOIDCProxyHeaders() {
-			username := proxyIdentityFromRequest(r)
-			if username != "" {
-				if user, err := resolveOIDCUser(cfg, database, username); err == nil && user != nil {
-					if sessions != nil {
-						if ensureSessionForUser(w, r, sessions, user) {
-							_ = database.UpdateLastLogin(user.ID)
-						}
-					}
-					ctx := context.WithValue(r.Context(), ctxUserID, user.ID)
-					ctx = context.WithValue(ctx, ctxUserRole, user.Role)
-					ctx = context.WithValue(ctx, ctxUsername, user.Username)
-					next.ServeHTTP(w, r.WithContext(ctx))
-					return
-				} else if err != nil && cfg != nil && cfg.HasOIDC() {
-					slog.Warn("proxy SSO login rejected", "username", sanitizeLogValue(username), "error", err)
-				}
-			}
+		if authedReq, ok := authenticateRequest(cfg, database, sessions, w, r, multiUser, !setupRequired); ok {
+			next.ServeHTTP(w, authedReq)
+			return
 		}
 
-		// No multi-user, no legacy auth, no API key: the instance is open.
-		// Treat the local caller as an admin rather than passing through
-		// role-less, so admin-gated routes (e.g. POST /api/settings) work on
-		// userless instances instead of failing requireAdmin with a 403.
-		if !multiUser && !cfg.HasAuth() && !cfg.HasAPIKey() {
-			ctx := context.WithValue(r.Context(), ctxUserRole, "admin")
-			ctx = context.WithValue(ctx, ctxUsername, "local")
-			next.ServeHTTP(w, r.WithContext(ctx))
+		if setupRequired && r.URL.Path == "/api/config" {
+			next.ServeHTTP(w, r)
 			return
 		}
 
@@ -152,6 +128,95 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 			"error":   "Authentication required",
 		})
 	})
+}
+
+func authenticateRequest(cfg *config.Config, database *db.DB, sessions *SessionStore, w http.ResponseWriter, r *http.Request, multiUser bool, allowOpenInstanceAdmin bool) (*http.Request, bool) {
+	// Trusted reverse-proxy SSO headers should short-circuit the normal
+	// login flow when OIDC is configured. This lets Authentik-backed
+	// deployments log users in transparently instead of requiring a second
+	// click on the Librarr login button.
+	if cfg != nil && cfg.HasOIDCProxyHeaders() {
+		username := proxyIdentityFromRequest(r)
+		if username != "" {
+			if user, err := resolveOIDCUser(cfg, database, username); err == nil && user != nil {
+				if !user.Enabled {
+					return r, false
+				}
+				if sessions != nil {
+					if ensureSessionForUser(w, r, sessions, user) {
+						_ = database.UpdateLastLogin(user.ID)
+					}
+				}
+				ctx := context.WithValue(r.Context(), ctxUserID, user.ID)
+				ctx = context.WithValue(ctx, ctxUserRole, user.Role)
+				ctx = context.WithValue(ctx, ctxUsername, user.Username)
+				return r.WithContext(ctx), true
+			} else if err != nil && cfg != nil && cfg.HasOIDC() {
+				slog.Warn("proxy SSO login rejected", "username", sanitizeLogValue(username), "error", err)
+			}
+		}
+	}
+
+	// Check API key (header or query param) -- machine-to-machine auth.
+	if cfg != nil && cfg.HasAPIKey() {
+		apiKey := r.Header.Get("X-Api-Key")
+		if apiKey == "" {
+			apiKey = r.URL.Query().Get("apikey")
+		}
+		if subtle.ConstantTimeCompare([]byte(apiKey), []byte(cfg.APIKey)) == 1 {
+			ctx := context.WithValue(r.Context(), ctxUserRole, "admin")
+			ctx = context.WithValue(ctx, ctxUsername, "api")
+			return r.WithContext(ctx), true
+		}
+	}
+
+	// Check session cookie for multi-user mode.
+	if multiUser {
+		cookie, err := r.Cookie("librarr_session")
+		if err == nil {
+			if data, ok := sessions.Get(cookie.Value); ok {
+				user, err := database.GetUser(data.UserID)
+				if err != nil || !user.Enabled {
+					sessions.Delete(cookie.Value)
+				} else {
+					ctx := context.WithValue(r.Context(), ctxUserID, data.UserID)
+					ctx = context.WithValue(ctx, ctxUserRole, data.Role)
+					ctx = context.WithValue(ctx, ctxUsername, data.Username)
+					return r.WithContext(ctx), true
+				}
+			}
+		}
+	}
+
+	// Legacy single-user session auth (when no multi-user DB users exist).
+	if !multiUser && cfg != nil && cfg.HasAuth() {
+		cookie, err := r.Cookie("librarr_session")
+		if err == nil && sessions.Valid(cookie.Value) {
+			ctx := context.WithValue(r.Context(), ctxUserRole, "admin")
+			ctx = context.WithValue(ctx, ctxUsername, cfg.AuthUsername)
+			return r.WithContext(ctx), true
+		}
+	}
+
+	// No multi-user, no legacy auth, no API key: the legacy-style instance is open.
+	// Treat the local caller as an admin rather than passing through role-less, so
+	// admin-gated routes work on intentionally open instances. Fresh normalized
+	// installs must not fabricate this context during first-run setup.
+	if allowOpenInstanceAdmin && cfg != nil && !multiUser && !cfg.HasAuth() && !cfg.HasAPIKey() {
+		ctx := context.WithValue(r.Context(), ctxUserRole, "admin")
+		ctx = context.WithValue(ctx, ctxUsername, "local")
+		return r.WithContext(ctx), true
+	}
+
+	return r, false
+}
+
+func normalizedInitialSetupRequired(cfg *config.Config, userCount int) bool {
+	if cfg == nil || userCount != 0 {
+		return false
+	}
+	mode, err := cfg.NormalizedLibraryRepositoryMode()
+	return err == nil && mode == "normalized"
 }
 
 // requireAdmin is middleware that checks if the current user has admin role.

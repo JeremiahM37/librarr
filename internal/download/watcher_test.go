@@ -1,14 +1,107 @@
 package download
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/library"
+	libraryimport "github.com/jamie75/librarr/internal/library/import"
+	"github.com/jamie75/librarr/internal/organize"
 )
+
+func TestRecordTorrentItemIsIdempotentAcrossWatcherPolls(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	filePath := filepath.Join(dir, "book.epub")
+	if err := os.WriteFile(filePath, []byte("same torrent file"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := &Watcher{db: database}
+	torrent := TorrentInfo{Name: "Book", Hash: "torrent-hash"}
+
+	first, err := w.recordTorrentItem(torrent, "ebook", "/downloads/book.epub", filePath, "Book", "Author", "Book", "Author", "epub", 0)
+	if err != nil || !first {
+		t.Fatalf("first recordTorrentItem = inserted %v, err %v", first, err)
+	}
+	second, err := w.recordTorrentItem(torrent, "ebook", "/downloads/book.epub", filePath, "Book", "Author", "Book", "Author", "epub", 0)
+	if err != nil || second {
+		t.Fatalf("second recordTorrentItem = inserted %v, err %v; want idempotent reuse", second, err)
+	}
+
+	count, err := database.CountItems("ebook")
+	if err != nil || count != 1 {
+		t.Fatalf("CountItems = %d, %v; want one row", count, err)
+	}
+}
+
+func TestMapTorrentPathRemoteRootToLocalRoot(t *testing.T) {
+	got, ok := mapTorrentPath("/downloads/rclone-mnt/downloads/Prince Of Persia", "/downloads/rclone-mnt/downloads", "/downloads")
+	if !ok || got != "/downloads/Prince Of Persia" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/downloads/Prince Of Persia, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathSingleFile(t *testing.T) {
+	got, ok := mapTorrentPath("/remote/books/Book.epub", "/remote/books", "/local/incoming")
+	if !ok || got != "/local/incoming/Book.epub" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/local/incoming/Book.epub, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathMultiFileDirectory(t *testing.T) {
+	got, ok := mapTorrentPath("/remote/books/Series/Book", "/remote/books", "/local/incoming")
+	if !ok || got != "/local/incoming/Series/Book" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want (/local/incoming/Series/Book, true)", got, ok)
+	}
+}
+
+func TestMapTorrentPathIdenticalRoots(t *testing.T) {
+	got, ok := mapTorrentPath("/downloads/Book/file.epub", "/downloads", "/downloads")
+	if !ok || got != "/downloads/Book/file.epub" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want unchanged path, true", got, ok)
+	}
+}
+
+func TestMapTorrentPathRejectsOutsideRemoteRoot(t *testing.T) {
+	if got, ok := mapTorrentPath("/other/Book.epub", "/remote/books", "/local/incoming"); ok || got != "" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want empty path, false", got, ok)
+	}
+}
+
+func TestMapTorrentPathRejectsTraversal(t *testing.T) {
+	if got, ok := mapTorrentPath("/remote/books/../secret/Book.epub", "/remote/books", "/local/incoming"); ok || got != "" {
+		t.Fatalf("mapTorrentPath = (%q, %v), want empty path, false", got, ok)
+	}
+}
+
+func TestResolveLocalPathMapsConfiguredQBRoot(t *testing.T) {
+	w := &Watcher{cfg: &config.Config{
+		QBSavePath:  "/downloads/rclone-mnt/downloads",
+		IncomingDir: "/downloads",
+		QBCategory:  "librarr",
+	}}
+
+	got := w.resolveLocalPath(TorrentInfo{
+		ContentPath: "/downloads/rclone-mnt/downloads/Prince Of Persia",
+		SavePath:    "/downloads/rclone-mnt/downloads",
+	}, "ebook")
+	if got != "/downloads/Prince Of Persia" {
+		t.Fatalf("resolveLocalPath = %q, want /downloads/Prince Of Persia", got)
+	}
+}
 
 func TestResolveLocalPathAudiobookUsesContentPath(t *testing.T) {
 	w := &Watcher{
@@ -349,4 +442,97 @@ func TestNormalizeTorrentPath(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestWatcherUsesConfiguredImportEngine(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	sourceFile := filepath.Join(dir, "source.epub")
+	destFile := filepath.Join(dir, "organized.epub")
+	if err := os.WriteFile(sourceFile, []byte("book"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(destFile, []byte("book"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	engine := &watcherSpyImportEngine{result: &libraryimport.EngineResult{InsertedCount: 1}}
+	w := &Watcher{db: database, importer: engine}
+
+	inserted, err := w.importTorrentItem(context.Background(), TorrentInfo{Name: "Torrent Book", Hash: "torrent-1"}, library.MediaTypeEbook, sourceFile, destFile, "Torrent Book", "Jane Doe", "Torrent Book", "Jane Doe", "epub", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !inserted {
+		t.Fatal("expected inserted result")
+	}
+	if len(engine.requests) != 1 {
+		t.Fatalf("engine requests = %d, want 1", len(engine.requests))
+	}
+	got := engine.requests[0]
+	if got.Source.Name != "torrent" || got.Source.SourceID != "torrent-1" || got.Source.MediaType != library.MediaTypeEbook {
+		t.Fatalf("request source = %+v", got.Source)
+	}
+	if got.RootPath != destFile || got.OriginalPath != sourceFile {
+		t.Fatalf("request paths = %+v", got)
+	}
+}
+
+func TestWatcherDoesNotImportEbookWhenOrganizationFails(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	saveDir := filepath.Join(dir, "incoming", "Broken Org")
+	if err := os.MkdirAll(saveDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	sourceFile := filepath.Join(saveDir, "book.epub")
+	if err := os.WriteFile(sourceFile, []byte("book"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	ebookRoot := filepath.Join(dir, "ebooks-as-file")
+	if err := os.WriteFile(ebookRoot, []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{FileOrgEnabled: true, EbookDir: ebookRoot}
+	w := &Watcher{
+		cfg:       cfg,
+		db:        database,
+		organizer: organize.NewOrganizer(cfg),
+	}
+
+	err = w.importEbook(TorrentInfo{Name: "Broken Org", Hash: "hash-org-failure", TotalSize: 123}, saveDir)
+	if err == nil {
+		t.Fatal("expected organization failure")
+	}
+	if !errors.Is(err, errTorrentContentPending) {
+		t.Fatalf("expected pending organization error, got %v", err)
+	}
+	if database.HasSourceID("hash-org-failure") {
+		t.Fatal("library item should not be inserted when organization fails")
+	}
+}
+
+type watcherSpyImportEngine struct {
+	requests []libraryimport.ImportRequest
+	result   *libraryimport.EngineResult
+	err      error
+}
+
+func (s *watcherSpyImportEngine) Import(_ context.Context, request libraryimport.ImportRequest) (*libraryimport.EngineResult, error) {
+	s.requests = append(s.requests, request)
+	if s.result == nil {
+		s.result = &libraryimport.EngineResult{InsertedCount: 1}
+	}
+	return s.result, s.err
 }

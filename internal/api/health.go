@@ -8,14 +8,17 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/version"
+	"github.com/jamie75/librarr/internal/version"
 )
 
-// Version comes from the embedded VERSION file (see internal/version).
-// BuildTime may still be injected at build time via -ldflags.
+// Version, BuildTime, Commit, and Channel may be injected at build time via
+// -ldflags. Version falls back to the embedded VERSION file when no build-time
+// value is provided.
 var (
-	Version   = version.Version
+	Version   = "development"
 	BuildTime = "unknown"
+	Commit    = "unknown"
+	Channel   = "development"
 	GoVersion = runtime.Version()
 )
 
@@ -26,7 +29,7 @@ func (s *Server) handleRoot(w http.ResponseWriter, _ *http.Request) {
 	w.Write(indexHTML)
 }
 
-func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	uptime := time.Since(startTime)
 
 	// Count enabled sources
@@ -41,7 +44,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 	// Library stats
 	libraryTotal := 0
-	if stats, err := s.db.GetStats(); err == nil {
+	if stats, err := s.library().LegacyStats(r.Context()); err == nil {
 		if total, ok := stats["total_items"]; ok {
 			if n, ok := total.(int); ok {
 				libraryTotal = n
@@ -51,8 +54,10 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"status":          "ok",
-		"version":         Version,
+		"version":         reportedVersion(),
 		"build_time":      BuildTime,
+		"commit":          Commit,
+		"channel":         Channel,
 		"go_version":      GoVersion,
 		"uptime_seconds":  int(uptime.Seconds()),
 		"uptime_human":    formatDuration(uptime),
@@ -60,6 +65,16 @@ func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 		"sources":         sourceNames,
 		"library_items":   libraryTotal,
 	})
+}
+
+func reportedVersion() string {
+	if Version != "" && Version != "development" {
+		return Version
+	}
+	if version.Version != "" {
+		return version.Version
+	}
+	return Version
 }
 
 func formatDuration(d time.Duration) string {
@@ -97,25 +112,27 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	resp := map[string]interface{}{
-		"prowlarr":            configObj(s.cfg.HasProwlarr(), s.cfg.ProwlarrURL),
-		"qbittorrent":         configObj(s.cfg.HasQBittorrent(), s.cfg.QBUrl),
-		"transmission":        configObj(s.cfg.HasTransmission(), s.cfg.TransmissionURL),
-		"torrent_client":      s.cfg.ActiveTorrentClient(),
-		"audiobookshelf":      s.cfg.HasAudiobookshelf(),
-		"kavita":              s.cfg.HasKavita(),
-		"calibre":             s.cfg.HasCalibre(),
-		"komga":               s.cfg.HasKomga(),
-		"sabnzbd":             configObj(s.cfg.HasSABnzbd(), s.cfg.SABnzbdURL),
-		"file_org_enabled":    s.cfg.FileOrgEnabled,
-		"torznab_enabled":     s.cfg.TorznabAPIKey != "",
-		"rate_limit_enabled":  s.cfg.RateLimitEnabled,
-		"metrics_enabled":     s.cfg.MetricsEnabled,
-		"webnovel_enabled":    s.cfg.WebNovelEnabled,
-		"mangadex_enabled":    s.cfg.MangaDexEnabled,
-		"audiobooks":          hasAudiobookSearch,
-		"foreign_lang_filter": s.searchMgr.ForeignLangFilterEnabled(),
-		"flibusta_enabled":    s.cfg.HasFlibusta(),
-		"zlibrary_enabled":    s.cfg.HasZLibrary(),
+		"prowlarr":                configObj(s.cfg.HasProwlarr(), s.cfg.ProwlarrURL),
+		"qbittorrent":             configObj(s.cfg.HasQBittorrent(), s.cfg.QBUrl),
+		"transmission":            configObj(s.cfg.HasTransmission(), s.cfg.TransmissionURL),
+		"torrent_client":          s.cfg.ActiveTorrentClient(),
+		"library_repository_mode": s.cfg.LibraryRepositoryMode,
+		"import_engine":           s.cfg.ImportEngine,
+		"audiobookshelf":          s.cfg.HasAudiobookshelf(),
+		"kavita":                  s.cfg.HasKavita(),
+		"calibre":                 s.cfg.HasCalibre(),
+		"komga":                   s.cfg.HasKomga(),
+		"sabnzbd":                 configObj(s.cfg.HasSABnzbd(), s.cfg.SABnzbdURL),
+		"file_org_enabled":        s.cfg.FileOrgEnabled,
+		"torznab_enabled":         s.cfg.TorznabAPIKey != "",
+		"rate_limit_enabled":      s.cfg.RateLimitEnabled,
+		"metrics_enabled":         s.cfg.MetricsEnabled,
+		"webnovel_enabled":        s.cfg.WebNovelEnabled,
+		"mangadex_enabled":        s.cfg.MangaDexEnabled,
+		"audiobooks":              hasAudiobookSearch,
+		"foreign_lang_filter":     s.searchMgr.ForeignLangFilterEnabled(),
+		"flibusta_enabled":        s.cfg.HasFlibusta(),
+		"zlibrary_enabled":        s.cfg.HasZLibrary(),
 	}
 
 	// OIDC config (safe to expose — no secrets).
@@ -130,6 +147,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	userCount, _ := s.db.CountUsers()
 	resp["multi_user"] = userCount > 0
 	resp["has_users"] = userCount > 0
+	resp["setup_required"] = normalizedInitialSetupRequired(s.cfg, userCount)
 
 	// Current user info from context.
 	if username, ok := r.Context().Value(ctxUsername).(string); ok && username != "" {

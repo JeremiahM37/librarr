@@ -8,11 +8,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/search"
 )
 
 // settingsTestServer builds the minimum Server needed for settings handler
@@ -27,11 +28,17 @@ func settingsTestServer(t *testing.T) (*Server, string) {
 	cfg := &config.Config{
 		SettingsFile: settingsPath,
 		// Seed the env-layer values that the handler injects as defaults.
-		ProwlarrURL:    "http://env-prowlarr:9696",
-		ProwlarrAPIKey: "ENV_API_KEY",
-		QBUrl:          "http://env-qbit:8080",
-		QBUser:         "admin",
-		QBPass:         "env-qb-pass",
+		ProwlarrURL:         "http://env-prowlarr:9696",
+		ProwlarrAPIKey:      "ENV_API_KEY",
+		QBUrl:               "http://env-qbit:8080",
+		QBUser:              "admin",
+		QBPass:              "env-qb-pass",
+		QBSavePath:          "/env/ebooks",
+		QBCategory:          "env-ebooks",
+		QBAudiobookSavePath: "/env/audiobooks",
+		QBAudiobookCategory: "env-audiobooks",
+		QBMangaSavePath:     "/env/manga",
+		QBMangaCategory:     "env-manga",
 	}
 
 	database, err := db.New(filepath.Join(dir, "test.db"))
@@ -44,6 +51,236 @@ func settingsTestServer(t *testing.T) (*Server, string) {
 	searchMgr := search.NewManager(cfg, nil, health)
 
 	return &Server{cfg: cfg, db: database, searchMgr: searchMgr}, settingsPath
+}
+
+func TestHandleSettingsExposesQBittorrentSavePathDefaults(t *testing.T) {
+	s, _ := settingsTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rr := httptest.NewRecorder()
+	s.handleGetSettings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["qb_save_path"] != "/env/ebooks" || settings["incoming_dir"] == settings["qb_save_path"] {
+		t.Fatalf("settings = %+v", settings)
+	}
+	if settings["qb_audiobook_save_path"] != "/env/audiobooks" || settings["qb_manga_save_path"] != "/env/manga" {
+		t.Fatalf("qB media paths missing: %+v", settings)
+	}
+}
+
+func TestHandleSaveSettingsAppliesQBittorrentSavePathsToRuntimeConfig(t *testing.T) {
+	s, settingsPath := settingsTestServer(t)
+	body, _ := json.Marshal(map[string]interface{}{
+		"qb_save_path":           "/remote/ebooks",
+		"qb_category":            "ebooks",
+		"qb_audiobook_save_path": "/remote/audiobooks",
+		"qb_audiobook_category":  "audio",
+		"qb_manga_save_path":     "/remote/manga",
+		"qb_manga_category":      "manga",
+		"incoming_dir":           "/data/incoming",
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleSaveSettings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if s.cfg.QBSavePath != "/remote/ebooks" || s.cfg.IncomingDir == s.cfg.QBSavePath {
+		t.Fatalf("runtime paths: QBSavePath=%q IncomingDir=%q", s.cfg.QBSavePath, s.cfg.IncomingDir)
+	}
+	if s.cfg.QBAudiobookSavePath != "/remote/audiobooks" || s.cfg.QBMangaSavePath != "/remote/manga" {
+		t.Fatalf("runtime media paths: audio=%q manga=%q", s.cfg.QBAudiobookSavePath, s.cfg.QBMangaSavePath)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"qb_save_path": "/remote/ebooks"`) {
+		t.Fatalf("saved settings = %s", string(data))
+	}
+}
+
+func TestHandleTestProwlarrReturnsStructuredDiagnostics(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/system/status" {
+			t.Fatalf("path = %s", r.URL.Path)
+		}
+		if r.Header.Get("X-Api-Key") != "test-key" {
+			t.Fatalf("missing api key")
+		}
+		_, _ = w.Write([]byte(`{"version":"2.0.5"}`))
+	}))
+	defer upstream.Close()
+	s, _ := settingsTestServer(t)
+
+	body, _ := json.Marshal(map[string]interface{}{"url": upstream.URL, "api_key": "test-key"})
+	req := httptest.NewRequest(http.MethodPost, "/api/test/prowlarr", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleTestProwlarr(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Service string `json:"service"`
+		Success bool   `json:"success"`
+		Status  string `json:"status"`
+		Steps   []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Service != "prowlarr" || !resp.Success || resp.Status != "connected" {
+		t.Fatalf("resp = %+v", resp)
+	}
+	if len(resp.Steps) == 0 {
+		t.Fatal("missing diagnostic steps")
+	}
+}
+
+func TestHandleTestProwlarrUsesPostedURLInsteadOfSavedConfig(t *testing.T) {
+	saved := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{"version":"saved-would-succeed"}`))
+	}))
+	defer saved.Close()
+	posted := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not found", http.StatusNotFound)
+	}))
+	defer posted.Close()
+
+	s, _ := settingsTestServer(t)
+	s.cfg.ProwlarrURL = saved.URL
+	s.cfg.ProwlarrAPIKey = "saved-key"
+
+	body, _ := json.Marshal(map[string]interface{}{"url": posted.URL, "api_key": maskedValue})
+	req := httptest.NewRequest(http.MethodPost, "/api/test/prowlarr", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleTestProwlarr(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Steps   []struct {
+			Name    string `json:"name"`
+			Status  string `json:"status"`
+			Message string `json:"message"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Success {
+		t.Fatalf("posted URL should have failed instead of falling back to saved URL: %+v", resp)
+	}
+	for _, step := range resp.Steps {
+		if step.Name == "API Validation" && step.Status == "failed" && strings.Contains(step.Message, "404") {
+			return
+		}
+	}
+	t.Fatalf("missing failed API validation for posted URL: %+v", resp.Steps)
+}
+
+func TestHandleTestQBittorrentReturnsAuthenticationSuggestion(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "Fails.", http.StatusForbidden)
+	}))
+	defer upstream.Close()
+	s, _ := settingsTestServer(t)
+
+	body, _ := json.Marshal(map[string]interface{}{"url": upstream.URL, "username": "admin", "password": "bad"})
+	req := httptest.NewRequest(http.MethodPost, "/api/test/qbittorrent", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleTestQBittorrent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Service string `json:"service"`
+		Success bool   `json:"success"`
+		Steps   []struct {
+			Name       string `json:"name"`
+			Status     string `json:"status"`
+			Suggestion string `json:"suggestion"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Service != "qbittorrent" || resp.Success {
+		t.Fatalf("resp = %+v", resp)
+	}
+	for _, step := range resp.Steps {
+		if step.Name == "Authentication" && step.Status == "failed" && step.Suggestion != "" {
+			return
+		}
+	}
+	t.Fatalf("missing failed auth step with suggestion: %+v", resp.Steps)
+}
+
+func TestHandleTestQBittorrentUsesPostedUsernameInsteadOfSavedConfig(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/v2/auth/login":
+			if err := r.ParseForm(); err != nil {
+				t.Fatal(err)
+			}
+			if r.Form.Get("username") != "admin" {
+				http.Error(w, "Fails.", http.StatusForbidden)
+				return
+			}
+			http.SetCookie(w, &http.Cookie{Name: "QBT_SID", Value: "sid"})
+			_, _ = w.Write([]byte("Ok."))
+		case "/api/v2/app/version":
+			_, _ = w.Write([]byte("v5.0.0"))
+		default:
+			t.Fatalf("unexpected path %s", r.URL.Path)
+		}
+	}))
+	defer upstream.Close()
+
+	s, _ := settingsTestServer(t)
+	s.cfg.QBUrl = upstream.URL
+	s.cfg.QBUser = "admin"
+	s.cfg.QBPass = "saved-password"
+
+	body, _ := json.Marshal(map[string]interface{}{
+		"url":      upstream.URL,
+		"username": "wrong-user",
+		"password": maskedValue,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/test/qbittorrent", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleTestQBittorrent(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var resp struct {
+		Success bool `json:"success"`
+		Steps   []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	if resp.Success {
+		t.Fatalf("posted username should have failed instead of falling back to saved username: %+v", resp)
+	}
+	for _, step := range resp.Steps {
+		if step.Name == "Authentication" && step.Status == "failed" {
+			return
+		}
+	}
+	t.Fatalf("missing failed auth step for posted username: %+v", resp.Steps)
 }
 
 func saveSettings(t *testing.T, s *Server, payload map[string]interface{}) {

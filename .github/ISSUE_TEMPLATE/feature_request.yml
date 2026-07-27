@@ -1,0 +1,43 @@
+name: Feature request
+description: Suggest a new capability or workflow improvement.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem to solve
+      description: What user problem or workflow friction should this address?
+    validations:
+      required: true
+  - type: textarea
+    id: ux
+    attributes:
+      label: Proposed user experience
+      description: Describe how this should feel or behave for a Librarr user.
+    validations:
+      required: true
+  - type: checkboxes
+    id: areas
+    attributes:
+      label: Affected area
+      options:
+        - label: Library
+        - label: Discover
+        - label: Downloads
+        - label: Scanner / import
+        - label: OPDS
+        - label: Users / authentication
+        - label: Integrations
+        - label: Docker / deployment
+        - label: API
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: What workarounds or other approaches did you consider?
+  - type: textarea
+    id: mockups
+    attributes:
+      label: Screenshots, mockups, or examples
+      description: Optional, but useful for UI or workflow requests.

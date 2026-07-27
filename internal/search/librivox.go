@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // Librivox searches a Librivox-style public-domain audiobook feed. Endpoint

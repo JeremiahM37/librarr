@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // --- Audiobookshelf Library ---
@@ -398,7 +398,7 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 
 	// Try as integer (internal DB item) first.
 	if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-		if err := s.db.DeleteItem(id); err != nil {
+		if err := s.library().DeleteLegacyItem(r.Context(), id); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]interface{}{
 				"success": false,
 				"error":   err.Error(),
@@ -430,7 +430,7 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Also try internal DB by source_id.
-	_ = s.db.DeleteItemBySourceID(idStr)
+	_ = s.library().DeleteLegacyItemBySourceID(r.Context(), idStr)
 
 	username, _ := r.Context().Value(ctxUsername).(string)
 	s.db.LogActivity(username, "library_remove", idStr, fmt.Sprintf("Removed library item %s", idStr))

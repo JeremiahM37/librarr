@@ -7,7 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/sources/sourcestest"
+	"github.com/jamie75/librarr/internal/sources/sourcestest"
 )
 
 // TestMain prepares the package test environment. It does two things:

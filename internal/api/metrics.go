@@ -45,7 +45,7 @@ func metricsKey(name string, labels map[string]string) string {
 	return fmt.Sprintf("%s{%s}", name, strings.Join(parts, ","))
 }
 
-func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
 	var lines []string
 
 	// Job status counts.
@@ -63,10 +63,10 @@ func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	// Library item counts.
-	ebookCount, _ := s.db.CountItems("ebook")
-	audiobookCount, _ := s.db.CountItems("audiobook")
-	mangaCount, _ := s.db.CountItems("manga")
-	totalCount, _ := s.db.CountItems("")
+	ebookCount, _ := s.library().CountLegacyItems(r.Context(), "ebook")
+	audiobookCount, _ := s.library().CountLegacyItems(r.Context(), "audiobook")
+	mangaCount, _ := s.library().CountLegacyItems(r.Context(), "manga")
+	totalCount, _ := s.library().CountLegacyItems(r.Context(), "")
 	activityCount, _ := s.db.CountActivity()
 
 	lines = append(lines,

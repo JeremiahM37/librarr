@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/JeremiahM37/librarr/internal/netutil"
-	"github.com/JeremiahM37/librarr/internal/webhook"
+	"github.com/jamie75/librarr/internal/netutil"
+	"github.com/jamie75/librarr/internal/webhook"
 )
 
 // handleGetWebhooks returns all configured webhooks.

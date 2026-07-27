@@ -1,0 +1,8 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security reports
+    url: https://github.com/jamie75/librarr/security
+    about: Do not open public issues for active vulnerabilities. See SECURITY.md first.
+  - name: Documentation
+    url: https://github.com/jamie75/librarr#readme
+    about: Start with the README and linked docs.

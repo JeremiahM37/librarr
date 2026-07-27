@@ -124,31 +124,23 @@
         <button data-action="doLogout" id="logout-btn" class="hidden p-2 text-slate-400 hover:text-red-400 rounded-lg hover:bg-slate-800 transition-colors" data-i18n-title="sign_out" title="Sign out">
           <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
         </button>
-        <button data-action="toggleLanguage" id="lang-toggle" class="p-2 text-xs font-bold text-slate-400 hover:text-indigo-400 rounded-lg hover:bg-slate-800 transition-colors">RU</button>
-        <button data-action="switchTab" data-arg="settings" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800 transition-colors" data-i18n-title="nav_settings" title="Settings">
-          <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg>
-        </button>
       </div>
     </div>
 
     <!-- Nav Tabs -->
     <div class="max-w-7xl mx-auto px-4 sm:px-6">
       <nav class="flex gap-1 -mb-px overflow-x-auto" id="main-nav">
-        <button data-action="switchTab" data-arg="search" class="nav-tab active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="search">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><span data-i18n="nav_search">Search</span>
+        <button data-action="switchTab" data-arg="home" class="nav-tab active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="home">
+          <span data-i18n="nav_home">Home</span>
         </button>
         <button data-action="switchTab" data-arg="library" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="library">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg><span data-i18n="nav_library">Library</span>
+          <span data-i18n="nav_library">Library</span>
         </button>
-        <button data-action="switchTab" data-arg="downloads" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap relative" data-tab="downloads">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg><span data-i18n="nav_downloads">Downloads</span>
-          <span id="dl-badge" class="hidden ml-1 px-1.5 py-0.5 text-xs bg-indigo-600 text-white rounded-full"></span>
-        </button>
-        <button data-action="switchTab" data-arg="wishlist" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="wishlist">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4.318 6.318a4.5 4.5 0 000 6.364L12 20.364l7.682-7.682a4.5 4.5 0 00-6.364-6.364L12 7.636l-1.318-1.318a4.5 4.5 0 00-6.364 0z"/></svg><span data-i18n="nav_wishlist">Wishlist</span>
+        <button data-action="switchTab" data-arg="search" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="search">
+          <span data-i18n="nav_discover">Discover</span>
         </button>
         <button data-action="switchTab" data-arg="settings" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="settings">
-          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/></svg><span data-i18n="nav_settings">Settings</span>
+          <span data-i18n="nav_settings">Settings</span>
         </button>
       </nav>
     </div>
@@ -277,18 +269,129 @@
 
     <!-- ==================== SETTINGS TAB ==================== -->
     <div id="tab-settings" class="tab-content">
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+      <div class="mb-6 rounded-[1.75rem] border border-slate-800 bg-slate-900/80 p-5">
+        <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-2">Administration</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-white">Settings</h2>
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">Configure the folders, services, accounts, and search behavior Librarr uses to manage your library.</p>
+        <div class="mt-4 flex flex-wrap gap-2">
+          <a href="#settings-library-import" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">Library</a>
+          <a href="#settings-opds" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">OPDS</a>
+          <a href="#settings-integrations" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">Integrations</a>
+          <a href="#settings-users" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">Users</a>
+          <a href="#settings-preferences" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">Preferences</a>
+          <a href="#settings-about" class="rounded-full bg-slate-800 px-3 py-1.5 text-xs font-medium text-slate-300 hover:bg-slate-700">About</a>
+        </div>
+      </div>
+      <div id="settings-library-import" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="flex items-start justify-between mb-4 gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Library & Import</h3>
+            <p class="text-xs text-slate-500 mt-1">Configure the folders Librarr watches and where imported books are organized.</p>
+          </div>
+          <button id="settings-library-import-save-standard" data-action="saveLibraryImportStandard" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Save</button>
+        </div>
+        <div class="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/8 px-4 py-3">
+          <p class="text-sm font-medium text-amber-100">Step 1 – Configure Library Folders</p>
+          <p class="mt-1 text-sm text-stone-300">Configure the folders where Librarr should find your existing books and where new downloads will be imported. After saving, you can scan your library to begin building your collection.</p>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Import Folder (Downloads)</label>
+            <input type="text" id="setting-incoming_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/downloads">
+            <p class="text-xs text-slate-500 mt-1">Folder where Librarr watches for newly downloaded books.</p>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Ebook Library</label>
+            <input type="text" id="setting-ebook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/books">
+            <p class="text-xs text-slate-500 mt-1">Destination for organized ebook files after import.</p>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Audiobook Library</label>
+            <input type="text" id="setting-audiobook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/audiobooks">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Manga Library</label>
+            <input type="text" id="setting-manga_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/manga">
+          </div>
+        </div>
+        <div class="mt-4 flex items-center justify-between rounded-lg bg-slate-800/40 px-4 py-3">
+          <div>
+            <p class="text-sm text-slate-300">Organize imported files automatically</p>
+            <p class="text-xs text-slate-500 mt-1">When enabled, Librarr moves imported files into the configured library directories.</p>
+          </div>
+          <label class="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
+            <input type="checkbox" id="setting-file_org_enabled" class="sr-only peer">
+            <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+        <div class="mt-5 flex flex-col items-end gap-2">
+          <div id="settings-library-import-unsaved" class="hidden text-xs text-amber-300">Unsaved changes</div>
+          <div id="settings-library-import-validation" class="hidden max-w-md rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200"></div>
+          <button id="settings-library-import-save-continue" data-action="saveLibraryImportContinue" class="px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-medium transition-colors">Save & Continue</button>
+          <div id="settings-library-import-complete" class="hidden rounded-lg border border-emerald-500/30 bg-emerald-500/12 px-4 py-2.5 text-sm text-emerald-100">
+            <div class="flex items-center gap-2 font-medium">
+              <span aria-hidden="true">✓</span>
+              <span id="settings-library-import-complete-title">Step 1 Complete</span>
+            </div>
+            <p id="settings-library-import-complete-copy" class="mt-1 text-xs text-emerald-200/85">Library folders configured successfully.</p>
+          </div>
+        </div>
+        <div id="settings-library-import-step2" tabindex="-1" data-state="locked" class="mt-4 rounded-lg border border-dashed border-slate-700 bg-slate-800/20 px-4 py-3 outline-none opacity-75">
+          <div class="flex items-start gap-3">
+            <span id="settings-library-import-step2-icon" class="mt-0.5 text-slate-500" aria-hidden="true">🔒</span>
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-slate-400">Step 2 – Scan Your Existing Library</p>
+              <p id="settings-library-import-step2-copy" class="mt-1 text-xs text-slate-500">Available after saving your library folders.</p>
+              <div id="settings-library-import-summary" class="hidden mt-3 rounded-md border border-emerald-500/20 bg-emerald-500/8 px-3 py-2 text-xs text-stone-200"></div>
+              <div id="settings-library-scan-workspace" class="mt-4"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div id="settings-users" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <div class="flex items-start justify-between mb-4 gap-3">
           <div>
             <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider" data-i18n="s_user_mgmt_title">User Management</h3>
             <p class="text-xs text-slate-500 mt-1">Create accounts, manage roles, and inspect login status.</p>
           </div>
         </div>
-        <div id="user-management" class="hidden space-y-4">
-          <div class="flex flex-wrap gap-2">
-            <div class="flex-1 min-w-[220px]"><input id="new-user-name" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="username"></div>
-            <div class="flex-1 min-w-[220px]"><input id="new-user-pass" type="password" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="password"></div>
-            <button data-action="addUser" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="add_user_btn">Add User</button>
+        <div id="user-management" class="hidden space-y-5">
+          <div>
+            <h4 class="text-sm font-medium text-slate-300 mb-2">Accounts</h4>
+            <div id="users-list" class="overflow-x-auto rounded-lg border border-slate-800"></div>
+          </div>
+
+          <div class="rounded-lg border border-slate-800 bg-slate-800/30 p-4">
+            <div class="mb-3">
+              <h4 class="text-sm font-medium text-slate-300">Create User</h4>
+              <p class="text-xs text-slate-500 mt-1">Create a local account directly without issuing an invite code.</p>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-3">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Username</label>
+                <input id="new-user-name" type="text" autocomplete="username" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="reader">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Password</label>
+                <input id="new-user-pass" type="password" autocomplete="new-password" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="password">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Role</label>
+                <select id="new-user-role" class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-white">
+                  <option value="user">User</option>
+                  <option value="admin">Admin</option>
+                </select>
+              </div>
+              <label class="flex items-end gap-2 text-sm text-slate-300 pb-2">
+                <input id="new-user-admin" type="checkbox" class="rounded border-slate-600 bg-slate-900 text-indigo-600 focus:ring-indigo-500">
+                Administrator
+              </label>
+            </div>
+            <div class="flex gap-2 mt-4">
+              <button data-action="addUser" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors">Create</button>
+              <button data-action="cancelCreateUser" class="px-4 py-2 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors">Cancel</button>
+            </div>
           </div>
         </div>
 
@@ -316,10 +419,41 @@
           </div>
           <div id="invite-codes-list" class="space-y-2"></div>
         </div>
+
+        <div class="border-t border-slate-800 pt-4 mt-4">
+          <h4 class="text-sm font-medium text-slate-300 mb-1">Bootstrap Information</h4>
+          <div class="rounded-lg border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-xs text-amber-100">
+            <p>If this install was bootstrapped from Docker environment variables, that only applies before local users exist.</p>
+            <p class="mt-1">After initialization, users are managed here.</p>
+            <p class="mt-1">Changing AUTH_USERNAME or AUTH_PASSWORD in Docker Compose does not rename or modify existing accounts.</p>
+          </div>
+        </div>
       </div>
 
       <!-- Integrations -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+      <div id="settings-opds" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">OPDS Catalog</h3>
+            <p class="mt-1 text-xs text-slate-500">Connect an OPDS-compatible reader to browse and download your Librarr books.</p>
+          </div>
+          <a href="/opds" target="_blank" rel="noreferrer" class="rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-stone-950 hover:bg-amber-400">Open Catalog</a>
+        </div>
+        <div class="mt-4 grid grid-cols-1 gap-3 md:grid-cols-2">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Catalog URL</label>
+            <input type="text" readonly value="/opds" class="w-full bg-slate-950 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200">
+            <p class="mt-1 text-[11px] text-slate-500">Use your external Librarr URL plus <code>/opds</code> in reader apps.</p>
+          </div>
+          <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs leading-5 text-slate-400">
+            <p><span class="text-slate-200">Authentication:</span> HTTP Basic Auth with your Librarr username and password.</p>
+            <p><span class="text-slate-200">Formats:</span> EPUB and PDF are preferred; MOBI/AZW3 are offered as raw downloads.</p>
+            <p><span class="text-slate-200">Remote access:</span> use HTTPS through your reverse proxy.</p>
+          </div>
+        </div>
+      </div>
+
+      <div id="settings-integrations" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <div class="flex items-start justify-between mb-4 gap-3">
           <div>
             <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Integrations</h3>
@@ -383,6 +517,33 @@
               <div>
                 <label class="block text-xs text-slate-500 mb-1">Password</label>
                 <input type="password" id="setting-qb_pass" autocomplete="off" data-1p-ignore data-lpignore="true" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="">
+              </div>
+            </div>
+            <div class="mt-3 grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Ebook Save Path</label>
+                <input type="text" id="setting-qb_save_path" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/downloads">
+                <p class="mt-1 text-[11px] text-slate-500">Remote path as seen by qBittorrent, not Librarr's Import Folder.</p>
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Ebook Category</label>
+                <input type="text" id="setting-qb_category" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="librarr">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Audiobook Save Path</label>
+                <input type="text" id="setting-qb_audiobook_save_path" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/audiobooks-incoming">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Audiobook Category</label>
+                <input type="text" id="setting-qb_audiobook_category" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="audiobooks">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Manga Save Path</label>
+                <input type="text" id="setting-qb_manga_save_path" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/manga-incoming">
+              </div>
+              <div>
+                <label class="block text-xs text-slate-500 mb-1">Manga Category</label>
+                <input type="text" id="setting-qb_manga_category" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="manga">
               </div>
             </div>
           </div>
@@ -523,57 +684,40 @@
         </div>
       </div>
 
-      <!-- Connection Tests -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
-        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_connection_tests">Connection Tests</h3>
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3" id="connection-tests">
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_prowlarr">Prowlarr</span>
-            <div class="flex items-center gap-2">
-              <span id="test-prowlarr-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="prowlarr" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
-            </div>
+      <!-- Connection Diagnostics -->
+      <div id="settings-connections" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider" data-i18n="s_connection_tests">Connection Diagnostics</h3>
+            <p class="mt-1 text-xs text-slate-500">Run staged checks for configuration, DNS, TCP, TLS, authentication, API validation, version, and latency.</p>
           </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_qbittorrent">qBittorrent</span>
-            <div class="flex items-center gap-2">
-              <span id="test-qbittorrent-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="qbittorrent" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
+        </div>
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-4" id="connection-tests">
+          <div id="diagnostic-prowlarr" data-diagnostic-service="prowlarr" data-service-label="Prowlarr" class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-100">Prowlarr</p>
+                <p id="test-prowlarr-status" class="mt-1 text-xs text-slate-500">Not tested</p>
+              </div>
+              <button data-action="testConnection" data-arg="prowlarr" class="px-3 py-2 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-md transition-colors">Run Diagnostics</button>
             </div>
+            <div id="diagnostic-prowlarr-result" class="mt-4"></div>
           </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_transmission">Transmission</span>
-            <div class="flex items-center gap-2">
-              <span id="test-transmission-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="transmission" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
+          <div id="diagnostic-qbittorrent" data-diagnostic-service="qbittorrent" data-service-label="qBittorrent" class="rounded-xl border border-slate-800 bg-slate-950/40 p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <p class="text-sm font-semibold text-slate-100">qBittorrent</p>
+                <p id="test-qbittorrent-status" class="mt-1 text-xs text-slate-500">Not tested</p>
+              </div>
+              <button data-action="testConnection" data-arg="qbittorrent" class="px-3 py-2 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-md transition-colors">Run Diagnostics</button>
             </div>
-          </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_sabnzbd">SABnzbd</span>
-            <div class="flex items-center gap-2">
-              <span id="test-sabnzbd-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="sabnzbd" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
-            </div>
-          </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_audiobookshelf">Audiobookshelf</span>
-            <div class="flex items-center gap-2">
-              <span id="test-audiobookshelf-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="audiobookshelf" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
-            </div>
-          </div>
-          <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-            <span class="text-sm text-slate-300" data-i18n="conn_kavita">Kavita</span>
-            <div class="flex items-center gap-2">
-              <span id="test-kavita-status" class="text-xs text-slate-500" data-i18n="not_tested">Not tested</span>
-              <button data-action="testConnection" data-arg="kavita" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
-            </div>
+            <div id="diagnostic-qbittorrent-result" class="mt-4"></div>
           </div>
         </div>
       </div>
 
       <!-- Search Preferences -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+      <div id="settings-preferences" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="search_preferences">Search Preferences</h3>
         <div class="flex items-center justify-between">
           <div>
@@ -610,7 +754,7 @@
       </div>
 
       <!-- Config Info -->
-      <div class="bg-slate-900 border border-slate-800 rounded-xl p-5">
+      <div id="settings-about" class="bg-slate-900 border border-slate-800 rounded-xl p-5">
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4" data-i18n="s_configuration">Configuration</h3>
         <div id="config-info" class="space-y-2 text-sm text-slate-400" data-i18n="loading">Loading...</div>
       </div>

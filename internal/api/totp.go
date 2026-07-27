@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/db"
 	"github.com/pquerna/otp/totp"
 )
 

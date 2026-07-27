@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // ExportEnvelope wraps exported data with metadata.
@@ -21,7 +21,7 @@ type ExportEnvelope struct {
 
 // handleExportLibrary exports the library as JSON.
 func (s *Server) handleExportLibrary(w http.ResponseWriter, r *http.Request) {
-	items, err := s.db.GetItems("", 100000, 0)
+	items, err := s.library().ListLegacyItems(r.Context(), "", 100000, 0)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 			"success": false, "error": "Failed to export library",
@@ -99,23 +99,36 @@ func (s *Server) handleImportLibrary(w http.ResponseWriter, r *http.Request) {
 
 	imported := 0
 	skipped := 0
+	existingItems, existingErr := s.library().ListLegacyItems(r.Context(), "", 100000, 0)
+	existingTitles := make(map[string]bool, len(existingItems))
+	for _, item := range existingItems {
+		existingTitles[strings.ToLower(item.Title)] = true
+	}
 	for _, item := range envelope.Items {
-		// Skip duplicates by source_id or title+author.
-		if item.SourceID != "" && s.db.HasSourceID(item.SourceID) {
+		// Preserve the existing import behavior: skip duplicates by source_id
+		// or by an existing title.
+		if item.SourceID != "" {
+			exists, err := s.library().HasLegacySourceID(r.Context(), item.SourceID)
+			if err != nil || exists {
+				skipped++
+				continue
+			}
+		}
+		if existingErr != nil {
 			skipped++
 			continue
 		}
-		existing, _ := s.db.FindByTitle(item.Title)
-		if len(existing) > 0 {
+		if existingTitles[strings.ToLower(item.Title)] {
 			skipped++
 			continue
 		}
 
 		item.ID = 0 // reset ID for insert
-		if _, err := s.db.AddItem(&item); err != nil {
+		if _, err := s.library().ImportLegacyItem(r.Context(), item); err != nil {
 			skipped++
 			continue
 		}
+		existingTitles[strings.ToLower(item.Title)] = true
 		imported++
 	}
 

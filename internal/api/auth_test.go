@@ -7,11 +7,14 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/search"
 )
 
 func TestSessionStore_CreateAndGet(t *testing.T) {
@@ -612,6 +615,305 @@ func TestHandleAuthStatus_ProxyHeaderDoesNotCreateUser(t *testing.T) {
 	}
 	if count != 0 {
 		t.Fatalf("user count = %d, want 0", count)
+	}
+}
+
+func TestHandleConfig_NormalizedFreshInstallRequiresSetup(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	s := &Server{
+		cfg:       &config.Config{LibraryRepositoryMode: "normalized", ImportEngine: "legacy"},
+		db:        database,
+		searchMgr: search.NewManager(&config.Config{}, nil, search.NewHealthTracker(3, 300)),
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr := httptest.NewRecorder()
+	s.handleConfig(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got, _ := resp["has_users"].(bool); got {
+		t.Fatalf("has_users = %v, want false", got)
+	}
+	if got, _ := resp["setup_required"].(bool); !got {
+		t.Fatalf("setup_required = %v, want true", got)
+	}
+	if got, ok := resp["current_user"]; ok && got != nil {
+		t.Fatalf("current_user = %v, want omitted or null", got)
+	}
+	if got, ok := resp["current_role"]; ok && got != nil {
+		t.Fatalf("current_role = %v, want omitted or null", got)
+	}
+}
+
+func TestHandleAuthStatus_NormalizedFreshInstallRequiresSetup(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	rr := httptest.NewRecorder()
+	handleAuthStatus(&config.Config{LibraryRepositoryMode: "normalized"}, database, NewSessionStore())(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	var resp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
+	if got, _ := resp["authenticated"].(bool); got {
+		t.Fatalf("authenticated = %v, want false", got)
+	}
+	if got, _ := resp["setup_required"].(bool); !got {
+		t.Fatalf("setup_required = %v, want true", got)
+	}
+	if _, ok := resp["username"]; ok {
+		t.Fatalf("username present on fresh install: %+v", resp["username"])
+	}
+	if _, ok := resp["role"]; ok {
+		t.Fatalf("role present on fresh install: %+v", resp["role"])
+	}
+}
+
+func TestAuthMiddleware_NormalizedFreshInstallDoesNotFabricateAdmin(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	var gotUser, gotRole string
+	handler := authMiddleware(&config.Config{LibraryRepositoryMode: "normalized"}, database, NewSessionStore(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotUser, _ = r.Context().Value(ctxUsername).(string)
+		gotRole, _ = r.Context().Value(ctxUserRole).(string)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204; body=%s", rr.Code, rr.Body.String())
+	}
+	if gotUser != "" {
+		t.Fatalf("username = %q, want empty", gotUser)
+	}
+	if gotRole != "" {
+		t.Fatalf("role = %q, want empty", gotRole)
+	}
+}
+
+func TestFirstUserRegistrationCreatesAuthenticatedAdminSession(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	sessions := NewSessionStore()
+	body := `{"username":"admin","password":"secret123"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/register", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+	handleRegister(database, sessions)(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+
+	var registerResp map[string]any
+	if err := json.Unmarshal(rr.Body.Bytes(), &registerResp); err != nil {
+		t.Fatalf("decode register body: %v", err)
+	}
+	if got, _ := registerResp["role"].(string); got != "admin" {
+		t.Fatalf("role = %q, want admin", got)
+	}
+
+	var sessionCookie *http.Cookie
+	for _, cookie := range rr.Result().Cookies() {
+		if cookie.Name == sessionCookieName {
+			sessionCookie = cookie
+			break
+		}
+	}
+	if sessionCookie == nil {
+		t.Fatal("expected first-user registration to set a session cookie")
+	}
+
+	statusReq := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
+	statusReq.AddCookie(sessionCookie)
+	statusRR := httptest.NewRecorder()
+	handleAuthStatus(&config.Config{LibraryRepositoryMode: "normalized"}, database, sessions)(statusRR, statusReq)
+
+	if statusRR.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", statusRR.Code, statusRR.Body.String())
+	}
+	var statusResp map[string]any
+	if err := json.Unmarshal(statusRR.Body.Bytes(), &statusResp); err != nil {
+		t.Fatalf("decode status body: %v", err)
+	}
+	if got, _ := statusResp["authenticated"].(bool); !got {
+		t.Fatalf("authenticated = %v, want true", got)
+	}
+	if got, _ := statusResp["setup_required"].(bool); got {
+		t.Fatalf("setup_required = %v, want false after first user", got)
+	}
+	if got, _ := statusResp["username"].(string); got != "admin" {
+		t.Fatalf("username = %q, want admin", got)
+	}
+	if got, _ := statusResp["role"].(string); got != "admin" {
+		t.Fatalf("role = %q, want admin", got)
+	}
+}
+
+func TestAdminCanCreateUserWithRole(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	hash, _ := hashPassword("secret123")
+	if _, err := database.CreateUser("admin", hash, "admin"); err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{"username":"second","password":"secret123","role":"admin"}`
+	req := httptest.NewRequest(http.MethodPost, "/api/register", strings.NewReader(body))
+	req = req.WithContext(context.WithValue(req.Context(), ctxUserRole, "admin"))
+	rr := httptest.NewRecorder()
+	handleRegister(database, NewSessionStore())(rr, req)
+
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201; body=%s", rr.Code, rr.Body.String())
+	}
+	user, err := database.GetUserByUsername("second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Role != "admin" {
+		t.Fatalf("role = %q, want admin", user.Role)
+	}
+	if !user.Enabled {
+		t.Fatal("created users should be enabled")
+	}
+}
+
+func TestDisabledUserCannotLogin(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	hash, _ := hashPassword("secret123")
+	id, err := database.CreateUser("reader", hash, "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserEnabled(id, false); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/login", strings.NewReader(`{"username":"reader","password":"secret123"}`))
+	rr := httptest.NewRecorder()
+	handleLogin(&config.Config{}, database, NewSessionStore())(rr, req)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestAuthMiddlewareRejectsDisabledSession(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	hash, _ := hashPassword("secret123")
+	id, err := database.CreateUser("reader", hash, "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions := NewSessionStore()
+	token, err := sessions.Create(id, "reader", "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := database.SetUserEnabled(id, false); err != nil {
+		t.Fatal(err)
+	}
+
+	called := false
+	handler := authMiddleware(&config.Config{}, database, sessions, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/library", nil)
+	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if called {
+		t.Fatal("disabled session reached protected handler")
+	}
+	if rr.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want 401; body=%s", rr.Code, rr.Body.String())
+	}
+	if sessions.Valid(token) {
+		t.Fatal("disabled session should be removed")
+	}
+}
+
+func TestUpdateUserCanChangeNameRolePasswordAndEnabled(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	hash, _ := hashPassword("secret123")
+	id, err := database.CreateUser("reader", hash, "user")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/users/1", strings.NewReader(`{"username":"reader2","role":"admin","password":"newsecret","enabled":false}`))
+	req.SetPathValue("id", strconv.FormatInt(id, 10))
+	rr := httptest.NewRecorder()
+	handleUpdateUser(database)(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+	user, err := database.GetUser(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if user.Username != "reader2" || user.Role != "admin" || user.Enabled {
+		t.Fatalf("updated user = %+v", user)
+	}
+	if !checkPassword("newsecret", user.PasswordHash) {
+		t.Fatal("password was not updated")
 	}
 }
 

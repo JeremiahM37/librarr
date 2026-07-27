@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"net/http"
@@ -8,8 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/netutil"
-	"github.com/JeremiahM37/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/diagnostics"
+	"github.com/jamie75/librarr/internal/netutil"
+	"github.com/jamie75/librarr/internal/sources"
 )
 
 const maskedValue = "--------"
@@ -54,28 +56,34 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"remove_torrent_after_import": s.cfg.RemoveTorrentAfterImport,
 
 		// Integration URLs and credentials (sensitive ones are masked below).
-		"qb_url":               s.cfg.QBUrl,
-		"qb_user":              s.cfg.QBUser,
-		"qb_pass":              s.cfg.QBPass,
-		"transmission_url":     s.cfg.TransmissionURL,
-		"transmission_user":    s.cfg.TransmissionUser,
-		"transmission_pass":    s.cfg.TransmissionPass,
-		"torrent_client":       s.cfg.TorrentClient,
-		"prowlarr_url":         s.cfg.ProwlarrURL,
-		"prowlarr_api_key":     s.cfg.ProwlarrAPIKey,
-		"sabnzbd_url":          s.cfg.SABnzbdURL,
-		"sabnzbd_api_key":      s.cfg.SABnzbdAPIKey,
-		"sabnzbd_category":     s.cfg.SABnzbdCategory,
-		"abs_url":              s.cfg.ABSURL,
-		"abs_token":            s.cfg.ABSToken,
-		"kavita_url":           s.cfg.KavitaURL,
-		"kavita_user":          s.cfg.KavitaUser,
-		"kavita_pass":          s.cfg.KavitaPass,
-		"komga_url":            s.cfg.KomgaURL,
-		"komga_user":           s.cfg.KomgaUser,
-		"komga_pass":           s.cfg.KomgaPass,
-		"calibre_url":          s.cfg.CalibreURL,
-		"calibre_library_path": s.cfg.CalibreLibraryPath,
+		"qb_url":                 s.cfg.QBUrl,
+		"qb_user":                s.cfg.QBUser,
+		"qb_pass":                s.cfg.QBPass,
+		"qb_save_path":           s.cfg.QBSavePath,
+		"qb_category":            s.cfg.QBCategory,
+		"qb_audiobook_save_path": s.cfg.QBAudiobookSavePath,
+		"qb_audiobook_category":  s.cfg.QBAudiobookCategory,
+		"qb_manga_save_path":     s.cfg.QBMangaSavePath,
+		"qb_manga_category":      s.cfg.QBMangaCategory,
+		"transmission_url":       s.cfg.TransmissionURL,
+		"transmission_user":      s.cfg.TransmissionUser,
+		"transmission_pass":      s.cfg.TransmissionPass,
+		"torrent_client":         s.cfg.TorrentClient,
+		"prowlarr_url":           s.cfg.ProwlarrURL,
+		"prowlarr_api_key":       s.cfg.ProwlarrAPIKey,
+		"sabnzbd_url":            s.cfg.SABnzbdURL,
+		"sabnzbd_api_key":        s.cfg.SABnzbdAPIKey,
+		"sabnzbd_category":       s.cfg.SABnzbdCategory,
+		"abs_url":                s.cfg.ABSURL,
+		"abs_token":              s.cfg.ABSToken,
+		"kavita_url":             s.cfg.KavitaURL,
+		"kavita_user":            s.cfg.KavitaUser,
+		"kavita_pass":            s.cfg.KavitaPass,
+		"komga_url":              s.cfg.KomgaURL,
+		"komga_user":             s.cfg.KomgaUser,
+		"komga_pass":             s.cfg.KomgaPass,
+		"calibre_url":            s.cfg.CalibreURL,
+		"calibre_library_path":   s.cfg.CalibreLibraryPath,
 	}
 
 	// Merge defaults under settings (settings override).
@@ -182,8 +190,23 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		s.cfg.AnnasArchiveSecretKey = v
 		slog.Info("annas archive secret key updated")
 	}
+	s.applyStringSetting(data, "qb_save_path", &s.cfg.QBSavePath)
+	s.applyStringSetting(data, "qb_category", &s.cfg.QBCategory)
+	s.applyStringSetting(data, "qb_audiobook_save_path", &s.cfg.QBAudiobookSavePath)
+	s.applyStringSetting(data, "qb_audiobook_category", &s.cfg.QBAudiobookCategory)
+	s.applyStringSetting(data, "qb_manga_save_path", &s.cfg.QBMangaSavePath)
+	s.applyStringSetting(data, "qb_manga_category", &s.cfg.QBMangaCategory)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+func (s *Server) applyStringSetting(data map[string]interface{}, key string, target *string) {
+	if target == nil {
+		return
+	}
+	if value, ok := data[key].(string); ok && strings.TrimSpace(value) != "" {
+		*target = value
+	}
 }
 
 func (s *Server) loadSettings() map[string]interface{} {
@@ -202,59 +225,55 @@ func validateTestURL(rawURL string) error {
 	return netutil.ValidateIntegrationURL(rawURL)
 }
 
-// handleTestProwlarr actually tests the Prowlarr API connection.
+// handleTestProwlarr runs staged Prowlarr diagnostics.
 func (s *Server) handleTestProwlarr(w http.ResponseWriter, r *http.Request) {
-	var data struct {
-		URL    string `json:"url"`
-		APIKey string `json:"api_key"`
-	}
-	json.NewDecoder(r.Body).Decode(&data)
+	var data map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&data)
 
-	testURL := strings.TrimRight(data.URL, "/")
-	apiKey := data.APIKey
-	if testURL == "" {
+	testURL, hasURL := data["url"]
+	apiKey, hasAPIKey := data["api_key"]
+	if !hasURL {
 		testURL = s.cfg.ProwlarrURL
 	}
-	if apiKey == "" || apiKey == maskedValue {
+	if !hasAPIKey || apiKey == maskedValue {
 		apiKey = s.cfg.ProwlarrAPIKey
 	}
 
-	if testURL == "" || apiKey == "" {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"success": false, "error": "Prowlarr URL and API key required",
-		})
-		return
-	}
-
-	if err := validateTestURL(testURL); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false, "error": err.Error(),
-		})
-		return
-	}
-
-	client := &http.Client{Timeout: 10 * time.Second}
-	req, _ := http.NewRequest("GET", testURL+"/api/v1/health", nil)
-	req.Header.Set("X-Api-Key", apiKey)
-
-	resp, err := client.Do(req)
-	if err != nil {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"success": false, "error": "Connection failed",
-		})
-		return
-	}
-	resp.Body.Close()
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"success": resp.StatusCode == 200,
-		"status":  resp.StatusCode,
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	result := diagnostics.DiagnoseProwlarr(ctx, diagnostics.ProwlarrConfig{
+		URL:     strings.TrimRight(testURL, "/"),
+		APIKey:  apiKey,
+		Timeout: 5 * time.Second,
 	})
+	writeJSON(w, http.StatusOK, result)
 }
 
-// handleTestQBittorrent actually tests qBittorrent login.
-func (s *Server) handleTestQBittorrent(w http.ResponseWriter, _ *http.Request) {
-	result := s.qb.Diagnose()
+// handleTestQBittorrent runs staged qBittorrent diagnostics.
+func (s *Server) handleTestQBittorrent(w http.ResponseWriter, r *http.Request) {
+	var data map[string]string
+	_ = json.NewDecoder(r.Body).Decode(&data)
+
+	testURL, hasURL := data["url"]
+	username, hasUsername := data["username"]
+	password, hasPassword := data["password"]
+	if !hasURL {
+		testURL = s.cfg.QBUrl
+	}
+	if !hasUsername {
+		username = s.cfg.QBUser
+	}
+	if !hasPassword || password == maskedValue {
+		password = s.cfg.QBPass
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	defer cancel()
+	result := diagnostics.DiagnoseQBittorrent(ctx, diagnostics.QBittorrentConfig{
+		URL:      strings.TrimRight(testURL, "/"),
+		Username: username,
+		Password: password,
+		Timeout:  5 * time.Second,
+	})
 	writeJSON(w, http.StatusOK, result)
 }
 

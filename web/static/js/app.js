@@ -1,19 +1,76 @@
 // ============================================================
 // I18N (INTERNATIONALIZATION)
 // ============================================================
-let currentLang = localStorage.getItem('librarr_lang') || 'en';
+let currentLang = 'en';
 
 const I18N = {
   en: {
     // Navigation
+    nav_home: 'Home',
     nav_search: 'Search',
+    nav_discover: 'Discover',
     nav_library: 'Library',
     nav_downloads: 'Downloads',
     nav_wishlist: 'Wishlist',
+    nav_activity: 'Activity',
+    nav_devices: 'Devices',
     nav_settings: 'Settings',
     sign_out: 'Sign out',
     // Header
     header_subtitle: 'Self-hosted book manager',
+    home_kicker: 'Librarr 2.0',
+    home_title: 'A warmer, book-first library experience.',
+    home_subtitle: 'Browse your collection like a personal bookshelf, not a file inventory.',
+    home_open_library: 'Open Library',
+    home_discover: 'Discover Books',
+    home_welcome_title: 'Welcome to Librarr',
+    home_welcome_subtitle: 'Import your existing collection or start discovering books.',
+    home_import_library: 'Import Existing Library',
+    home_import_hint: 'Follow these steps to bring your existing books into Librarr.',
+    home_onboarding_title: 'Get your library ready',
+    home_step_admin_done: 'Create administrator account',
+    home_step_configure_folders: 'Configure library folders',
+    home_step_scan_library: 'Scan existing library',
+    home_step_review_books: 'Review imported books',
+    dashboard_recent: 'Recently Added',
+    dashboard_downloading: 'Currently Downloading',
+    dashboard_wishlist: 'Reading Queue',
+    dashboard_activity: 'Recent Imports',
+    dashboard_totals: 'Library Totals',
+    dashboard_formats: 'Format Distribution',
+    dashboard_empty: 'Nothing here yet.',
+    dashboard_continue_reading: 'Continue Reading',
+    dashboard_recently_read_placeholder: 'Reading progress will appear here in a future release.',
+    library_kicker: 'Bookshelf',
+    library_title: 'Your Library',
+    library_formats: 'Formats',
+    quick_details: 'Details',
+    quick_more: 'More',
+    details_kicker: 'Book Details',
+    details_metadata: 'Metadata',
+    metadata_edit: 'Edit Metadata',
+    metadata_save: 'Save',
+    metadata_cancel: 'Cancel',
+    details_formats: 'Available Formats',
+    details_history: 'History',
+    details_description_placeholder: 'A richer description will appear here once normalized metadata and cover services are fully connected.',
+    details_placeholder_value: 'Not available yet',
+    metadata_source: 'Metadata source',
+    metadata_confidence: 'Confidence',
+    metadata_identifiers: 'Identifiers',
+    metadata_series: 'Series',
+    metadata_title: 'Title',
+    metadata_edition_title: 'Edition Title',
+    metadata_subtitle: 'Subtitle',
+    metadata_description: 'Description',
+    metadata_genres: 'Genres',
+    metadata_language: 'Language',
+    metadata_publication_date: 'Publication Date',
+    metadata_publisher: 'Publisher',
+    activity_kicker: 'Timeline',
+    activity_title: 'Recent Activity',
+    activity_open_downloads: 'Open Downloads',
+    open_external: 'Open',
     // Login modal
     login_subtitle: 'Sign in to continue',
     login_sign_in: 'Sign In',
@@ -72,7 +129,7 @@ const I18N = {
     // Library
     library_filter_placeholder: 'Filter library...',
     library_empty: 'Your library is empty',
-    library_empty_hint: 'Download some books to get started',
+    library_empty_hint: 'Import your folders or discover a new book to get started.',
     failed_load_library: 'Failed to load library',
     other: 'Other',
     n_items: '{n} items',
@@ -141,7 +198,7 @@ const I18N = {
     last_login: 'Last login: {date}',
     never: 'Never',
     confirm_delete_user: 'Delete user "{username}"? This cannot be undone.',
-    s_connection_tests: 'Connection Tests',
+    s_connection_tests: 'Connection Diagnostics',
     conn_prowlarr: 'Prowlarr',
     conn_qbittorrent: 'qBittorrent',
     conn_transmission: 'Transmission',
@@ -193,6 +250,7 @@ const I18N = {
     registration_failed: 'Registration failed',
     // Stats
     n_items_in_library: '{n} items in library',
+    n_books_in_library: '{n} books in library',
     // Search Preferences
     search_preferences: 'Search Preferences',
     filter_non_english: 'Filter non-English results',
@@ -207,14 +265,58 @@ const I18N = {
   },
   ru: {
     // Navigation
+    nav_home: 'Главная',
     nav_search: 'Поиск',
+    nav_discover: 'Обзор',
     nav_library: 'Библиотека',
     nav_downloads: 'Загрузки',
     nav_wishlist: 'Желаемое',
+    nav_activity: 'Активность',
+    nav_devices: 'Устройства',
     nav_settings: 'Настройки',
     sign_out: 'Выйти',
     // Header
     header_subtitle: 'Менеджер книг для самохостинга',
+    home_kicker: 'Librarr 2.0',
+    home_title: 'Более тёплый, книжный интерфейс.',
+    home_subtitle: 'Просматривайте коллекцию как личную библиотеку, а не как список файлов.',
+    home_open_library: 'Открыть библиотеку',
+    home_discover: 'Искать книги',
+    home_welcome_title: 'Добро пожаловать в Librarr',
+    home_welcome_subtitle: 'Импортируйте существующую коллекцию или начните искать книги.',
+    home_import_library: 'Импортировать библиотеку',
+    home_import_hint: 'Импорт начинается в Settings, где можно настроить папки и пути к существующей библиотеке.',
+    home_onboarding_title: 'Подготовьте библиотеку',
+    home_step_admin_done: 'Создать аккаунт администратора',
+    home_step_configure_folders: 'Настроить папки библиотеки',
+    home_step_scan_library: 'Просканировать существующую библиотеку',
+    home_step_review_books: 'Проверить импортированные книги',
+    dashboard_recent: 'Недавно добавлено',
+    dashboard_downloading: 'Текущие загрузки',
+    dashboard_wishlist: 'Желаемое',
+    dashboard_activity: 'Недавняя активность',
+    dashboard_totals: 'Итоги библиотеки',
+    dashboard_formats: 'Распределение форматов',
+    dashboard_empty: 'Пока ничего нет.',
+    library_kicker: 'Книжная полка',
+    library_title: 'Ваша библиотека',
+    library_formats: 'Форматы',
+    quick_details: 'Подробнее',
+    quick_more: 'Ещё',
+    details_kicker: 'О книге',
+    details_metadata: 'Метаданные',
+    details_formats: 'Доступные форматы',
+    details_history: 'История',
+    details_description_placeholder: 'Более подробное описание появится, когда сервисы нормализованных метаданных и обложек будут полностью подключены.',
+    details_placeholder_value: 'Пока недоступно',
+    metadata_source: 'Источник метаданных',
+    metadata_confidence: 'Уверенность',
+    metadata_identifiers: 'Идентификаторы',
+    metadata_series: 'Серия',
+    activity_kicker: 'Лента',
+    activity_title: 'Недавняя активность',
+    activity_open_downloads: 'Открыть загрузки',
+    open_external: 'Открыть',
     // Login modal
     login_subtitle: 'Войдите для продолжения',
     login_sign_in: 'Войти',
@@ -273,7 +375,7 @@ const I18N = {
     // Library
     library_filter_placeholder: 'Фильтр библиотеки...',
     library_empty: 'Ваша библиотека пуста',
-    library_empty_hint: 'Скачайте несколько книг для начала',
+    library_empty_hint: 'Импортируйте папки или найдите новую книгу, чтобы начать.',
     failed_load_library: 'Не удалось загрузить библиотеку',
     other: 'Другое',
     n_items: '{n} элементов',
@@ -342,7 +444,7 @@ const I18N = {
     last_login: 'Последний вход: {date}',
     never: 'Никогда',
     confirm_delete_user: 'Удалить пользователя «{username}»? Это нельзя отменить.',
-    s_connection_tests: 'Проверка подключений',
+    s_connection_tests: 'Диагностика подключений',
     conn_prowlarr: 'Prowlarr',
     conn_qbittorrent: 'qBittorrent',
     conn_transmission: 'Transmission',
@@ -394,6 +496,7 @@ const I18N = {
     registration_failed: 'Ошибка регистрации',
     // Stats
     n_items_in_library: '{n} элементов в библиотеке',
+    n_books_in_library: '{n} книг в библиотеке',
     // Search Preferences
     search_preferences: 'Настройки поиска',
     filter_non_english: 'Фильтровать неанглоязычные результаты',
@@ -424,7 +527,6 @@ function t(key, vars) {
 
 function applyLanguage() {
   document.documentElement.lang = currentLang;
-  document.getElementById('lang-toggle').textContent = currentLang === 'en' ? 'RU' : 'EN';
 
   document.querySelectorAll('[data-i18n]').forEach(el => {
     el.textContent = t(el.dataset.i18n);
@@ -440,17 +542,12 @@ function applyLanguage() {
   });
 }
 
-function toggleLanguage() {
-  currentLang = currentLang === 'en' ? 'ru' : 'en';
-  localStorage.setItem('librarr_lang', currentLang);
-  applyLanguage();
-  refreshDynamicContent();
-}
-
 function refreshDynamicContent() {
   // Re-render current tab content with new language
   const tab = state.currentTab;
-  if (tab === 'search' && state.searchResults.length > 0) {
+  if (tab === 'home') {
+    loadHomeDashboard();
+  } else if (tab === 'search' && state.searchResults.length > 0) {
     renderSearchResults();
   } else if (tab === 'downloads') {
     refreshDownloads();
@@ -468,10 +565,13 @@ function refreshDynamicContent() {
 // STATE
 // ============================================================
 const state = {
-  currentTab: 'search',
+  currentTab: 'home',
   searchTab: 'ebooks',
   libraryTab: 'ebooks',
   searchResults: [],
+  libraryBooks: [],
+  homeBooks: [],
+  homeData: null,
   pendingDownloads: new Set(),
   trackedDownloadJobs: new Map(),
   downloadOutcomes: new Map(),
@@ -485,7 +585,56 @@ const state = {
   downloadPollTimer: null,
   currentUser: null,
   currentRole: null,
+  activeDetailContext: null,
+  libraryMetadataEditor: {
+    open: false,
+    draft: null,
+    errors: [],
+  },
+  libraryImport: {
+    completed: false,
+    dirty: false,
+    lastSaved: null,
+    flashTimer: null,
+    scan: {
+      running: false,
+      jobId: '',
+      pollTimer: null,
+      startedAt: null,
+      progress: null,
+      result: null,
+      filter: 'all',
+      search: '',
+      selected: new Set(),
+      skipped: new Set(),
+      editor: {
+        candidateId: '',
+        draft: null,
+        errors: [],
+      },
+      import: {
+        running: false,
+        jobId: '',
+        pollTimer: null,
+        startedAt: null,
+        progress: null,
+        result: null,
+        error: '',
+      },
+      sections: {
+        new: true,
+        manual_review: true,
+        already_imported: false,
+        duplicate: true,
+        unsupported: false,
+        unreadable: false,
+      },
+      error: '',
+    },
+  },
 };
+
+const LIBRARY_IMPORT_FIELDS = ['incoming_dir', 'ebook_dir', 'audiobook_dir', 'manga_dir'];
 
 const SOURCE_COLORS = {
   annas:           { bg: '#7c3aed', text: 'white', label: "Anna's Archive" },
@@ -923,11 +1072,15 @@ function switchTab(tab) {
   });
 
   // Load data for the tab
+  if (tab === 'home') loadHomeDashboard();
   if (tab === 'library') loadLibrary();
   if (tab === 'downloads') { refreshDownloads(); startDownloadPolling(); }
   else stopDownloadPolling();
   if (tab === 'wishlist') loadWishlist();
   if (tab === 'settings') loadSettings();
+  if (tab === 'settings' && window.location.hash) {
+    scrollToSettingsSection(window.location.hash.slice(1));
+  }
 }
 
 function switchSearchTab(tab) {
@@ -955,6 +1108,87 @@ function switchLibraryTab(tab) {
     el.classList.toggle('active', el.dataset.ltab === tab);
   });
   loadLibrary();
+}
+
+function setupLibrarr2Shell() {
+  document.body.classList.remove('bg-slate-950');
+  document.body.classList.add('librarr-2-body');
+
+  const header = document.querySelector('header');
+  if (header) header.classList.add('librarr-2-header');
+
+  const app = document.getElementById('app');
+  if (app) app.classList.add('librarr-2-shell');
+
+  const nav = document.getElementById('main-nav');
+  if (nav) {
+    nav.innerHTML = `
+      <button data-action="switchTab" data-arg="home" class="nav-tab active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="home">
+        <span data-i18n="nav_home">Home</span>
+      </button>
+      <button data-action="switchTab" data-arg="library" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="library">
+        <span data-i18n="nav_library">Library</span>
+      </button>
+      <button data-action="switchTab" data-arg="search" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="search">
+        <span data-i18n="nav_discover">Discover</span>
+      </button>
+      <button data-action="switchTab" data-arg="settings" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="settings">
+        <span data-i18n="nav_settings">Settings</span>
+      </button>
+    `;
+  }
+
+  const main = document.querySelector('main');
+  const searchTab = document.getElementById('tab-search');
+  if (main && searchTab && !document.getElementById('tab-home')) {
+    const home = document.createElement('div');
+    home.id = 'tab-home';
+    home.className = 'tab-content active';
+    home.innerHTML = `
+      <section class="home-hero rounded-[2rem] p-6 sm:p-8 mb-8">
+        <div class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-6">
+          <div class="max-w-2xl">
+            <p class="text-xs uppercase tracking-[0.28em] text-amber-300/80 mb-3" data-i18n="home_kicker">Librarr 2.0</p>
+            <h2 id="home-hero-title" class="text-3xl sm:text-4xl font-semibold tracking-tight text-white mb-3" data-i18n="home_title">A warmer, book-first library experience.</h2>
+            <p id="home-hero-subtitle" class="text-stone-300/80 leading-7" data-i18n="home_subtitle">Browse your collection like a personal bookshelf, not a file inventory.</p>
+          </div>
+          <div id="home-hero-actions" class="flex flex-wrap gap-3">
+            <button data-action="switchTab" data-arg="library" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors" data-i18n="home_open_library">Open Library</button>
+            <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors" data-i18n="home_discover">Discover Books</button>
+          </div>
+        </div>
+      </section>
+      <div id="home-dashboard" class="grid gap-5 lg:grid-cols-12"></div>
+    `;
+    main.insertBefore(home, searchTab);
+
+  }
+
+  if (!document.getElementById('book-detail-modal')) {
+    const modal = document.createElement('div');
+    modal.id = 'book-detail-modal';
+    modal.className = 'fixed inset-0 z-50 hidden items-stretch justify-end bg-black/70 backdrop-blur-sm';
+    modal.innerHTML = `
+      <div class="w-full max-w-4xl h-full overflow-y-auto bg-[#171412] border-l border-stone-800 shadow-2xl">
+        <div class="sticky top-0 z-10 px-5 py-4 border-b border-stone-800 bg-[#171412]/95 backdrop-blur flex items-center justify-between">
+          <div>
+            <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-1" data-i18n="details_kicker">Book Details</p>
+            <h3 id="detail-heading" class="text-xl font-semibold text-white">Book</h3>
+          </div>
+          <button data-action="closeBookDetails" class="rounded-2xl p-2 text-stone-400 hover:text-white hover:bg-stone-800 transition-colors" aria-label="Close">
+            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+          </button>
+        </div>
+        <div id="book-detail-content" class="p-5 sm:p-8"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+  }
+
+  const libraryResults = document.getElementById('library-results');
+  if (libraryResults) {
+    libraryResults.className = 'grid gap-5 sm:grid-cols-2 xl:grid-cols-3';
+  }
 }
 
 // ============================================================
@@ -1223,10 +1457,10 @@ function renderBookCard(result, index) {
   `;
 }
 
-function makePlaceholderHtml(title, index) {
+function makePlaceholderHtml(title, index, heightClass = 'h-48') {
   const gradient = COVER_GRADIENTS[index % COVER_GRADIENTS.length];
   const letter = (title || '?').charAt(0).toUpperCase();
-  return `<div class="w-full h-48 bg-gradient-to-br ${gradient} cover-placeholder">${escapeHtml(letter)}</div>`;
+  return `<div class="w-full ${heightClass} bg-gradient-to-br ${gradient} cover-placeholder">${escapeHtml(letter)}</div>`;
 }
 
 // Global function for img onerror fallback
@@ -1615,6 +1849,7 @@ async function loadLibrary() {
   const tab = state.libraryTab;
   const q = document.getElementById('library-search').value.trim();
   const page = state.libraryPage;
+  const normalizedBooks = normalizedLibraryMode();
 
   const endpoints = {
     ebooks: `/api/library?page=${page}${q ? '&q=' + encodeURIComponent(q) : ''}`,
@@ -1627,11 +1862,25 @@ async function loadLibrary() {
   const paginationEl = document.getElementById('library-pagination');
 
   try {
-    const data = await apiJson(endpoints[tab]);
-    const items = data.items || [];
-    state.libraryPages = data.pages || 1;
+    let books = [];
+    if (normalizedBooks) {
+      const limit = 24;
+      const offset = (page - 1) * limit;
+      const mediaType = normalizedMediaTypeForTab(tab);
+      const data = await apiJson(`/api/v1/books?media_type=${encodeURIComponent(mediaType)}&limit=${limit}&offset=${offset}&sort=title&order=asc${q ? '&search=' + encodeURIComponent(q) : ''}`);
+      const total = data.pagination?.total || 0;
+      state.libraryPages = Math.max(1, Math.ceil(total / limit));
+      books = (data.items || []).map(mapV1BookToUIBook);
+    } else {
+      const data = await apiJson(endpoints[tab]);
+      const rawItems = data.items || [];
+      state.libraryPages = data.pages || 1;
+      const items = filterLibraryItems(rawItems, q);
+      books = groupLibraryItems(items, tab);
+    }
+    state.libraryBooks = books;
 
-    if (items.length === 0) {
+    if (books.length === 0) {
       container.innerHTML = '';
       emptyEl.classList.remove('hidden');
       paginationEl.classList.add('hidden');
@@ -1639,10 +1888,7 @@ async function loadLibrary() {
     }
 
     emptyEl.classList.add('hidden');
-
-    // Group items by series and render with section headers
-    const renderFn = tab === 'ebooks' ? renderLibraryEbook : tab === 'audiobooks' ? renderLibraryAudiobook : renderLibraryManga;
-    container.innerHTML = renderGroupedBySeries(items, renderFn);
+    container.innerHTML = books.map((book, index) => renderLibraryBookCard(book, index)).join('');
 
     // Pagination
     if (state.libraryPages > 1) {
@@ -1658,142 +1904,145 @@ async function loadLibrary() {
   }
 }
 
-function seriesBaseName(series) {
-  // Strip "#N", "Book N", "(N)", "Vol N", "Volume N" suffixes to get the base series name
-  if (!series) return '';
-  return series
-    .replace(/\s*#\s*[\d.]+.*$/, '')
-    .replace(/\s*Book\s+[\d.]+.*$/i, '')
-    .replace(/\s*Vol(ume)?\s*\.?\s*[\d.]+.*$/i, '')
-    .replace(/\s*\([\d.]+\).*$/, '')
-    .replace(/\s*,\s*$/, '')
-    .trim();
+function normalizedLibraryMode() {
+  return (state.config?.library_repository_mode || '').toLowerCase() === 'normalized';
 }
 
-function renderGroupedBySeries(items, renderFn) {
-  const groups = new Map(); // base series name → items
-  const standalone = [];
-  let idx = 0;
-
-  for (const item of items) {
-    const raw = item.series || '';
-    const base = seriesBaseName(raw);
-    if (base) {
-      if (!groups.has(base)) groups.set(base, []);
-      groups.get(base).push(item);
-    } else {
-      standalone.push(item);
-    }
+function normalizedMediaTypeForTab(tab) {
+  switch (tab) {
+    case 'audiobooks': return 'audiobook';
+    case 'manga': return 'manga';
+    default: return 'ebook';
   }
-
-  let html = '';
-  for (const [series, groupItems] of groups) {
-    if (groupItems.length > 1) {
-      // Series header
-      html += `<div class="col-span-full mt-4 mb-2 first:mt-0">
-        <div class="flex items-center gap-3">
-          <h3 class="text-sm font-semibold text-indigo-400">${escapeHtml(series)}</h3>
-          <span class="text-xs text-slate-600">${t('n_items', {n: groupItems.length})}</span>
-          <div class="flex-1 border-t border-slate-800"></div>
-        </div>
-      </div>`;
-    }
-    for (const item of groupItems) {
-      html += renderFn(item, idx++);
-    }
-    if (groupItems.length > 1) {
-      // Spacer after series group
-      html += `<div class="col-span-full h-2"></div>`;
-    }
-  }
-
-  // Standalone items (no series)
-  if (standalone.length > 0 && groups.size > 0) {
-    html += `<div class="col-span-full mt-4 mb-2">
-      <div class="flex items-center gap-3">
-        <h3 class="text-sm font-semibold text-slate-500">${t('other')}</h3>
-        <div class="flex-1 border-t border-slate-800"></div>
-      </div>
-    </div>`;
-  }
-  for (const item of standalone) {
-    html += renderFn(item, idx++);
-  }
-
-  return html;
 }
 
-function renderLibraryEbook(item, index) {
-  const coverHtml = item.cover_url
-    ? `<img src="${escapeHtml(item.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" data-ph-title="${escapeHtml(item.title || '')}" data-ph-idx="${index}">`
-    : makePlaceholderHtml(item.title || '?', index);
+function mapV1BookToUIBook(book) {
+  return {
+    id: book.id,
+    title: book.title || t('unknown_title'),
+    author: book.primary_author?.name || (book.contributors?.find(c => c.role === 'author')?.name || ''),
+    series: book.series?.name || '',
+    coverUrl: book.cover?.available ? (book.cover?.url || '') : '',
+    mediaType: book.media_type || 'ebook',
+    formats: (book.formats || []).map(format => String(format).toUpperCase()),
+    files: [],
+    sourceRows: [],
+    size: 0,
+    description: book.description || '',
+    externalUrl: '',
+    placeholderIndex: 0,
+    nativeV1: true,
+  };
+}
 
-  const format = item.format || (item.file_path || '').split('.').pop() || '';
+function filterLibraryItems(items, query) {
+  if (!query) return items;
+  const needle = query.toLowerCase();
+  return items.filter(item => {
+    const text = [
+      item.title,
+      item.name,
+      item.author,
+      item.series,
+      item.library,
+      item.file_format,
+      item.format,
+    ].filter(Boolean).join(' ').toLowerCase();
+    return text.includes(needle);
+  });
+}
 
-  const seriesBadge = item.series ? `<p class="text-xs text-indigo-400 line-clamp-1 mb-1">${escapeHtml(item.series)}</p>` : '';
+function groupLibraryItems(items, tab) {
+  const groups = new Map();
+  items.forEach((item, index) => {
+    const title = item.title || item.name || t('unknown_title');
+    const author = item.author || '';
+    const key = `${tab}::${(title || '').trim().toLowerCase()}::${(author || '').trim().toLowerCase()}`;
+    const format = (item.file_format || item.format || inferFormatFromPath(item.file_path || item.original_path || '') || '').toUpperCase();
+    if (!groups.has(key)) {
+      groups.set(key, {
+        id: item.id,
+        title,
+        author,
+        series: item.series || '',
+        coverUrl: item.cover_url || '',
+        mediaType: tab,
+        formats: new Set(),
+        files: [],
+        sourceRows: [],
+        size: 0,
+        description: item.metadata?.description || item.metadata?.summary || '',
+        externalUrl: item.abs_url || item.kavita_url || '',
+        pages: item.pages || 0,
+        durationHours: item.duration_hours || 0,
+        numFiles: item.num_files || 0,
+        placeholderIndex: index,
+      });
+    }
+    const group = groups.get(key);
+    if (format) group.formats.add(format);
+    group.files.push({
+      id: item.id,
+      path: item.file_path || '',
+      originalPath: item.original_path || '',
+      format,
+      source: item.source || '',
+      sourceID: item.source_id || '',
+      addedAt: item.added_at || '',
+      size: item.file_size || 0,
+    });
+    group.sourceRows.push(item);
+    group.size += item.file_size || 0;
+  });
+
+  return Array.from(groups.values()).map(group => ({
+    ...group,
+    formats: Array.from(group.formats).sort(),
+  }));
+}
+
+function renderLibraryBookCard(book, index) {
+  const coverHtml = renderBookCover(book, index, 'h-64');
+  const subtitle = book.author || book.series || t('details_placeholder_value');
+  const meta = [];
+  if (book.series) meta.push(book.series);
+  if (book.size) meta.push(formatSize(book.size));
 
   return `
-    <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 relative group">
-      ${coverHtml}
-      <button data-action="deleteLibraryItem" data-id="${escapeHtml(item.id || '')}" data-type="book" data-title="${escapeHtml(item.title || '')}"
-        class="absolute top-2 right-2 w-7 h-7 bg-red-600/80 hover:bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center" title="Remove from library">&#x2715;</button>
-      <div class="p-3">
-        <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1">${escapeHtml(item.title || 'Unknown')}</h3>
-        <p class="text-xs text-slate-400 line-clamp-1 mb-1">${escapeHtml(item.author || '')}</p>
-        ${seriesBadge}
-        <div class="flex items-center gap-2 text-xs text-slate-500">
-          ${format ? `<span class="uppercase">${escapeHtml(format)}</span>` : ''}
-          ${item.size ? `<span>${escapeHtml(formatSize(item.size))}</span>` : ''}
+    <article class="shelf-card group overflow-hidden rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 shadow-[0_12px_40px_rgba(0,0,0,0.22)]">
+      <div class="relative">${coverHtml}</div>
+      <div class="p-5">
+        <div class="mb-4">
+          <h3 class="text-xl font-semibold tracking-tight text-white line-clamp-2">${escapeHtml(book.title)}</h3>
+          <p class="mt-1 text-sm text-stone-300 line-clamp-1">${escapeHtml(subtitle)}</p>
+          ${meta.length ? `<p class="mt-2 text-xs uppercase tracking-[0.18em] text-stone-500">${escapeHtml(meta.join(' • '))}</p>` : ''}
+        </div>
+        <div class="mb-4 flex flex-wrap gap-2">
+          ${book.formats.map(renderFormatBadge).join('')}
+        </div>
+        <div class="flex gap-2 flex-wrap">
+          <button data-action="openBookDetails" data-index="${index}" class="px-3 py-2 rounded-xl bg-amber-500 text-stone-950 text-sm font-medium hover:bg-amber-400 transition-colors">${t('quick_details')}</button>
+          ${book.externalUrl ? `<a href="${escapeHtml(book.externalUrl)}" target="_blank" rel="noreferrer" class="px-3 py-2 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition-colors">${t('open_external')}</a>` : `<button data-action="openBookDetails" data-index="${index}" class="px-3 py-2 rounded-xl bg-white/10 text-white text-sm font-medium hover:bg-white/15 transition-colors">${t('quick_more')}</button>`}
         </div>
       </div>
-    </div>
+    </article>
   `;
 }
 
-function renderLibraryAudiobook(item, index) {
-  const coverHtml = item.cover_url
-    ? `<img src="${escapeHtml(item.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" data-ph-title="${escapeHtml(item.title || '')}" data-ph-idx="${index}">`
-    : makePlaceholderHtml(item.title || '?', index);
-
-  const duration = item.duration_hours ? `${item.duration_hours.toFixed(1)}h` : '';
-
-  return `
-    <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 relative group">
-      ${coverHtml}
-      <button data-action="deleteLibraryItem" data-id="${escapeHtml(item.id || '')}" data-type="audiobook" data-title="${escapeHtml(item.title || '')}"
-        class="absolute top-2 right-2 w-7 h-7 bg-red-600/80 hover:bg-red-500 text-white rounded-full text-xs opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center" title="Remove from library">&#x2715;</button>
-      <div class="p-3">
-        <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1">${escapeHtml(item.title || 'Unknown')}</h3>
-        <p class="text-xs text-slate-400 line-clamp-1 mb-1">${escapeHtml(item.author || '')}</p>
-        ${item.series ? `<p class="text-xs text-indigo-400 line-clamp-1 mb-1">${escapeHtml(item.series)}</p>` : ''}
-        <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
-          ${duration ? `<span>${duration}</span>` : ''}
-          ${item.num_files ? `<span>${t('n_files', {n: item.num_files})}</span>` : ''}
-        </div>
-        ${item.abs_url ? `<a href="${escapeHtml(item.abs_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">${t('open_in_abs')}</a>` : ''}
-      </div>
-    </div>
-  `;
+function renderBookCover(book, index, heightClass = 'h-56') {
+  if (book.coverUrl) {
+    return `<img src="${escapeHtml(book.coverUrl)}" alt="" class="w-full ${heightClass} object-cover" loading="lazy" data-ph-title="${escapeHtml(book.title || '')}" data-ph-idx="${index}">`;
+  }
+  return makePlaceholderHtml(book.title || '?', index, heightClass);
 }
 
-function renderLibraryManga(item, index) {
-  const coverHtml = item.cover_url
-    ? `<img src="${escapeHtml(item.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" data-ph-title="${escapeHtml(item.name || '')}" data-ph-idx="${index}">`
-    : makePlaceholderHtml(item.name || '?', index);
+function renderFormatBadge(format) {
+  return `<span class="inline-flex items-center rounded-full border border-amber-500/20 bg-amber-500/10 px-3 py-1 text-xs font-semibold tracking-[0.18em] text-amber-200">${escapeHtml(format)}</span>`;
+}
 
-  return `
-    <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600">
-      ${coverHtml}
-      <div class="p-3">
-        <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1">${escapeHtml(item.name || 'Unknown')}</h3>
-        <div class="flex items-center gap-2 text-xs text-slate-500 mb-2">
-          ${item.pages ? `<span>${t('n_pages', {n: item.pages})}</span>` : ''}
-          ${item.library ? `<span>${escapeHtml(item.library)}</span>` : ''}
-        </div>
-        ${item.kavita_url ? `<a href="${escapeHtml(item.kavita_url)}" target="_blank" class="text-xs text-indigo-400 hover:text-indigo-300 transition-colors">${t('open_in_kavita')}</a>` : ''}
-      </div>
-    </div>
-  `;
+function inferFormatFromPath(path) {
+  if (!path || !path.includes('.')) return '';
+  return path.split('.').pop();
 }
 
 async function deleteLibraryItem(id, type, title) {
@@ -1847,6 +2096,654 @@ function goLibraryPage(page) {
   state.libraryPage = page;
   loadLibrary();
   window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+
+async function loadHomeDashboard() {
+  const container = document.getElementById('home-dashboard');
+  if (!container) return;
+  try {
+    const useNormalized = normalizedLibraryMode();
+    const recentLibraryRequest = useNormalized
+      ? apiJson('/api/v1/books?limit=4&offset=0&sort=recently_added&order=desc')
+      : apiJson('/api/library?limit=8');
+    const statsRequest = useNormalized
+      ? apiJson('/api/v1/library/summary')
+      : apiJson('/api/stats');
+    const [statsRes, downloadsRes, activityRes, libraryRes] = await Promise.allSettled([
+      statsRequest,
+      apiJson('/api/downloads'),
+      apiJson('/api/activity?limit=6'),
+      recentLibraryRequest,
+    ]);
+
+    const stats = statsRes.status === 'fulfilled' ? statsRes.value : {};
+    const downloads = downloadsRes.status === 'fulfilled' ? downloadsRes.value : [];
+    const activity = activityRes.status === 'fulfilled' ? (activityRes.value.events || []) : [];
+    const recentBooks = libraryRes.status === 'fulfilled'
+      ? (useNormalized
+          ? (libraryRes.value.items || []).map(mapV1BookToUIBook)
+          : groupLibraryItems(libraryRes.value.items || [], 'ebooks').slice(0, 4))
+      : [];
+    state.homeBooks = recentBooks;
+    const bookCount = currentLibraryCount(useNormalized, stats);
+    const showOnboarding = bookCount === 0;
+    updateHomeHero(showOnboarding);
+    const formatCounts = useNormalized
+      ? (stats.format_distribution || {})
+      : buildFormatCounts(recentBooks);
+
+    container.innerHTML = buildHomeDashboardMarkup({
+      showOnboarding,
+      recentBooks,
+      formatCounts,
+      downloads,
+      activity,
+      stats,
+      bookCount,
+    });
+  } catch (err) {
+    updateHomeHero(false);
+    container.innerHTML = `<div class="dashboard-panel rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5 text-stone-400">${t('dashboard_empty')}</div>`;
+  }
+}
+
+function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, downloads, activity, stats, bookCount }) {
+  if (showOnboarding) {
+    return renderOnboardingChecklist();
+  }
+
+  return `
+      <section class="dashboard-panel lg:col-span-7 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-white">${t('dashboard_recent')}</h3>
+          <button data-action="switchTab" data-arg="library" class="text-sm text-amber-300 hover:text-amber-200">${t('quick_details')}</button>
+        </div>
+        <div class="grid gap-4 sm:grid-cols-2">
+          ${recentBooks.length ? recentBooks.map((book, index) => renderCompactBookCard(book, index)).join('') : renderDashboardEmpty()}
+        </div>
+      </section>
+      <section class="dashboard-panel lg:col-span-5 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_totals')}</h3>
+        <div class="grid grid-cols-2 gap-3">
+          ${renderMetricCard('Books', bookCount)}
+          ${renderMetricCard('Ebooks', stats.ebooks ?? 0)}
+          ${renderMetricCard('Audiobooks', stats.audiobooks ?? 0)}
+          ${renderMetricCard('Manga', stats.manga ?? 0)}
+        </div>
+        <div class="mt-6">
+          <h4 class="text-sm font-semibold uppercase tracking-[0.18em] text-stone-400 mb-3">${t('dashboard_formats')}</h4>
+          <div class="flex flex-wrap gap-2">
+            ${Object.entries(formatCounts).length ? Object.entries(formatCounts).map(([format, count]) => `<span class="inline-flex items-center gap-2 rounded-full bg-stone-800 px-3 py-1.5 text-xs text-stone-200"><span class="text-amber-300">${escapeHtml(format)}</span><span class="text-stone-500">${count}</span></span>`).join('') : `<span class="text-sm text-stone-500">${t('dashboard_empty')}</span>`}
+          </div>
+        </div>
+      </section>
+      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-white">${t('dashboard_downloading')}</h3>
+        </div>
+        <div class="space-y-3">${(downloads || []).slice(0, 4).map(renderCompactDownload).join('') || renderDashboardEmpty()}</div>
+      </section>
+      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-white">${t('dashboard_continue_reading')}</h3>
+        </div>
+        <div class="rounded-2xl border border-dashed border-stone-800 bg-stone-900/40 p-4 text-sm leading-6 text-stone-400">${t('dashboard_recently_read_placeholder')}</div>
+      </section>
+      <section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <div class="flex items-center justify-between mb-4">
+          <h3 class="text-lg font-semibold text-white">${t('dashboard_activity')}</h3>
+        </div>
+        <div class="space-y-3">${activity.slice(0, 4).map(renderActivityRow).join('') || renderDashboardEmpty()}</div>
+      </section>
+    `;
+}
+
+function renderCompactBookCard(book, index) {
+  return `
+    <button data-action="openHomeBookDetails" data-index="${index}" class="text-left rounded-[1.5rem] border border-stone-800 bg-stone-900/70 p-3 hover:border-amber-500/40 transition-colors">
+      <div class="flex gap-4">
+        <div class="w-20 shrink-0 overflow-hidden rounded-2xl">${renderBookCover(book, index, 'h-28')}</div>
+        <div class="min-w-0">
+          <h4 class="text-base font-semibold text-white line-clamp-2">${escapeHtml(book.title)}</h4>
+          <p class="mt-1 text-sm text-stone-300 line-clamp-1">${escapeHtml(book.author || book.series || '')}</p>
+          <div class="mt-3 flex flex-wrap gap-2">${book.formats.slice(0, 3).map(renderFormatBadge).join('')}</div>
+        </div>
+      </div>
+    </button>
+  `;
+}
+
+function renderMetricCard(label, value) {
+  return `<div class="rounded-[1.5rem] bg-stone-900/70 p-4"><p class="text-xs uppercase tracking-[0.18em] text-stone-500">${escapeHtml(label)}</p><p class="mt-2 text-3xl font-semibold text-white">${escapeHtml(String(value))}</p></div>`;
+}
+
+function currentLibraryCount(useNormalized, stats) {
+  if (!stats) return 0;
+  return useNormalized ? (stats.total_books ?? 0) : (stats.total_items ?? 0);
+}
+
+function updateHomeHero(isOnboarding) {
+  const titleEl = document.getElementById('home-hero-title');
+  const subtitleEl = document.getElementById('home-hero-subtitle');
+  const actionsEl = document.getElementById('home-hero-actions');
+  if (!titleEl || !subtitleEl || !actionsEl) return;
+
+  if (isOnboarding) {
+    titleEl.textContent = t('home_welcome_title');
+    subtitleEl.textContent = t('home_welcome_subtitle');
+    actionsEl.innerHTML = `
+      <button data-action="openImportSettings" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>
+      <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors">${t('home_discover')}</button>
+    `;
+    return;
+  }
+
+  titleEl.textContent = t('home_title');
+  subtitleEl.textContent = t('home_subtitle');
+  actionsEl.innerHTML = `
+    <button data-action="switchTab" data-arg="library" class="px-4 py-2.5 rounded-2xl bg-amber-500 text-stone-950 font-medium hover:bg-amber-400 transition-colors">${t('home_open_library')}</button>
+    <button data-action="switchTab" data-arg="search" class="px-4 py-2.5 rounded-2xl bg-white/10 text-white font-medium hover:bg-white/15 transition-colors">${t('home_discover')}</button>
+  `;
+}
+
+function renderOnboardingChecklist() {
+  const checklistItems = [
+    { done: Boolean(state.currentUser), label: t('home_step_admin_done') },
+    { done: false, label: t('home_step_configure_folders') },
+    { done: false, label: t('home_step_scan_library') },
+    { done: false, label: t('home_step_review_books') },
+  ];
+
+  return `
+    <section class="dashboard-panel lg:col-span-12 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+      <div class="max-w-2xl">
+        <h3 class="text-xl font-semibold text-white mb-2">${t('home_onboarding_title')}</h3>
+        <p class="text-stone-400 leading-7">${t('home_import_hint')}</p>
+      </div>
+      <div class="mt-6 grid gap-3 md:grid-cols-2">
+        ${checklistItems.map(item => `
+          <div class="flex items-center gap-3 rounded-2xl border ${item.done ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-stone-800 bg-stone-900/60 text-stone-200'} px-4 py-3">
+            <span class="text-base">${item.done ? '✅' : '⬜'}</span>
+            <span class="text-sm font-medium">${escapeHtml(item.label)}</span>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function openImportSettings() {
+  const targetId = 'settings-library-import';
+  window.location.hash = targetId;
+  switchTab('settings');
+  scrollToSettingsSection(targetId);
+}
+
+function scrollToSettingsSection(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  requestAnimationFrame(() => {
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    el.classList.add('ring-2', 'ring-amber-400/70');
+    window.setTimeout(() => {
+      el.classList.remove('ring-2', 'ring-amber-400/70');
+    }, 1600);
+  });
+}
+
+function renderCompactDownload(item) {
+  return `<div class="rounded-[1.25rem] bg-stone-900/70 p-3"><p class="text-sm font-medium text-white line-clamp-1">${escapeHtml(item.title || t('unknown_title'))}</p><p class="mt-1 text-xs text-stone-400">${escapeHtml(item.status || '')}</p></div>`;
+}
+
+function renderCompactWishlist(item) {
+  return `<div class="rounded-[1.25rem] bg-stone-900/70 p-3"><p class="text-sm font-medium text-white line-clamp-1">${escapeHtml(item.title || '')}</p><p class="mt-1 text-xs text-stone-400 line-clamp-1">${escapeHtml(item.author || item.media_type || '')}</p></div>`;
+}
+
+function renderActivityRow(event) {
+  const timestamp = event.created_at || event.timestamp || '';
+  const label = event.action || event.event || '';
+  const detail = event.detail || event.message || '';
+  const title = event.title || event.subject || '';
+  return `<div class="rounded-[1.25rem] border border-stone-800 bg-stone-900/60 p-4">
+    <div class="flex items-center justify-between gap-4">
+      <div class="min-w-0">
+        <p class="text-sm font-medium text-white line-clamp-1">${escapeHtml(title || label || 'Activity')}</p>
+        <p class="mt-1 text-xs text-stone-400 line-clamp-2">${escapeHtml(detail || label || '')}</p>
+      </div>
+      <span class="shrink-0 text-xs text-stone-500">${escapeHtml(formatRelativeTime(timestamp))}</span>
+    </div>
+  </div>`;
+}
+
+function renderDashboardEmpty() {
+  return `<div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-900/30 p-5 text-sm text-stone-500">${t('dashboard_empty')}</div>`;
+}
+
+function buildFormatCounts(books) {
+  const counts = {};
+  books.forEach(book => {
+    book.formats.forEach(format => {
+      counts[format] = (counts[format] || 0) + 1;
+    });
+  });
+  return counts;
+}
+
+function formatRelativeTime(value) {
+  if (!value) return '';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '';
+  const diffMs = Date.now() - date.getTime();
+  const diffMin = Math.round(diffMs / 60000);
+  if (diffMin < 1) return 'now';
+  if (diffMin < 60) return `${diffMin}m`;
+  const diffHr = Math.round(diffMin / 60);
+  if (diffHr < 24) return `${diffHr}h`;
+  const diffDay = Math.round(diffHr / 24);
+  return `${diffDay}d`;
+}
+
+async function openBookDetails(index, collection = 'libraryBooks') {
+  const source = Array.isArray(state[collection]) ? state[collection] : [];
+  const book = source[index];
+  if (!book) return;
+  const modal = document.getElementById('book-detail-modal');
+  const content = document.getElementById('book-detail-content');
+  const heading = document.getElementById('detail-heading');
+  if (!modal || !content || !heading) return;
+  let detailBook = book;
+  let detailFiles = book.files || [];
+  let detailMetadata = null;
+  let detailProvenance = null;
+  if (normalizedLibraryMode() && book.id) {
+    try {
+      const [detail, files, metadata, provenance] = await Promise.all([
+        apiJson(`/api/v1/books/${book.id}`),
+        apiJson(`/api/v1/books/${book.id}/files`),
+        apiJson(`/api/v1/books/${book.id}/metadata`),
+        apiJson(`/api/v1/books/${book.id}/provenance`),
+      ]);
+      detailBook = {
+        ...mapV1BookToUIBook(detail),
+        description: detail.description || '',
+        identifiers: detail.identifiers || [],
+        editions: detail.editions || [],
+        series: detail.series?.name || '',
+        metadataConfidence: 'Native',
+      };
+      detailFiles = (files.items || []).map(file => ({
+        id: file.id,
+        path: file.path || '',
+        originalPath: file.original_path || '',
+        format: (file.format || '').toUpperCase(),
+        sourceID: file.source_id || '',
+        size: file.size || 0,
+        editionID: file.edition_id || 0,
+      }));
+      detailBook.files = detailFiles;
+      detailMetadata = metadata;
+      detailProvenance = provenance;
+    } catch (err) {
+      detailFiles = book.files || [];
+    }
+  }
+  detailBook.metadata = detailMetadata;
+  detailBook.provenance = detailProvenance;
+  state.activeDetailBook = detailBook;
+  state.activeDetailContext = { index, collection, bookId: detailBook.id || book.id || 0 };
+  const preferredTitle = detailMetadata?.fields?.title?.value || detailBook.title || book.title;
+  const preferredDescription = detailMetadata?.fields?.description?.value || detailBook.description || '';
+  heading.textContent = preferredTitle;
+  content.innerHTML = `
+    <div class="grid gap-8 lg:grid-cols-[18rem_minmax(0,1fr)]">
+      <div>
+              <div class="overflow-hidden rounded-[2rem] shadow-[0_20px_50px_rgba(0,0,0,0.35)]">${renderBookCover(detailBook, index, 'h-[24rem]')}</div>
+      </div>
+      <div>
+        <header class="mb-8">
+          <h2 class="text-4xl font-semibold tracking-tight text-white">${escapeHtml(preferredTitle)}</h2>
+          <p class="mt-2 text-lg text-stone-300">${escapeHtml(detailBook.author || t('details_placeholder_value'))}</p>
+          ${detailBook.series ? `<p class="mt-3 text-sm uppercase tracking-[0.18em] text-amber-300/80">${escapeHtml(detailBook.series)}</p>` : ''}
+          <p class="mt-5 text-stone-400 leading-7">${escapeHtml(preferredDescription || t('details_description_placeholder'))}</p>
+        </header>
+        <section class="mb-8">
+          <div class="flex items-center justify-between gap-3 mb-4">
+            <h3 class="text-lg font-semibold text-white">${t('details_metadata')}</h3>
+            ${detailBook.id && normalizedLibraryMode() ? `<button data-action="openLibraryMetadataEditor" class="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200 transition-colors">${t('metadata_edit')}</button>` : ''}
+          </div>
+          ${state.libraryMetadataEditor.open ? renderLibraryMetadataEditor(detailBook) : ''}
+          <div class="grid gap-4 sm:grid-cols-2">
+            ${renderMetadataFieldCards(detailMetadata)}
+            ${renderDetailMetaCard(t('metadata_series'), detailBook.series || t('details_placeholder_value'))}
+            ${renderDetailMetaCard(t('metadata_identifiers'), formatIdentifierList(detailBook.identifiers || []))}
+          </div>
+        </section>
+        <section class="mb-8">
+          <h3 class="text-lg font-semibold text-white mb-4">${t('details_formats')}</h3>
+          <div class="space-y-3">
+            ${detailFiles.map(file => `
+              <div class="rounded-[1.25rem] border border-stone-800 bg-stone-900/60 px-4 py-3 flex items-center justify-between gap-3">
+                <div>
+                  <p class="text-sm font-medium text-white">${escapeHtml(file.format || 'FILE')}</p>
+                  <p class="text-xs text-stone-500 line-clamp-1">${escapeHtml(file.path || file.originalPath || '')}</p>
+                </div>
+                <span class="text-xs text-stone-400">${escapeHtml(formatSize(file.size || 0))}</span>
+              </div>
+            `).join('')}
+          </div>
+        </section>
+        <section>
+          <h3 class="text-lg font-semibold text-white mb-4">${t('details_history')}</h3>
+          <div id="detail-history" class="space-y-3">
+            <div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-900/30 p-4 text-sm text-stone-500">${t('dashboard_empty')}</div>
+          </div>
+        </section>
+      </div>
+    </div>
+  `;
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+  loadBookHistory(detailBook);
+}
+
+function closeBookDetails() {
+  const modal = document.getElementById('book-detail-modal');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+function openHomeBookDetails(index) {
+  openBookDetails(index, 'homeBooks');
+}
+
+function renderDetailMetaCard(label, value) {
+  return `<div class="rounded-[1.25rem] border border-stone-800 bg-stone-900/60 p-4"><p class="text-xs uppercase tracking-[0.18em] text-stone-500 mb-2">${escapeHtml(label)}</p><p class="text-sm text-stone-200">${escapeHtml(value)}</p></div>`;
+}
+
+function renderMetadataFieldCards(metadata) {
+  if (!metadata?.fields) {
+    return `
+      ${renderDetailMetaCard(t('metadata_source'), t('details_placeholder_value'))}
+      ${renderDetailMetaCard(t('metadata_confidence'), t('details_placeholder_value'))}
+    `;
+  }
+  const fields = [
+    ['title', t('metadata_title')],
+    ['edition_title', t('metadata_edition_title')],
+    ['subtitle', t('metadata_subtitle')],
+    ['language', t('metadata_language')],
+    ['publication_date', t('metadata_publication_date')],
+    ['publisher', t('metadata_publisher')],
+    ['genres', t('metadata_genres')],
+  ];
+  return fields.map(([key, label]) => renderMetadataFieldCard(label, metadata.fields[key])).join('');
+}
+
+function renderMetadataFieldCard(label, field) {
+  if (!field || !field.value) {
+    return renderDetailMetaCard(label, t('details_placeholder_value'));
+  }
+  const badge = field.manual_override ? '<span class="rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-amber-200">Manual</span>' : '';
+  return `
+    <div class="rounded-[1.25rem] border border-stone-800 bg-stone-900/60 p-4">
+      <div class="flex items-start justify-between gap-3 mb-2">
+        <p class="text-xs uppercase tracking-[0.18em] text-stone-500">${escapeHtml(label)}</p>
+        ${badge}
+      </div>
+      <p class="text-sm text-stone-100 mb-3">${escapeHtml(field.value)}</p>
+      <div class="flex flex-wrap gap-2 text-[11px] text-stone-400">
+        <span>${escapeHtml(field.source || t('details_placeholder_value'))}</span>
+        <span>•</span>
+        <span>${escapeHtml(formatConfidence(field))}</span>
+      </div>
+    </div>
+  `;
+}
+
+function formatConfidence(field) {
+  if (!field) return t('details_placeholder_value');
+  if (typeof field.confidence_score === 'number' && field.confidence_score > 0) {
+    return `${field.confidence_score}%`;
+  }
+  return field.confidence || t('details_placeholder_value');
+}
+
+function libraryMetadataDraftFromBook(book) {
+  const fields = book?.metadata?.fields || {};
+  return {
+    title: fields.title?.value || book?.title || '',
+    edition_title: fields.edition_title?.value || book?.editions?.[0]?.title || '',
+    subtitle: fields.subtitle?.value || book?.editions?.[0]?.subtitle || '',
+    author: book?.author || book?.primary_author?.name || '',
+    series: book?.series || '',
+    publisher: fields.publisher?.value || book?.editions?.[0]?.publisher || '',
+    publication_year: publicationYearFromMetadata(fields.publication_date?.value || book?.editions?.[0]?.publication_date || ''),
+    isbn: (book?.identifiers || []).find(identifier => String(identifier.type || '').toLowerCase() === 'isbn')?.value || '',
+    language: fields.language?.value || book?.language || book?.editions?.[0]?.language || '',
+    description: fields.description?.value || book?.description || '',
+    tags: fields.genres?.value || '',
+    library: book?.mediaType || book?.media_type || '',
+  };
+}
+
+function renderLibraryMetadataEditor(book) {
+  const draft = state.libraryMetadataEditor.draft || libraryMetadataDraftFromBook(book);
+  const candidate = libraryMetadataCandidate(book);
+  const preview = metadataEditorPreview(candidate, draft);
+  const errors = validateLibraryMetadataDraft(book, draft);
+  state.libraryMetadataEditor.errors = errors;
+  const field = (name, label, value, attrs = '') => `
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wider text-stone-500">${escapeHtml(label)}</span>
+      <input data-action-input="libraryMetadataEditorField" data-field="${escapeHtml(name)}" value="${escapeHtml(value || '')}" ${attrs} class="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 placeholder-stone-600 focus:border-amber-400 focus:outline-none">
+    </label>
+  `;
+  return `
+    <div id="library-metadata-editor" class="mb-5 rounded-[1.5rem] border border-amber-500/25 bg-stone-950/75 p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-white">Metadata Editor</p>
+          <p class="mt-1 text-xs text-stone-400">Update catalog metadata stored by Librarr. Ebook files are not modified.</p>
+        </div>
+        <button data-action="cancelLibraryMetadataEditor" class="rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-300 hover:bg-stone-700">Cancel</button>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="md:col-span-2">${field('title', 'Title', draft.title, 'required')}</div>
+            ${field('edition_title', 'Edition Title', draft.edition_title)}
+            ${field('subtitle', 'Subtitle', draft.subtitle)}
+            ${field('publisher', 'Publisher', draft.publisher)}
+            ${field('publication_year', 'Publication Year', draft.publication_year, 'inputmode="numeric" maxlength="4"')}
+            ${field('language', 'Language', draft.language)}
+            ${field('tags', 'Tags / Genres', draft.tags, 'placeholder="fantasy, fiction, owned"')}
+          </div>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-stone-500">Description</span>
+            <textarea data-action-input="libraryMetadataEditorField" data-field="description" rows="4" class="mt-1 w-full rounded-lg border border-stone-700 bg-stone-950 px-3 py-2 text-sm text-stone-100 placeholder-stone-600 focus:border-amber-400 focus:outline-none">${escapeHtml(draft.description || '')}</textarea>
+          </label>
+          <div class="rounded-lg border border-stone-800 bg-stone-900/60 p-3 text-xs text-stone-400">
+            <p class="font-medium text-stone-200">Not editable here yet</p>
+            <p class="mt-1">Author, series, ISBN, library, destination folder, and filename preview are shown for context but are not persisted by the current book metadata endpoint.</p>
+          </div>
+        </div>
+        <div class="space-y-3">
+          <div class="overflow-hidden rounded-lg border border-stone-800 bg-stone-900/80 p-3">
+            <p class="mb-2 text-xs font-semibold text-stone-100">Cover Preview</p>
+            <div class="w-28 overflow-hidden rounded-xl">${renderBookCover(book, 0, 'h-40')}</div>
+          </div>
+          <div class="rounded-lg border border-stone-800 bg-stone-900/80 p-3">
+            <p class="text-xs font-semibold text-stone-100">Catalog Preview</p>
+            <dl class="mt-3 space-y-2 text-xs">
+              <div><dt class="text-stone-500">Author</dt><dd class="break-all text-stone-300">${escapeHtml(draft.author || t('details_placeholder_value'))}</dd></div>
+              <div><dt class="text-stone-500">Series</dt><dd class="break-all text-stone-300">${escapeHtml(draft.series || t('details_placeholder_value'))}</dd></div>
+              <div><dt class="text-stone-500">ISBN</dt><dd class="break-all text-stone-300">${escapeHtml(draft.isbn || t('details_placeholder_value'))}</dd></div>
+              <div><dt class="text-stone-500">Library</dt><dd class="break-all text-stone-300">${escapeHtml(draft.library || t('details_placeholder_value'))}</dd></div>
+              <div><dt class="text-stone-500">Current Folder</dt><dd class="break-all text-stone-300">${escapeHtml(preview.folder || t('details_placeholder_value'))}</dd></div>
+              <div><dt class="text-stone-500">Filename Preview</dt><dd class="break-all text-stone-300">${escapeHtml(preview.filename)}</dd></div>
+            </dl>
+          </div>
+          <div id="library-metadata-editor-validation" class="${errors.length ? '' : 'hidden'} rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">
+            ${errors.map(error => `<p>${escapeHtml(error)}</p>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button data-action="saveLibraryMetadataEditor" ${errors.length ? 'disabled' : ''} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-stone-400">Save</button>
+        <button data-action="resetLibraryMetadataEditor" class="rounded-md bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 hover:bg-stone-700">Reset</button>
+      </div>
+    </div>
+  `;
+}
+
+function openLibraryMetadataEditor() {
+  const book = state.activeDetailBook;
+  if (!book?.id || !normalizedLibraryMode()) return;
+  state.libraryMetadataEditor = {
+    open: true,
+    draft: libraryMetadataDraftFromBook(book),
+    errors: [],
+  };
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+}
+
+function closeLibraryMetadataEditor() {
+  state.libraryMetadataEditor = { open: false, draft: null, errors: [] };
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+}
+
+function resetLibraryMetadataEditor() {
+  if (!state.activeDetailBook) return;
+  state.libraryMetadataEditor.draft = libraryMetadataDraftFromBook(state.activeDetailBook);
+  state.libraryMetadataEditor.errors = [];
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
+}
+
+function updateLibraryMetadataEditorDraft(field, value) {
+  if (!state.libraryMetadataEditor.open) return;
+  state.libraryMetadataEditor.draft = state.libraryMetadataEditor.draft || {};
+  state.libraryMetadataEditor.draft[field] = value;
+  updateLibraryMetadataEditorValidation();
+}
+
+function updateLibraryMetadataEditorValidation() {
+  const errors = validateLibraryMetadataDraft(state.activeDetailBook, state.libraryMetadataEditor.draft || {});
+  state.libraryMetadataEditor.errors = errors;
+  const validationEl = document.getElementById('library-metadata-editor-validation');
+  if (validationEl) {
+    validationEl.classList.toggle('hidden', errors.length === 0);
+    validationEl.innerHTML = errors.map(error => `<p>${escapeHtml(error)}</p>`).join('');
+  }
+  const save = document.querySelector('[data-action="saveLibraryMetadataEditor"]');
+  if (save) save.disabled = errors.length > 0;
+}
+
+function validateLibraryMetadataDraft(book, draft) {
+  const candidate = libraryMetadataCandidate(book || {});
+  return validateMetadataEditorDraft(candidate, {
+    title: draft.title,
+    author: draft.author || 'Existing author',
+    publication_year: draft.publication_year,
+    isbn: '',
+  }).filter(error => !/destination/i.test(error));
+}
+
+function libraryMetadataPatchFromDraft(draft) {
+  return {
+    fields: {
+      title: String(draft.title || '').trim(),
+      edition_title: String(draft.edition_title || '').trim(),
+      subtitle: String(draft.subtitle || '').trim(),
+      publisher: String(draft.publisher || '').trim(),
+      publication_date: String(draft.publication_year || '').trim(),
+      language: String(draft.language || '').trim(),
+      description: String(draft.description || '').trim(),
+      genres: String(draft.tags || '').split(',').map(tag => tag.trim()).filter(Boolean),
+    },
+  };
+}
+
+async function saveLibraryMetadataEditor() {
+  const book = state.activeDetailBook;
+  const draft = state.libraryMetadataEditor.draft || {};
+  if (!book?.id) return;
+  const errors = validateLibraryMetadataDraft(book, draft);
+  if (errors.length) {
+    state.libraryMetadataEditor.errors = errors;
+    updateLibraryMetadataEditorValidation();
+    showToast(errors[0], 'error');
+    return;
+  }
+  try {
+    await apiJson(`/api/v1/books/${book.id}/metadata`, {
+      method: 'PATCH',
+      body: JSON.stringify(libraryMetadataPatchFromDraft(draft)),
+    });
+    state.libraryMetadataEditor = { open: false, draft: null, errors: [] };
+    await loadLibrary();
+    const context = state.activeDetailContext || {};
+    const refreshedIndex = state.libraryBooks.findIndex(item => item.id === book.id);
+    await openBookDetails(refreshedIndex >= 0 ? refreshedIndex : (context.index || 0), 'libraryBooks');
+    showToast('Metadata saved', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to update metadata', 'error');
+  }
+}
+
+function libraryMetadataCandidate(book) {
+  const files = Array.isArray(book?.files) ? book.files : [];
+  const firstFile = files[0] || {};
+  const format = String(firstFile.format || book?.formats?.[0] || 'book').toLowerCase();
+  return {
+    id: String(book?.id || 'book'),
+    title: book?.title || '',
+    author: book?.author || book?.primary_author?.name || '',
+    format,
+    path: firstFile.path || firstFile.originalPath || `${book?.title || 'book'}.${format}`,
+    destination_path: firstFile.path || firstFile.originalPath || '',
+    classification: 'library',
+    metadata: {
+      title: book?.metadata?.fields?.title?.value || book?.title || '',
+      author: book?.author || '',
+    },
+  };
+}
+
+function publicationYearFromMetadata(value) {
+  const match = String(value || '').match(/\d{4}/);
+  return match ? match[0] : '';
+}
+
+function guessMetadataSource(book) {
+  if (book.nativeV1) return 'Normalized library';
+  if (book.coverUrl) return 'External library';
+  if (book.files.some(file => file.source)) return 'Imported file';
+  return t('details_placeholder_value');
+}
+
+function formatIdentifierList(identifiers) {
+  if (!identifiers.length) return t('details_placeholder_value');
+  return identifiers.map(identifier => `${identifier.type}: ${identifier.value}`).join(', ');
+}
+
+async function loadBookHistory(book) {
+  const container = document.getElementById('detail-history');
+  if (!container) return;
+  try {
+    const data = await apiJson('/api/activity?limit=100');
+    const title = (book.title || '').toLowerCase();
+    const matches = (data.events || []).filter(event => {
+      const haystack = `${event.title || ''} ${event.detail || ''} ${event.subject || ''}`.toLowerCase();
+      return title && haystack.includes(title);
+    }).slice(0, 6);
+    container.innerHTML = matches.length ? matches.map(renderActivityRow).join('') : `<div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-900/30 p-4 text-sm text-stone-500">${t('dashboard_empty')}</div>`;
+  } catch (err) {
+    container.innerHTML = `<div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-900/30 p-4 text-sm text-stone-500">${t('dashboard_empty')}</div>`;
+  }
 }
 
 // ============================================================
@@ -1955,6 +2852,7 @@ function searchWishlistItem(title, mediaType) {
 // SETTINGS
 // ============================================================
 async function loadSettings() {
+  bindLibraryImportChangeHandlers();
   loadConfig();
   loadSources();
   loadTOTPStatus();
@@ -2036,7 +2934,7 @@ document.getElementById('change-password-form')?.addEventListener('submit', asyn
 const INTEGRATION_FIELDS = {
   annas:          ['annas_archive_domain', 'annas_archive_secret_key'],
   prowlarr:       ['prowlarr_url', 'prowlarr_api_key'],
-  qbittorrent:    ['qb_url', 'qb_user', 'qb_pass'],
+  qbittorrent:    ['qb_url', 'qb_user', 'qb_pass', 'qb_save_path', 'qb_category', 'qb_audiobook_save_path', 'qb_audiobook_category', 'qb_manga_save_path', 'qb_manga_category'],
   transmission:   ['transmission_url', 'transmission_user', 'transmission_pass', 'torrent_client'],
   sabnzbd:        ['sabnzbd_url', 'sabnzbd_api_key', 'sabnzbd_category'],
   audiobookshelf: ['abs_url', 'abs_token'],
@@ -2056,6 +2954,16 @@ async function loadSettingToggles() {
     if (langFilter && data.foreign_lang_filter !== undefined) {
       langFilter.checked = data.foreign_lang_filter;
     }
+    const fileOrgEnabled = document.getElementById('setting-file_org_enabled');
+    if (fileOrgEnabled && data.file_org_enabled !== undefined) {
+      fileOrgEnabled.checked = !!data.file_org_enabled;
+    }
+    for (const key of LIBRARY_IMPORT_FIELDS) {
+      const el = document.getElementById(`setting-${key}`);
+      if (el && data[key] !== undefined && data[key] !== null) {
+        el.value = data[key];
+      }
+    }
     // Populate integration inputs. Sensitive values come back as "--------"
     // from the server; the save handler drops that sentinel before writing.
     for (const fields of Object.values(INTEGRATION_FIELDS)) {
@@ -2066,7 +2974,1154 @@ async function loadSettingToggles() {
         }
       }
     }
+    applyLibraryImportLoadedState(getLibraryImportFormValues());
   } catch (err) {}
+}
+
+function getLibraryImportFormValues() {
+  const values = {};
+  for (const key of LIBRARY_IMPORT_FIELDS) {
+    values[key] = document.getElementById(`setting-${key}`)?.value || '';
+  }
+  values.file_org_enabled = !!document.getElementById('setting-file_org_enabled')?.checked;
+  return values;
+}
+
+function sanitizeLibraryImportValues(values) {
+  return {
+    incoming_dir: (values.incoming_dir || '').trim(),
+    ebook_dir: (values.ebook_dir || '').trim(),
+    audiobook_dir: (values.audiobook_dir || '').trim(),
+    manga_dir: (values.manga_dir || '').trim(),
+    file_org_enabled: !!values.file_org_enabled,
+  };
+}
+
+function validateLibraryImportSettings(values) {
+  const errors = [];
+  const pathKeys = [
+    ['incoming_dir', 'Import Folder'],
+    ['ebook_dir', 'Ebook Library'],
+    ['audiobook_dir', 'Audiobook Library'],
+    ['manga_dir', 'Manga Library'],
+  ];
+  const normalized = [];
+
+  for (const [key, label] of pathKeys) {
+    const raw = values[key] || '';
+    const trimmed = raw.trim();
+    if (!trimmed) {
+      errors.push(`${label} is required.`);
+      continue;
+    }
+    if (raw !== trimmed) {
+      errors.push(`${label} contains leading or trailing whitespace.`);
+    }
+    if (trimmed.includes('//')) {
+      errors.push(`${label} contains a double slash.`);
+    }
+    normalized.push([label, trimmed]);
+  }
+
+  const seen = new Map();
+  for (const [label, value] of normalized) {
+    if (seen.has(value)) {
+      errors.push(`${label} duplicates ${seen.get(value)}.`);
+    } else {
+      seen.set(value, label);
+    }
+  }
+
+  return { errors };
+}
+
+function libraryImportSummaryLines(values) {
+  return [
+    ['Import Folder', values.incoming_dir || 'Not set'],
+    ['Ebook Library', values.ebook_dir || 'Not set'],
+    ['Audiobook Library', values.audiobook_dir || 'Not set'],
+    ['Manga Library', values.manga_dir || 'Not set'],
+  ];
+}
+
+function applyLibraryImportLoadedState(values) {
+  const sanitized = sanitizeLibraryImportValues(values);
+  const validation = validateLibraryImportSettings(sanitized);
+  const completed = validation.errors.length === 0;
+  state.libraryImport.completed = completed;
+  state.libraryImport.dirty = false;
+  state.libraryImport.lastSaved = sanitized;
+  setLibraryImportStep2State(completed, completed ? sanitized : null);
+  updateLibraryImportSaveState();
+}
+
+function setLibraryImportStep2State(unlocked, values = null) {
+  const panel = document.getElementById('settings-library-import-step2');
+  const icon = document.getElementById('settings-library-import-step2-icon');
+  const copy = document.getElementById('settings-library-import-step2-copy');
+  const summary = document.getElementById('settings-library-import-summary');
+  if (!panel || !icon || !copy || !summary) return;
+
+  panel.dataset.state = unlocked ? 'ready' : 'locked';
+  panel.classList.toggle('opacity-75', !unlocked);
+  panel.classList.toggle('border-slate-700', !unlocked);
+  panel.classList.toggle('bg-slate-800/20', !unlocked);
+  panel.classList.toggle('border-emerald-500/30', unlocked);
+  panel.classList.toggle('bg-emerald-500/10', unlocked);
+
+  icon.textContent = unlocked ? '✅' : '🔒';
+  icon.className = unlocked ? 'mt-0.5 text-emerald-300' : 'mt-0.5 text-slate-500';
+  copy.textContent = unlocked
+    ? 'Your folders are saved. Librarr is ready to scan your existing collection.'
+    : 'Available after saving your library folders.';
+  renderLibraryScanWorkspace();
+
+  if (!unlocked || !values) {
+    summary.innerHTML = '';
+    summary.classList.add('hidden');
+    return;
+  }
+
+  summary.innerHTML = libraryImportSummaryLines(values).map(([label, value]) => `
+    <div class="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+      <span class="text-stone-400">${escapeHtml(label)}</span>
+      <span class="font-medium text-stone-100">${escapeHtml(value)}</span>
+    </div>
+  `).join('');
+  summary.classList.remove('hidden');
+}
+
+function renderLibraryScanWorkspace() {
+  const workspace = document.getElementById('settings-library-scan-workspace');
+  if (!workspace) return;
+  if (!state.libraryImport.completed) {
+    workspace.innerHTML = `
+      <button disabled aria-disabled="true" class="cursor-not-allowed rounded-lg bg-slate-700/70 px-4 py-2 text-sm font-medium text-slate-400 opacity-70">Scan Library</button>
+      <p class="mt-2 text-xs text-slate-500">Library scanning becomes available after folder configuration.</p>
+    `;
+    return;
+  }
+  const scan = state.libraryImport.scan;
+  if (scan.running || scan.progress) {
+    workspace.innerHTML = renderLibraryScanProgress(scan);
+    return;
+  }
+  if (scan.result) {
+    workspace.innerHTML = renderLibraryScanReview(scan.result);
+    return;
+  }
+  if (scan.error) {
+    workspace.innerHTML = renderLibraryScanError(scan.error);
+    return;
+  }
+  workspace.innerHTML = renderLibraryScanReady();
+}
+
+function renderLibraryScanReady() {
+  return `
+    <div class="flex flex-wrap items-center gap-3">
+      <button data-action="startLibraryScan" class="rounded-lg bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 transition-colors hover:bg-amber-400">Scan Library</button>
+      <p class="text-xs text-slate-500">Review results here before importing. No files will be changed during scanning.</p>
+    </div>
+  `;
+}
+
+function renderLibraryScanProgress(scan) {
+  const progress = scan.progress || {};
+  const elapsed = formatLibraryScanElapsed(scan.startedAt || progress.started_at);
+  const phase = progress.current_phase || progress.status || 'starting';
+  return `
+    <div class="rounded-lg border border-amber-500/20 bg-amber-500/8 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="text-sm font-medium text-amber-100">Scanning library...</p>
+          <p class="mt-1 text-xs text-stone-400">${escapeHtml(formatLibraryScanPhase(phase))} · ${escapeHtml(elapsed)}</p>
+        </div>
+        <div class="h-5 w-5 animate-spin rounded-full border-2 border-amber-300 border-t-transparent" aria-label="Scanning"></div>
+      </div>
+      <div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+        ${renderLibraryScanProgressMetric('Directories', progress.directories_scanned || 0)}
+        ${renderLibraryScanProgressMetric('Discovered', progress.files_discovered || 0)}
+        ${renderLibraryScanProgressMetric('Processed', progress.files_processed || 0)}
+        ${renderLibraryScanProgressMetric('Candidates', progress.candidates_ready || 0)}
+      </div>
+      ${progress.current_path ? `<p class="mt-3 truncate text-xs text-slate-500" title="${escapeHtml(progress.current_path)}">${escapeHtml(progress.current_path)}</p>` : ''}
+    </div>
+  `;
+}
+
+function renderLibraryScanProgressMetric(label, value) {
+  return `
+    <div class="rounded-md bg-slate-900/50 px-3 py-2">
+      <p class="text-[11px] uppercase tracking-wider text-slate-500">${escapeHtml(label)}</p>
+      <p class="mt-1 text-lg font-semibold text-white">${escapeHtml(String(value))}</p>
+    </div>
+  `;
+}
+
+function renderLibraryImportProgress(importState) {
+  const progress = importState.progress || {};
+  const total = progress.total || 0;
+  const imported = progress.imported || 0;
+  const duplicates = progress.duplicates || 0;
+  const failed = progress.failed || 0;
+  const completed = imported + duplicates + failed + (progress.skipped || 0);
+  const percent = total > 0 ? Math.min(100, Math.round((completed / total) * 100)) : 0;
+  const elapsed = formatLibraryScanElapsed(importState.startedAt || progress.started_at);
+  return `
+    <div class="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-4">
+      <div class="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <p class="text-sm font-medium text-emerald-100">Importing selected books...</p>
+          <p class="mt-1 text-xs text-stone-400">${escapeHtml(completed)} / ${escapeHtml(total)} books · ${escapeHtml(elapsed)}</p>
+        </div>
+        <div class="h-5 w-5 animate-spin rounded-full border-2 border-emerald-300 border-t-transparent" aria-label="Importing"></div>
+      </div>
+      <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-800">
+        <div class="h-full rounded-full bg-emerald-400 transition-all" style="width:${percent}%"></div>
+      </div>
+      <div class="mt-4 grid grid-cols-3 gap-3">
+        ${renderLibraryScanProgressMetric('Imported', imported)}
+        ${renderLibraryScanProgressMetric('Duplicates', duplicates)}
+        ${renderLibraryScanProgressMetric('Failed', failed)}
+      </div>
+      ${progress.current_title ? `<p class="mt-3 text-sm text-emerald-100">Current: ${escapeHtml(progress.current_title)}</p>` : ''}
+    </div>
+  `;
+}
+
+function renderLibraryImportSummary(result) {
+  if (!result) return '';
+  const summary = result.summary || {};
+  const failed = summary.failed || 0;
+  const failures = (result.items || []).filter(item => item.status === 'failed');
+  const imported = summary.imported || 0;
+  const skipped = summary.skipped || 0;
+  const duplicates = summary.duplicates || 0;
+  const total = summary.total || (result.items || []).length || 0;
+  const elapsedSeconds = libraryImportElapsedSeconds(result.started_at, result.completed_at);
+  const booksPerSecond = elapsedSeconds > 0 ? (imported / elapsedSeconds).toFixed(1) : '0.0';
+  return `
+    <div class="rounded-lg border border-emerald-500/20 bg-emerald-500/8 p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-emerald-100">Import Complete</p>
+          <p class="mt-1 text-xs text-emerald-200">${escapeHtml(imported)} imported · ${escapeHtml(skipped)} skipped · ${escapeHtml(duplicates)} duplicates · ${escapeHtml(failed)} failed</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+          <button data-action="viewImportedLibraryScan" class="rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-stone-950 hover:bg-emerald-400">View Imported</button>
+          <button data-action="retryFailedLibraryImport" ${failed ? '' : 'disabled'} class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500">Retry Failed</button>
+          <button data-action="closeLibraryImportSummary" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Close</button>
+        </div>
+      </div>
+      <div class="mt-3 grid grid-cols-2 gap-2 md:grid-cols-5">
+        ${renderLibraryScanProgressMetric('Imported', imported)}
+        ${renderLibraryScanProgressMetric('Skipped', skipped)}
+        ${renderLibraryScanProgressMetric('Duplicates', duplicates)}
+        ${renderLibraryScanProgressMetric('Failed', failed)}
+        ${renderLibraryScanProgressMetric('Speed', `${booksPerSecond}/s`)}
+      </div>
+      <p class="mt-2 text-xs text-emerald-200">${escapeHtml(total)} reviewed · ${escapeHtml(formatDurationSeconds(elapsedSeconds))}</p>
+      ${failed && failures.length ? `
+        <details class="mt-3 rounded-md border border-red-500/20 bg-red-500/10 p-3">
+          <summary class="cursor-pointer text-xs font-medium text-red-100">Show Details</summary>
+          <div class="mt-2 space-y-2">
+            ${failures.map(item => `<p class="text-xs text-red-200">${escapeHtml(item.title || item.path || 'Import candidate')}: ${escapeHtml(item.error || 'Import failed')}</p>`).join('')}
+          </div>
+        </details>
+      ` : ''}
+    </div>
+  `;
+}
+
+function libraryImportElapsedSeconds(startedAt, completedAt) {
+  const start = startedAt ? new Date(startedAt).getTime() : NaN;
+  const end = completedAt ? new Date(completedAt).getTime() : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return 0;
+  return Math.max(0, Math.round((end - start) / 1000));
+}
+
+function formatDurationSeconds(seconds) {
+  const safe = Math.max(0, Number(seconds) || 0);
+  if (safe < 60) return `${safe}s elapsed`;
+  return `${Math.floor(safe / 60)}m ${safe % 60}s elapsed`;
+}
+
+function renderLibraryScanError(message) {
+  return `
+    <div class="rounded-lg border border-red-500/30 bg-red-500/10 p-4">
+      <p class="text-sm font-medium text-red-100">Library scan failed</p>
+      <p class="mt-1 text-xs text-red-200">${escapeHtml(message || 'Unknown scan error')}</p>
+      <button data-action="startLibraryScan" class="mt-3 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-400">Retry</button>
+    </div>
+  `;
+}
+
+function renderLibraryScanReview(result) {
+  const candidates = Array.isArray(result.candidates) ? result.candidates : [];
+  const totals = result.totals || {};
+  const filtered = filterLibraryScanCandidates(candidates, state.libraryImport.scan.filter, state.libraryImport.scan.search);
+  const grouped = groupLibraryScanCandidates(filtered);
+  const importState = state.libraryImport.scan.import;
+  if ((totals.found || 0) === 0) {
+    return `
+      ${renderLibraryScanToolbar()}
+      <div class="rounded-lg border border-slate-700 bg-slate-900/60 p-5 text-center">
+        <p class="text-sm font-medium text-white">No books found</p>
+        <p class="mt-1 text-xs text-slate-500">Librarr scanned the configured folders but did not find supported files.</p>
+        <button data-action="startLibraryScan" class="mt-4 rounded-lg bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700">Scan Again</button>
+      </div>
+    `;
+  }
+  const allDuplicates = (totals.ready_to_import || 0) === 0 && ((totals.duplicates || 0) + (totals.already_imported || 0)) === (totals.found || 0);
+  return `
+    <div class="space-y-4">
+      ${allDuplicates ? `<div class="rounded-lg border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-100">Everything found in this scan already appears to be in the library.</div>` : ''}
+      ${importState.running || importState.progress ? renderLibraryImportProgress(importState) : ''}
+      ${importState.error ? `<div class="rounded-lg border border-red-500/30 bg-red-500/10 px-4 py-3 text-sm text-red-100">${escapeHtml(importState.error)}</div>` : ''}
+      ${importState.result ? renderLibraryImportSummary(importState.result) : ''}
+      ${renderLibraryScanTotals(totals)}
+      ${renderLibraryScanImportActions(result)}
+      ${renderLibraryScanToolbar()}
+      <div class="space-y-3">
+        ${renderLibraryScanSection('Ready to Import', 'new', grouped.new || [])}
+        ${renderLibraryScanSection('Manual Review', 'manual_review', grouped.manual_review || [])}
+        ${renderLibraryScanSection('Duplicates', 'duplicate', grouped.duplicate || [])}
+        ${renderLibraryScanSection('Already Imported', 'already_imported', grouped.already_imported || [])}
+        ${renderLibraryScanSection('Unsupported', 'unsupported', grouped.unsupported || [])}
+        ${renderLibraryScanSection('Unreadable', 'unreadable', grouped.unreadable || [])}
+      </div>
+    </div>
+  `;
+}
+
+function renderLibraryScanImportActions(result) {
+  const ready = readyLibraryScanCandidates(result);
+  const selected = selectedReadyLibraryScanCandidates(result);
+  const importing = state.libraryImport.scan.import.running;
+  const allSelected = ready.length > 0 && selected.length === ready.length;
+  const disabledSelected = importing || selected.length === 0;
+  const disabledReady = importing || ready.length === 0;
+  return `
+    <div class="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/50 p-3 md:flex-row md:items-center md:justify-between">
+      <label class="inline-flex items-center gap-2 text-sm text-slate-200">
+        <input data-action-change="toggleLibraryScanSelectAllReady" type="checkbox" ${allSelected ? 'checked' : ''} ${ready.length === 0 || importing ? 'disabled' : ''} class="rounded border-slate-600 bg-slate-900 text-amber-500">
+        <span>Select All Ready</span>
+      </label>
+      <div class="flex flex-wrap gap-2">
+        <button data-action="startLibraryImportSelected" ${disabledSelected ? 'disabled' : ''} class="rounded-md bg-emerald-500 px-3 py-2 text-xs font-medium text-stone-950 transition-colors hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400">Import Selected</button>
+        <button data-action="startLibraryImportAllReady" ${disabledReady ? 'disabled' : ''} class="rounded-md bg-amber-500 px-3 py-2 text-xs font-medium text-stone-950 transition-colors hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400">Import All Ready</button>
+        <button data-action="clearLibraryScanSelection" ${disabledSelected ? 'disabled' : ''} class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500">Clear Selection</button>
+        <button data-action="skipLibraryScanSelected" ${disabledSelected ? 'disabled' : ''} class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700 disabled:cursor-not-allowed disabled:text-slate-500">Skip Selected</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLibraryScanTotals(totals) {
+  const cards = [
+    ['Files Found', totals.found || 0],
+    ['Ready to Import', totals.ready_to_import || 0],
+    ['Needs Review', totals.manual_review || 0],
+    ['Duplicates', totals.duplicates || 0],
+    ['Already Imported', totals.already_imported || 0],
+    ['Unsupported', totals.unsupported || 0],
+    ['Unreadable', totals.unreadable || 0],
+  ];
+  return `<div class="grid grid-cols-2 gap-2 md:grid-cols-3">${cards.map(([label, value]) => `
+    <div class="rounded-lg border border-slate-800 bg-slate-900/60 px-3 py-3">
+      <p class="text-[11px] uppercase tracking-wider text-slate-500">${escapeHtml(label)}</p>
+      <p class="mt-1 text-2xl font-semibold text-white">${escapeHtml(String(value))}</p>
+    </div>
+  `).join('')}</div>`;
+}
+
+function renderLibraryScanToolbar() {
+  const filter = state.libraryImport.scan.filter;
+  const buttons = [
+    ['all', 'All'],
+    ['new', 'Ready'],
+    ['manual_review', 'Review'],
+    ['duplicate', 'Duplicates'],
+    ['unsupported', 'Unsupported'],
+    ['unreadable', 'Unreadable'],
+  ];
+  return `
+    <div class="flex flex-col gap-3 rounded-lg border border-slate-800 bg-slate-900/50 p-3 md:flex-row md:items-center md:justify-between">
+      <div class="flex flex-wrap gap-2">
+        ${buttons.map(([value, label]) => `<button data-action="setLibraryScanFilter" data-filter="${escapeHtml(value)}" class="rounded-md px-3 py-1.5 text-xs font-medium ${filter === value ? 'bg-amber-500 text-stone-950' : 'bg-slate-800 text-slate-300 hover:bg-slate-700'}">${escapeHtml(label)}</button>`).join('')}
+      </div>
+      <div class="flex gap-2">
+        <input id="settings-library-scan-search" data-action-input="libraryScanSearch" type="search" value="${escapeHtml(state.libraryImport.scan.search || '')}" placeholder="Search title, author, filename" class="w-full rounded-md border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-200 placeholder-slate-600 md:w-72">
+        <button data-action="startLibraryScan" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Scan Again</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLibraryScanSection(title, classification, candidates) {
+  const open = state.libraryImport.scan.sections[classification] !== false;
+  return `
+    <section class="rounded-lg border border-slate-800 bg-slate-900/45">
+      <button data-action="toggleLibraryScanSection" data-section="${escapeHtml(classification)}" class="flex w-full items-center justify-between px-4 py-3 text-left">
+        <span class="text-sm font-medium text-white">${escapeHtml(title)}</span>
+        <span class="text-xs text-slate-500">${candidates.length} ${open ? 'Hide' : 'Show'}</span>
+      </button>
+      <div class="${open ? '' : 'hidden'} border-t border-slate-800">
+        ${candidates.length ? candidates.map(renderLibraryScanCandidate).join('') : `<p class="px-4 py-4 text-sm text-slate-500">No items in this section.</p>`}
+      </div>
+    </section>
+  `;
+}
+
+function renderLibraryScanCandidate(candidate) {
+  const title = candidate.title || candidate.metadata?.title || candidate.filename || 'Unknown title';
+  const author = candidate.author || candidate.metadata?.author || '';
+  const format = (candidate.format || '').toUpperCase();
+  const path = candidate.path || candidate.relative_path || '';
+  const isReady = candidate.classification === 'new';
+  const existingPath = candidate.existing_path || '';
+  const selected = state.libraryImport.scan.selected.has(candidate.id);
+  const importing = state.libraryImport.scan.import.running;
+  const metadataSource = formatMetadataSource(candidate.metadata?.source || candidate.manual_review?.metadata_source || '');
+  const confidence = formatMetadataConfidence(candidate.metadata?.confidence || candidate.manual_review?.confidence || '');
+  return `
+    <div class="grid gap-3 border-b border-slate-800 px-4 py-3 last:border-b-0 md:grid-cols-[auto_3rem_1fr]">
+      <div class="flex items-start pt-1">${isReady ? `<input data-action-change="toggleLibraryScanCandidateSelection" data-candidate-id="${escapeHtml(candidate.id)}" type="checkbox" ${selected ? 'checked' : ''} ${importing ? 'disabled' : ''} aria-label="Select ${escapeHtml(title)}" class="rounded border-slate-600 bg-slate-900 text-amber-500">` : ''}</div>
+      ${renderLibraryScanCover(candidate, format)}
+      <div class="min-w-0">
+        <div class="flex flex-wrap items-start justify-between gap-2">
+          <div class="min-w-0">
+            <p class="truncate text-sm font-medium text-white">${escapeHtml(title)}</p>
+            <p class="mt-0.5 truncate text-xs text-slate-400">${escapeHtml(author || candidate.media_type || '')}</p>
+          </div>
+          <div class="flex flex-wrap justify-end gap-1">
+            <span class="rounded-full bg-slate-800 px-2 py-1 text-[11px] uppercase tracking-wider text-slate-300">${escapeHtml(format || candidate.media_type || '')}</span>
+            ${metadataSource ? `<span class="rounded-full bg-blue-500/10 px-2 py-1 text-[11px] text-blue-200">${escapeHtml(metadataSource)}</span>` : ''}
+            ${confidence ? `<span class="rounded-full bg-amber-500/10 px-2 py-1 text-[11px] text-amber-200">${escapeHtml(confidence)}</span>` : ''}
+          </div>
+        </div>
+        ${candidate.classification_reason ? `<p class="mt-2 text-xs text-amber-200/80">${escapeHtml(candidate.classification_reason)}</p>` : ''}
+        ${candidate.error ? `<p class="mt-2 text-xs text-red-300">${escapeHtml(candidate.error)}</p>` : ''}
+        ${candidate.destination_path ? renderLibraryScanDestination(candidate.destination_path) : ''}
+        ${candidate.duplicate ? renderLibraryScanDuplicate(candidate.duplicate) : ''}
+        ${candidate.manual_review ? renderLibraryScanManualReview(candidate, title, author) : ''}
+        ${isReady ? `<div class="mt-3"><button data-action="editLibraryScanCandidateMetadata" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Edit Metadata</button></div>` : ''}
+        ${state.libraryImport.scan.editor.candidateId === candidate.id ? renderLibraryScanMetadataEditor(candidate) : ''}
+        ${existingPath ? `<p class="mt-2 truncate text-xs text-slate-400" title="${escapeHtml(existingPath)}">Existing: ${escapeHtml(existingPath)}</p>` : ''}
+        <p class="mt-2 truncate text-xs text-slate-500" title="${escapeHtml(path)}">${escapeHtml(path)}</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderLibraryScanCover(candidate, format) {
+  const title = candidate.title || candidate.metadata?.title || candidate.filename || '';
+  if (candidate.cover_url) {
+    return `<img src="${escapeHtml(candidate.cover_url)}" alt="" class="h-12 w-9 rounded-md object-cover" loading="lazy" data-ph-title="${escapeHtml(title)}" data-ph-idx="0">`;
+  }
+  return `<div class="flex h-12 w-9 items-center justify-center rounded-md bg-gradient-to-br from-stone-700 to-slate-900 text-xs font-semibold text-stone-300">${escapeHtml(format || '?')}</div>`;
+}
+
+function renderLibraryScanDestination(destination) {
+  const parts = String(destination || '').split('/').filter(Boolean);
+  const pretty = parts.length ? parts.join(' → ') : destination;
+  return `
+    <div class="mt-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+      <p class="text-[11px] uppercase tracking-wider text-slate-500">Destination</p>
+      <p class="mt-1 break-all text-xs text-slate-300">${escapeHtml(pretty)}</p>
+    </div>
+  `;
+}
+
+function renderLibraryScanDuplicate(duplicate) {
+  return `
+    <div class="mt-3 rounded-md border border-amber-500/20 bg-amber-500/8 p-3">
+      <p class="text-xs font-semibold text-amber-100">Duplicate</p>
+      <dl class="mt-2 grid gap-1 text-xs text-amber-100/80 md:grid-cols-2">
+        <div><dt class="text-amber-200/70">Reason</dt><dd>${escapeHtml(duplicate.reason || 'Duplicate detected')}</dd></div>
+        ${duplicate.existing_title ? `<div><dt class="text-amber-200/70">Title</dt><dd>${escapeHtml(duplicate.existing_title)}</dd></div>` : ''}
+        ${duplicate.existing_author ? `<div><dt class="text-amber-200/70">Author</dt><dd>${escapeHtml(duplicate.existing_author)}</dd></div>` : ''}
+        ${duplicate.existing_format ? `<div><dt class="text-amber-200/70">Format</dt><dd>${escapeHtml(String(duplicate.existing_format).toUpperCase())}</dd></div>` : ''}
+        ${duplicate.existing_path ? `<div class="md:col-span-2"><dt class="text-amber-200/70">Location</dt><dd class="break-all">${escapeHtml(duplicate.existing_path)}</dd></div>` : ''}
+      </dl>
+    </div>
+  `;
+}
+
+function renderLibraryScanManualReview(candidate, title, author) {
+  const review = candidate.manual_review || {};
+  return `
+    <div class="mt-3 rounded-md border border-orange-500/25 bg-orange-500/8 p-3">
+      <p class="text-xs font-semibold text-orange-100">Manual Review Required</p>
+      <dl class="mt-2 grid gap-1 text-xs text-orange-100/80 md:grid-cols-2">
+        <div><dt class="text-orange-200/70">Reason</dt><dd>${escapeHtml(review.reason || candidate.classification_reason || 'Planner stopped for manual review')}</dd></div>
+        <div><dt class="text-orange-200/70">Confidence</dt><dd>${escapeHtml(formatMetadataConfidence(review.confidence || candidate.metadata?.confidence || 'unknown'))}</dd></div>
+        <div><dt class="text-orange-200/70">Metadata Source</dt><dd>${escapeHtml(formatMetadataSource(review.metadata_source || candidate.metadata?.source || 'unknown'))}</dd></div>
+        ${review.suggested_destination ? `<div class="md:col-span-2"><dt class="text-orange-200/70">Suggested Destination</dt><dd class="break-all">${escapeHtml(review.suggested_destination)}</dd></div>` : ''}
+      </dl>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <button data-action="useSuggestedLibraryScanCandidate" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-orange-500 px-3 py-2 text-xs font-medium text-stone-950 hover:bg-orange-400">Use Suggested</button>
+        <button data-action="editLibraryScanCandidateMetadata" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Edit Metadata</button>
+        <button data-action="skipLibraryScanCandidate" data-candidate-id="${escapeHtml(candidate.id)}" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-200 hover:bg-slate-700">Skip</button>
+      </div>
+    </div>
+  `;
+}
+
+function renderLibraryScanMetadataEditor(candidate) {
+  const draft = state.libraryImport.scan.editor.draft || metadataEditorDraftFromCandidate(candidate);
+  const preview = metadataEditorPreview(candidate, draft);
+  const errors = validateMetadataEditorDraft(candidate, draft);
+  state.libraryImport.scan.editor.errors = errors;
+  const field = (name, label, value, attrs = '') => `
+    <label class="block">
+      <span class="text-[11px] uppercase tracking-wider text-slate-500">${escapeHtml(label)}</span>
+      <input data-action-input="metadataEditorField" data-field="${escapeHtml(name)}" value="${escapeHtml(value || '')}" ${attrs} class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-amber-400 focus:outline-none">
+    </label>
+  `;
+  return `
+    <div id="metadata-editor-${escapeHtml(candidate.id)}" class="mt-3 rounded-xl border border-amber-500/25 bg-slate-950/80 p-4 shadow-xl shadow-black/20">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-white">Metadata Editor</p>
+          <p class="mt-1 text-xs text-slate-400">Adjust the metadata Librarr will use for this import. The source file is not modified.</p>
+        </div>
+        <button data-action="cancelMetadataEditor" class="rounded-md bg-slate-800 px-3 py-2 text-xs font-medium text-slate-300 hover:bg-slate-700">Cancel</button>
+      </div>
+      <div class="mt-4 grid gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+        <div class="space-y-4">
+          <div class="grid gap-3 md:grid-cols-2">
+            <div class="md:col-span-2">${field('title', 'Title', draft.title, 'required')}</div>
+            ${field('subtitle', 'Subtitle', draft.subtitle)}
+            ${field('author', 'Author', draft.author, 'required')}
+            ${field('series', 'Series', draft.series)}
+            ${field('series_number', 'Series Number', draft.series_number)}
+            ${field('publisher', 'Publisher', draft.publisher)}
+            ${field('publication_year', 'Publication Year', draft.publication_year, 'inputmode="numeric" maxlength="4"')}
+            ${field('isbn', 'ISBN', draft.isbn)}
+            ${field('language', 'Language', draft.language)}
+            ${field('library', 'Library', draft.library)}
+          </div>
+          <label class="block">
+            <span class="text-[11px] uppercase tracking-wider text-slate-500">Description</span>
+            <textarea data-action-input="metadataEditorField" data-field="description" rows="4" class="mt-1 w-full rounded-lg border border-slate-700 bg-slate-950 px-3 py-2 text-sm text-slate-100 placeholder-slate-600 focus:border-amber-400 focus:outline-none">${escapeHtml(draft.description || '')}</textarea>
+          </label>
+          ${field('tags', 'Tags', draft.tags, 'placeholder="fantasy, fiction, owned"')}
+        </div>
+        <div class="space-y-3">
+          <div class="overflow-hidden rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+            <p class="mb-2 text-xs font-semibold text-slate-100">Cover Preview</p>
+            <div class="w-24 overflow-hidden rounded-md">${renderLibraryScanCover(candidate, (candidate.format || '').toUpperCase())}</div>
+          </div>
+          <div class="rounded-lg border border-slate-800 bg-slate-900/80 p-3">
+            <p class="text-xs font-semibold text-slate-100">Live Import Preview</p>
+            <dl class="mt-3 space-y-2 text-xs">
+              <div><dt class="text-slate-500">Destination Folder</dt><dd id="metadata-editor-destination-folder" class="break-all text-slate-200">${escapeHtml(preview.folder)}</dd></div>
+              <div><dt class="text-slate-500">Filename</dt><dd id="metadata-editor-filename" class="break-all text-slate-200">${escapeHtml(preview.filename)}</dd></div>
+              <div><dt class="text-slate-500">Import Location</dt><dd id="metadata-editor-import-location" class="break-all text-amber-100">${escapeHtml(preview.path)}</dd></div>
+            </dl>
+          </div>
+          <div id="metadata-editor-validation" class="${errors.length ? '' : 'hidden'} rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-100">
+            ${errors.map(error => `<p>${escapeHtml(error)}</p>`).join('')}
+          </div>
+          <div class="rounded-lg border border-slate-800 bg-slate-900/60 p-3 text-xs text-slate-400">
+            <p>Metadata Source: ${escapeHtml(formatMetadataSource(candidate.metadata?.source || candidate.manual_review?.metadata_source || 'filename_fallback'))}</p>
+            <p class="mt-1">Confidence: ${escapeHtml(formatMetadataConfidence(candidate.metadata?.confidence || candidate.manual_review?.confidence || 'unknown'))}</p>
+          </div>
+        </div>
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button data-action="saveMetadataEditor" ${errors.length ? 'disabled' : ''} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400">Save</button>
+        <button data-action="saveAndImportMetadataEditor" ${errors.length ? 'disabled' : ''} class="rounded-md bg-emerald-500 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-emerald-400 disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400">Save & Import</button>
+        <button data-action="resetMetadataEditor" class="rounded-md bg-slate-800 px-4 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700">Reset</button>
+      </div>
+    </div>
+  `;
+}
+
+function findLibraryScanCandidate(candidateID) {
+  return (state.libraryImport.scan.result?.candidates || []).find(candidate => candidate.id === candidateID) || null;
+}
+
+function metadataEditorDraftFromCandidate(candidate) {
+  const metadata = candidate?.metadata || {};
+  return {
+    title: candidate?.title || metadata.title || candidate?.filename || '',
+    subtitle: metadata.subtitle || '',
+    author: candidate?.author || metadata.author || '',
+    series: candidate?.series || metadata.series || '',
+    series_number: metadata.series_number || candidate?.volume || metadata.volume || '',
+    publisher: metadata.publisher || '',
+    publication_year: metadata.publication_year || '',
+    isbn: metadata.isbn || '',
+    language: metadata.language || '',
+    description: metadata.description || '',
+    tags: Array.isArray(metadata.tags) ? metadata.tags.join(', ') : (metadata.tags || ''),
+    library: metadata.library || candidate?.media_type || '',
+  };
+}
+
+function openScanMetadataEditor(candidateID) {
+  const candidate = findLibraryScanCandidate(candidateID);
+  if (!candidate) return;
+  state.libraryImport.scan.editor = {
+    candidateId: candidateID,
+    draft: metadataEditorDraftFromCandidate(candidate),
+    errors: [],
+  };
+  renderLibraryScanWorkspace();
+  document.getElementById(`metadata-editor-${candidateID}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+
+function closeMetadataEditor() {
+  state.libraryImport.scan.editor = { candidateId: '', draft: null, errors: [] };
+  renderLibraryScanWorkspace();
+}
+
+function resetMetadataEditor() {
+  const candidate = findLibraryScanCandidate(state.libraryImport.scan.editor.candidateId);
+  if (!candidate) return;
+  state.libraryImport.scan.editor.draft = metadataEditorDraftFromCandidate(candidate);
+  renderLibraryScanWorkspace();
+}
+
+function updateMetadataEditorDraft(field, value) {
+  const editor = state.libraryImport.scan.editor;
+  if (!editor.candidateId) return;
+  editor.draft = editor.draft || {};
+  editor.draft[field] = value;
+  updateMetadataEditorPreview();
+}
+
+function updateMetadataEditorPreview() {
+  const editor = state.libraryImport.scan.editor;
+  const candidate = findLibraryScanCandidate(editor.candidateId);
+  if (!candidate || !editor.draft) return;
+  const preview = metadataEditorPreview(candidate, editor.draft);
+  const errors = validateMetadataEditorDraft(candidate, editor.draft);
+  editor.errors = errors;
+  const folderEl = document.getElementById('metadata-editor-destination-folder');
+  const fileEl = document.getElementById('metadata-editor-filename');
+  const pathEl = document.getElementById('metadata-editor-import-location');
+  const validationEl = document.getElementById('metadata-editor-validation');
+  if (folderEl) folderEl.textContent = preview.folder;
+  if (fileEl) fileEl.textContent = preview.filename;
+  if (pathEl) pathEl.textContent = preview.path;
+  if (validationEl) {
+    validationEl.classList.toggle('hidden', errors.length === 0);
+    validationEl.innerHTML = errors.map(error => `<p>${escapeHtml(error)}</p>`).join('');
+  }
+  for (const action of ['saveMetadataEditor', 'saveAndImportMetadataEditor']) {
+    const button = document.querySelector(`[data-action="${action}"]`);
+    if (button) button.disabled = errors.length > 0;
+  }
+}
+
+function metadataEditorPreview(candidate, draft) {
+  const base = candidate.destination_path || candidate.path || candidate.filename || '';
+  const folder = (pathDirname(base) || pathDirname(candidate.path || '') || '').replace(/\/(ebooks|audiobooks|manga)\/\1(?=\/|$)/gi, '/$1');
+  const extension = (candidate.format || pathExtension(candidate.path || candidate.filename || '') || 'book').replace(/^\./, '').toLowerCase();
+  const title = safeFilenamePart(draft.title || candidate.title || candidate.filename || 'Untitled');
+  const author = safeFilenamePart(draft.author || candidate.author || '');
+  const filename = `${author ? `${author} - ` : ''}${title}.${extension}`;
+  return {
+    folder,
+    filename,
+    path: folder ? `${folder.replace(/\/+$/, '')}/${filename}` : filename,
+  };
+}
+
+function validateMetadataEditorDraft(candidate, draft) {
+  const errors = [];
+  if (!String(draft.title || '').trim()) errors.push('Title is required.');
+  if (!String(draft.author || '').trim()) errors.push('Author is required.');
+  const year = String(draft.publication_year || '').trim();
+  if (year && !/^\d{4}$/.test(year)) errors.push('Publication year must be a four-digit year.');
+  const isbn = String(draft.isbn || '').trim();
+  if (isbn) {
+    const normalized = isbn.replace(/[\s-]/g, '').toUpperCase();
+    if (!/^[0-9X]+$/.test(normalized) || ![10, 13].includes(normalized.length)) {
+      errors.push('ISBN must look like ISBN-10 or ISBN-13.');
+    }
+  }
+  const preview = metadataEditorPreview(candidate, draft);
+  if (!preview.folder || !preview.filename || !preview.path) errors.push('Destination preview is empty.');
+  const duplicate = (state.libraryImport.scan.result?.candidates || []).some(other => (
+    other.id !== candidate.id &&
+    other.classification === 'new' &&
+    String(other.destination_path || '').toLowerCase() === preview.path.toLowerCase()
+  ));
+  if (duplicate) errors.push('Another ready item already uses this destination filename.');
+  return errors;
+}
+
+function metadataEditorPayload() {
+  const editor = state.libraryImport.scan.editor;
+  const draft = editor.draft || {};
+  return {
+    title: String(draft.title || '').trim(),
+    subtitle: String(draft.subtitle || '').trim(),
+    author: String(draft.author || '').trim(),
+    series: String(draft.series || '').trim(),
+    series_number: String(draft.series_number || '').trim(),
+    publisher: String(draft.publisher || '').trim(),
+    publication_year: String(draft.publication_year || '').trim(),
+    isbn: String(draft.isbn || '').trim(),
+    language: String(draft.language || '').trim(),
+    description: String(draft.description || '').trim(),
+    tags: String(draft.tags || '').split(',').map(tag => tag.trim()).filter(Boolean),
+    library: String(draft.library || '').trim(),
+  };
+}
+
+async function saveMetadataEditor(importAfterSave = false) {
+  const editor = state.libraryImport.scan.editor;
+  const candidate = findLibraryScanCandidate(editor.candidateId);
+  if (!candidate) return;
+  const errors = validateMetadataEditorDraft(candidate, editor.draft || {});
+  if (errors.length) {
+    editor.errors = errors;
+    updateMetadataEditorPreview();
+    showToast(errors[0], 'error');
+    return;
+  }
+  const result = await resolveLibraryScanCandidate(editor.candidateId, 'edit_metadata', metadataEditorPayload(), { keepEditorOpen: false });
+  const updated = result?.candidates?.find(item => item.id === editor.candidateId);
+  if (importAfterSave && updated) {
+    await startLibraryImport(false, [updated]);
+  }
+}
+
+function pathExtension(path) {
+  const name = String(path || '').split('/').pop() || '';
+  const idx = name.lastIndexOf('.');
+  return idx >= 0 ? name.slice(idx + 1) : '';
+}
+
+function pathDirname(path) {
+  const clean = String(path || '').replace(/\/+$/, '');
+  const idx = clean.lastIndexOf('/');
+  if (idx <= 0) return idx === 0 ? '/' : '';
+  return clean.slice(0, idx);
+}
+
+function safeFilenamePart(value) {
+  return String(value || '')
+    .trim()
+    .replace(/[\\/:]/g, ' -')
+    .replace(/\s+/g, ' ')
+    .replace(/^[. ]+|[. ]+$/g, '') || 'Untitled';
+}
+
+function formatMetadataSource(source) {
+  const labels = {
+    embedded_metadata: 'Embedded metadata',
+    filename_fallback: 'Filename parsing',
+    manual_edit: 'Manual edit',
+    pdf_metadata: 'PDF metadata',
+  };
+  return labels[source] || String(source || '').replace(/_/g, ' ');
+}
+
+function formatMetadataConfidence(confidence) {
+  if (!confidence) return '';
+  return String(confidence).replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function filterLibraryScanCandidates(candidates, filter = 'all', search = '') {
+  const query = String(search || '').trim().toLowerCase();
+  const skipped = state.libraryImport.scan.skipped || new Set();
+  return candidates.filter(candidate => {
+    if (skipped.has(candidate.id)) return false;
+    if (filter !== 'all' && candidate.classification !== filter) return false;
+    if (!query) return true;
+    const haystack = [
+      candidate.title,
+      candidate.author,
+      candidate.filename,
+      candidate.metadata?.title,
+      candidate.metadata?.author,
+    ].join(' ').toLowerCase();
+    return haystack.includes(query);
+  });
+}
+
+function groupLibraryScanCandidates(candidates) {
+  return candidates.reduce((groups, candidate) => {
+    const key = candidate.classification || 'new';
+    if (!groups[key]) groups[key] = [];
+    groups[key].push(candidate);
+    return groups;
+  }, {});
+}
+
+function readyLibraryScanCandidates(result) {
+  const skipped = state.libraryImport.scan.skipped || new Set();
+  return (result?.candidates || []).filter(candidate => candidate.classification === 'new' && !skipped.has(candidate.id));
+}
+
+function selectedReadyLibraryScanCandidates(result) {
+  const selected = state.libraryImport.scan.selected || new Set();
+  return readyLibraryScanCandidates(result).filter(candidate => selected.has(candidate.id));
+}
+
+function formatLibraryScanPhase(phase) {
+  return String(phase || 'starting').replace(/_/g, ' ').replace(/\b\w/g, ch => ch.toUpperCase());
+}
+
+function formatLibraryScanElapsed(startedAt) {
+  const start = startedAt ? new Date(startedAt).getTime() : Date.now();
+  const elapsed = Math.max(0, Math.floor((Date.now() - start) / 1000));
+  if (elapsed < 60) return `${elapsed}s elapsed`;
+  return `${Math.floor(elapsed / 60)}m ${elapsed % 60}s elapsed`;
+}
+
+async function startLibraryScan() {
+  const scan = state.libraryImport.scan;
+  if (!state.libraryImport.completed || scan.running) return;
+  if (scan.pollTimer) {
+    window.clearTimeout(scan.pollTimer);
+  }
+  scan.running = true;
+  scan.jobId = '';
+  scan.startedAt = new Date().toISOString();
+  scan.progress = { status: 'pending', current_phase: 'starting', started_at: scan.startedAt };
+  scan.result = null;
+  scan.error = '';
+  scan.selected.clear();
+  scan.skipped.clear();
+  scan.editor = { candidateId: '', draft: null, errors: [] };
+  scan.import = {
+    running: false,
+    jobId: '',
+    pollTimer: null,
+    startedAt: null,
+    progress: null,
+    result: null,
+    error: '',
+  };
+  renderLibraryScanWorkspace();
+  try {
+    const data = await apiJson('/api/v1/library/scan', { method: 'POST' });
+    scan.jobId = data.job_id || data.job?.id || '';
+    if (data.job?.progress) {
+      scan.progress = data.job.progress;
+      scan.startedAt = data.job.started_at || scan.startedAt;
+    }
+    await pollLibraryScanJob();
+  } catch (err) {
+    scan.running = false;
+    scan.progress = null;
+    scan.error = err.message || 'Failed to start library scan';
+    renderLibraryScanWorkspace();
+    showToast(scan.error, 'error');
+  }
+}
+
+async function pollLibraryScanJob() {
+  const scan = state.libraryImport.scan;
+  if (!scan.running || !scan.jobId) return;
+  try {
+    const job = await apiJson(`/api/v1/library/scan/${encodeURIComponent(scan.jobId)}`);
+    scan.progress = job.progress || scan.progress;
+    scan.startedAt = job.started_at || scan.startedAt;
+    if (job.status === 'completed') {
+      await loadLibraryScanResults(scan.jobId);
+      return;
+    }
+    if (job.status === 'failed' || job.status === 'cancelled') {
+      scan.running = false;
+      scan.progress = null;
+      scan.error = job.error || `Library scan ${job.status}`;
+      renderLibraryScanWorkspace();
+      showToast(scan.error, 'error');
+      return;
+    }
+    renderLibraryScanWorkspace();
+    scan.pollTimer = window.setTimeout(pollLibraryScanJob, 1200);
+  } catch (err) {
+    scan.running = false;
+    scan.error = err.message || 'Failed to poll library scan';
+    renderLibraryScanWorkspace();
+    showToast(scan.error, 'error');
+  }
+}
+
+async function loadLibraryScanResults(jobId) {
+  const scan = state.libraryImport.scan;
+  const result = await apiJson(`/api/v1/library/scan/${encodeURIComponent(jobId)}/results`);
+  scan.running = false;
+  scan.progress = null;
+  scan.result = result;
+  scan.error = '';
+  renderLibraryScanWorkspace();
+  showToast('Library scan complete', 'success');
+}
+
+async function startLibraryImport(allReady = false, overrideCandidates = null) {
+  const scan = state.libraryImport.scan;
+  const importState = scan.import;
+  if (!scan.result || importState.running) return;
+  const candidates = Array.isArray(overrideCandidates) ? overrideCandidates : (allReady ? readyLibraryScanCandidates(scan.result) : selectedReadyLibraryScanCandidates(scan.result));
+  if (candidates.length === 0) {
+    showToast('Select at least one ready book to import', 'error');
+    return;
+  }
+  if (importState.pollTimer) {
+    window.clearTimeout(importState.pollTimer);
+  }
+  importState.running = true;
+  importState.jobId = '';
+  importState.startedAt = new Date().toISOString();
+  importState.progress = { status: 'pending', imported: 0, failed: 0, duplicates: 0, skipped: 0, total: candidates.length, started_at: importState.startedAt };
+  importState.result = null;
+  importState.error = '';
+  renderLibraryScanWorkspace();
+  try {
+    const data = await apiJson('/api/v1/library/import', {
+      method: 'POST',
+      body: JSON.stringify({
+        scan_job_id: scan.result.job_id || scan.jobId,
+        all_ready: !!allReady && !Array.isArray(overrideCandidates),
+        candidate_ids: allReady && !Array.isArray(overrideCandidates) ? [] : candidates.map(candidate => candidate.id),
+      }),
+    });
+    importState.jobId = data.job_id || data.job?.id || '';
+    if (data.job?.progress) {
+      importState.progress = data.job.progress;
+      importState.startedAt = data.job.started_at || importState.startedAt;
+    }
+    await pollLibraryImportJob();
+  } catch (err) {
+    importState.running = false;
+    importState.progress = null;
+    importState.error = err.message || 'Failed to start library import';
+    renderLibraryScanWorkspace();
+    showToast(importState.error, 'error');
+  }
+}
+
+async function pollLibraryImportJob() {
+  const importState = state.libraryImport.scan.import;
+  if (!importState.running || !importState.jobId) return;
+  try {
+    const job = await apiJson(`/api/v1/library/import/${encodeURIComponent(importState.jobId)}`);
+    importState.progress = job.progress || importState.progress;
+    importState.startedAt = job.started_at || importState.startedAt;
+    if (job.status === 'completed') {
+      await loadLibraryImportResults(importState.jobId);
+      return;
+    }
+    if (job.status === 'failed') {
+      importState.running = false;
+      importState.progress = null;
+      importState.error = job.error || 'Library import failed';
+      renderLibraryScanWorkspace();
+      showToast(importState.error, 'error');
+      return;
+    }
+    renderLibraryScanWorkspace();
+    importState.pollTimer = window.setTimeout(pollLibraryImportJob, 1200);
+  } catch (err) {
+    importState.running = false;
+    importState.progress = null;
+    importState.error = err.message || 'Failed to poll library import';
+    renderLibraryScanWorkspace();
+    showToast(importState.error, 'error');
+  }
+}
+
+async function loadLibraryImportResults(jobId) {
+  const scan = state.libraryImport.scan;
+  const importState = scan.import;
+  const result = await apiJson(`/api/v1/library/import/${encodeURIComponent(jobId)}/results`);
+  importState.running = false;
+  importState.progress = null;
+  importState.result = result;
+  importState.error = '';
+  const updatedScan = await apiJson(`/api/v1/library/scan/${encodeURIComponent(result.scan_job_id || scan.result?.job_id || scan.jobId)}/results`);
+  scan.result = updatedScan;
+  for (const candidate of updatedScan.candidates || []) {
+    if (candidate.classification !== 'new') {
+      scan.selected.delete(candidate.id);
+    }
+  }
+  renderLibraryScanWorkspace();
+  await refreshLibraryAfterScanImport();
+  showToast('Library import complete', (result.summary?.failed || 0) > 0 ? 'error' : 'success');
+}
+
+async function resolveLibraryScanCandidate(candidateID, action, values = {}, options = {}) {
+  const scan = state.libraryImport.scan;
+  if (!scan.result || !candidateID) return;
+  try {
+    const result = await apiJson(`/api/v1/library/scan/${encodeURIComponent(scan.result.job_id || scan.jobId)}/resolve`, {
+      method: 'POST',
+      body: JSON.stringify({
+        id: candidateID,
+        action,
+        title: values.title || '',
+        subtitle: values.subtitle || '',
+        author: values.author || '',
+        series: values.series || '',
+        series_number: values.series_number || '',
+        publisher: values.publisher || '',
+        publication_year: values.publication_year || '',
+        isbn: values.isbn || '',
+        language: values.language || '',
+        description: values.description || '',
+        tags: values.tags || [],
+        library: values.library || '',
+      }),
+    });
+    scan.result = result;
+    scan.selected.add(candidateID);
+    if (!options.keepEditorOpen) {
+      scan.editor = { candidateId: '', draft: null, errors: [] };
+    }
+    renderLibraryScanWorkspace();
+    await refreshLibraryAfterScanImport();
+    showToast(action === 'edit_metadata' ? 'Metadata updated for import' : 'Candidate ready to import', 'success');
+    return result;
+  } catch (err) {
+    showToast(err.message || 'Could not resolve review item', 'error');
+    return null;
+  }
+}
+
+function retryFailedLibraryImport() {
+  const scan = state.libraryImport.scan;
+  const failedIDs = new Set((scan.import.result?.items || []).filter(item => item.status === 'failed').map(item => item.candidate_id));
+  const candidates = readyLibraryScanCandidates(scan.result).filter(candidate => failedIDs.has(candidate.id));
+  if (candidates.length === 0) {
+    showToast('No failed ready books to retry', 'error');
+    return;
+  }
+  startLibraryImport(false, candidates);
+}
+
+async function refreshLibraryAfterScanImport() {
+  const tasks = [];
+  if (state.currentTab === 'home' && typeof loadHomeDashboard === 'function') {
+    tasks.push(loadHomeDashboard());
+  }
+  if (state.currentTab === 'library' && typeof loadLibrary === 'function') {
+    tasks.push(loadLibrary());
+  }
+  if (tasks.length) {
+    await Promise.allSettled(tasks);
+  }
+}
+
+function updateLibraryImportSaveState(flashMode = '') {
+  const standardSaveButton = document.getElementById('settings-library-import-save-standard');
+  const saveButton = document.getElementById('settings-library-import-save-continue');
+  const completeState = document.getElementById('settings-library-import-complete');
+  const completeTitle = document.getElementById('settings-library-import-complete-title');
+  const completeCopy = document.getElementById('settings-library-import-complete-copy');
+  const unsaved = document.getElementById('settings-library-import-unsaved');
+  const validationEl = document.getElementById('settings-library-import-validation');
+  if (!standardSaveButton || !saveButton || !completeState || !completeTitle || !completeCopy || !unsaved || !validationEl) return;
+
+  const values = getLibraryImportFormValues();
+  const validation = validateLibraryImportSettings(values);
+  const sanitized = sanitizeLibraryImportValues(values);
+  const dirty = state.libraryImport.lastSaved
+    ? JSON.stringify(sanitized) !== JSON.stringify(state.libraryImport.lastSaved)
+    : true;
+  state.libraryImport.dirty = dirty;
+
+  if (validation.errors.length) {
+    validationEl.innerHTML = validation.errors.map(err => `<div>${escapeHtml(err)}</div>`).join('');
+    validationEl.classList.remove('hidden');
+  } else {
+    validationEl.innerHTML = '';
+    validationEl.classList.add('hidden');
+  }
+
+  standardSaveButton.disabled = validation.errors.length > 0;
+  standardSaveButton.classList.toggle('opacity-50', standardSaveButton.disabled);
+  standardSaveButton.classList.toggle('cursor-not-allowed', standardSaveButton.disabled);
+
+  if (state.libraryImport.completed) {
+    saveButton.classList.add('hidden');
+    completeState.classList.remove('hidden');
+    completeTitle.textContent = flashMode === 'saved' ? 'Changes Saved' : 'Step 1 Complete';
+    completeCopy.textContent = flashMode === 'saved'
+      ? 'Library folder changes saved successfully.'
+      : 'Library folders configured successfully.';
+    if (dirty) {
+      unsaved.classList.remove('hidden');
+    } else {
+      unsaved.classList.add('hidden');
+    }
+    return;
+  }
+
+  unsaved.classList.add('hidden');
+  completeState.classList.add('hidden');
+  saveButton.textContent = 'Save & Continue';
+  saveButton.disabled = validation.errors.length > 0;
+  saveButton.classList.toggle('opacity-50', saveButton.disabled);
+  saveButton.classList.toggle('cursor-not-allowed', saveButton.disabled);
+  saveButton.classList.remove('hidden');
+}
+
+function bindLibraryImportChangeHandlers() {
+  const fields = [...LIBRARY_IMPORT_FIELDS.map(key => document.getElementById(`setting-${key}`)), document.getElementById('setting-file_org_enabled')].filter(Boolean);
+  for (const field of fields) {
+    if (field.dataset.libraryImportBound === 'true') continue;
+    const eventName = field.type === 'checkbox' ? 'change' : 'input';
+    field.addEventListener(eventName, () => updateLibraryImportSaveState());
+    field.dataset.libraryImportBound = 'true';
+  }
+}
+
+async function saveLibraryImportSettings(continueAfterSave = false) {
+  const values = getLibraryImportFormValues();
+  const validation = validateLibraryImportSettings(values);
+  if (validation.errors.length) {
+    updateLibraryImportSaveState();
+    showToast(validation.errors[0], 'error');
+    return;
+  }
+  const payload = sanitizeLibraryImportValues(values);
+
+  try {
+    const res = await apiJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    if (res.success) {
+      showToast('Library and import settings saved', 'success');
+      state.libraryImport.completed = state.libraryImport.completed || continueAfterSave;
+      state.libraryImport.lastSaved = payload;
+      setLibraryImportStep2State(state.libraryImport.completed, state.libraryImport.completed ? payload : null);
+      if (state.libraryImport.flashTimer) window.clearTimeout(state.libraryImport.flashTimer);
+      updateLibraryImportSaveState(state.libraryImport.completed && !continueAfterSave ? 'saved' : '');
+      state.libraryImport.flashTimer = window.setTimeout(() => {
+        if (!state.libraryImport.dirty) {
+          updateLibraryImportSaveState();
+        }
+      }, continueAfterSave ? 0 : 1800);
+      if (continueAfterSave) {
+        scrollToSettingsSection('settings-library-import-step2');
+        document.getElementById('settings-library-import-step2')?.focus();
+      }
+    } else {
+      setLibraryImportStep2State(state.libraryImport.completed, state.libraryImport.completed ? state.libraryImport.lastSaved : null);
+      updateLibraryImportSaveState();
+      showToast(res.error || 'Failed to save', 'error');
+    }
+  } catch (err) {
+    setLibraryImportStep2State(state.libraryImport.completed, state.libraryImport.completed ? state.libraryImport.lastSaved : null);
+    updateLibraryImportSaveState();
+    if (err.message !== 'Unauthorized') {
+      showToast('Failed to save', 'error');
+    }
+  }
 }
 
 async function saveIntegration(name) {
@@ -2097,22 +4152,31 @@ async function saveIntegration(name) {
 }
 
 async function loadConfig() {
-  try {
-    const data = await apiJson('/api/config');
-    state.config = data;
+	try {
+		const [data, health] = await Promise.all([
+			apiJson('/api/config'),
+			apiJson('/api/health').catch(() => null),
+		]);
+		state.config = data;
 
-    const configEl = document.getElementById('config-info');
-    const items = [];
+		const configEl = document.getElementById('config-info');
+		const items = [];
 
     if (data.prowlarr) items.push(configItem('Prowlarr', data.prowlarr.url || t('not_configured')));
     if (data.qbittorrent) items.push(configItem('qBittorrent', data.qbittorrent.url || t('not_configured')));
     if (data.transmission) items.push(configItem('Transmission', data.transmission.url || t('not_configured')));
-    if (data.sabnzbd) items.push(configItem('SABnzbd', data.sabnzbd.url || t('not_configured')));
-    if (data.kavita_url) items.push(configItem('Kavita', data.kavita_url));
-    if (data.audiobookshelf_url) items.push(configItem('Audiobookshelf', data.audiobookshelf_url));
+		if (data.sabnzbd) items.push(configItem('SABnzbd', data.sabnzbd.url || t('not_configured')));
+		if (data.kavita_url) items.push(configItem('Kavita', data.kavita_url));
+		if (data.audiobookshelf_url) items.push(configItem('Audiobookshelf', data.audiobookshelf_url));
+		if (health) {
+			items.push(configItem('Version', health.version || 'unknown'));
+			items.push(configItem('Channel', health.channel || 'development'));
+			items.push(configItem('Commit', health.commit || 'unknown'));
+			items.push(configItem('Built', health.build_time || 'unknown'));
+		}
 
-    configEl.innerHTML = items.length > 0 ? items.join('') : `<p class="text-slate-500">${t('no_config_data')}</p>`;
-  } catch (err) {
+		configEl.innerHTML = items.length > 0 ? items.join('') : `<p class="text-slate-500">${t('no_config_data')}</p>`;
+	} catch (err) {
     if (err.message !== 'Unauthorized') {
       document.getElementById('config-info').innerHTML = `<p class="text-red-400">${t('failed_load_config')}</p>`;
     }
@@ -2212,23 +4276,153 @@ async function toggleRemoveTorrent() {
   }
 }
 
+function diagnosticPayload(service) {
+  if (service === 'prowlarr') {
+    return {
+      url: document.getElementById('setting-prowlarr_url')?.value || '',
+      api_key: document.getElementById('setting-prowlarr_api_key')?.value || '',
+    };
+  }
+  if (service === 'qbittorrent') {
+    return {
+      url: document.getElementById('setting-qb_url')?.value || '',
+      username: document.getElementById('setting-qb_user')?.value || '',
+      password: document.getElementById('setting-qb_pass')?.value || '',
+    };
+  }
+  return {};
+}
+
+function renderDiagnosticResult(result) {
+  const steps = Array.isArray(result?.steps) ? result.steps : [];
+  const status = result?.status || (result?.success ? 'connected' : 'failed');
+  const summaryClass = diagnosticStatusClass(status);
+  return `
+    <div class="rounded-lg border ${summaryClass.border} ${summaryClass.bg} p-3">
+      <div class="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p class="text-xs uppercase tracking-wider ${summaryClass.label}">Status</p>
+          <p class="mt-1 text-sm font-medium ${summaryClass.text}">${escapeHtml(result?.summary || diagnosticStatusLabel(status))}</p>
+        </div>
+        ${Number.isFinite(result?.duration_ms) ? `<span class="rounded-full bg-slate-900/70 px-2 py-1 text-[11px] text-slate-300">${escapeHtml(result.duration_ms)} ms</span>` : ''}
+      </div>
+      <div class="mt-3 space-y-2">
+        ${steps.map(renderDiagnosticStep).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderDiagnosticStep(step) {
+  const status = step?.status || 'skipped';
+  const style = diagnosticStatusClass(status);
+  return `
+    <div class="rounded-md border border-slate-800 bg-slate-950/50 px-3 py-2">
+      <div class="flex flex-wrap items-start justify-between gap-2">
+        <div class="flex min-w-0 items-start gap-2">
+          <span class="${style.text}" aria-hidden="true">${diagnosticStatusIcon(status)}</span>
+          <div class="min-w-0">
+            <p class="text-xs font-medium text-slate-100">${escapeHtml(step?.name || 'Diagnostic step')}</p>
+            ${step?.message ? `<p class="mt-0.5 text-xs text-slate-400">${escapeHtml(step.message)}</p>` : ''}
+            ${step?.suggestion ? `<p class="mt-1 text-xs text-amber-200">Suggestion: ${escapeHtml(step.suggestion)}</p>` : ''}
+          </div>
+        </div>
+        ${Number.isFinite(step?.duration_ms) ? `<span class="shrink-0 text-[11px] text-slate-500">${escapeHtml(step.duration_ms)} ms</span>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function diagnosticStatusClass(status) {
+  switch (status) {
+    case 'success':
+    case 'connected':
+      return { text: 'text-emerald-300', label: 'text-emerald-200', border: 'border-emerald-500/20', bg: 'bg-emerald-500/8' };
+    case 'warning':
+      return { text: 'text-amber-300', label: 'text-amber-200', border: 'border-amber-500/20', bg: 'bg-amber-500/8' };
+    case 'failed':
+    case 'error':
+      return { text: 'text-red-300', label: 'text-red-200', border: 'border-red-500/25', bg: 'bg-red-500/8' };
+    default:
+      return { text: 'text-slate-400', label: 'text-slate-500', border: 'border-slate-800', bg: 'bg-slate-900/40' };
+  }
+}
+
+function diagnosticStatusIcon(status) {
+  switch (status) {
+    case 'success':
+    case 'connected':
+      return '✓';
+    case 'warning':
+      return '!';
+    case 'failed':
+    case 'error':
+      return '✗';
+    default:
+      return '○';
+  }
+}
+
+function diagnosticStatusLabel(status) {
+  switch (status) {
+    case 'connected':
+    case 'success':
+      return 'Connected';
+    case 'warning':
+      return 'Connected with warnings';
+    case 'failed':
+    case 'error':
+      return 'Diagnostics failed';
+    default:
+      return 'Not tested';
+  }
+}
+
 async function testConnection(service) {
   const statusEl = document.getElementById(`test-${service}-status`);
-  statusEl.textContent = t('testing');
-  statusEl.className = 'text-xs text-yellow-400';
+  const resultEl = document.getElementById(`diagnostic-${service}-result`);
+  const cardEl = document.getElementById(`diagnostic-${service}`);
+  const button = cardEl?.querySelector('[data-action="testConnection"]');
+  if (!statusEl || !resultEl) return;
+  statusEl.textContent = 'Running diagnostics...';
+  statusEl.className = 'mt-1 text-xs text-yellow-400';
+  resultEl.innerHTML = `
+    <div class="rounded-lg border border-slate-800 bg-slate-950/50 p-3 text-xs text-slate-400">
+      <span class="inline-block h-3 w-3 animate-spin rounded-full border-2 border-amber-300 border-t-transparent align-[-2px]"></span>
+      Testing configuration, network, authentication, and API access...
+    </div>
+  `;
+  if (button) button.disabled = true;
 
   try {
-    const data = await apiJson(`/api/test/${service}`, { method: 'POST' });
+    const data = await apiJson(`/api/test/${service}`, {
+      method: 'POST',
+      body: JSON.stringify(diagnosticPayload(service)),
+    });
+    resultEl.innerHTML = renderDiagnosticResult(data);
     if (data.success) {
-      statusEl.textContent = t('connected');
-      statusEl.className = 'text-xs text-emerald-400';
+      statusEl.textContent = data.summary || 'Connected';
+      statusEl.className = 'mt-1 text-xs text-emerald-400';
     } else {
-      statusEl.textContent = data.error || t('conn_error');
-      statusEl.className = 'text-xs text-red-400';
+      statusEl.textContent = data.summary || 'Diagnostics failed';
+      statusEl.className = 'mt-1 text-xs text-red-400';
     }
   } catch (err) {
-    statusEl.textContent = t('conn_error');
-    statusEl.className = 'text-xs text-red-400';
+    statusEl.textContent = 'Diagnostics failed';
+    statusEl.className = 'mt-1 text-xs text-red-400';
+    resultEl.innerHTML = renderDiagnosticResult({
+      status: 'failed',
+      success: false,
+      summary: err.message || 'Diagnostics failed',
+      steps: [{
+        name: 'Request',
+        status: 'failed',
+        message: err.message || 'Librarr could not run diagnostics.',
+        suggestion: 'Verify your session and try again.',
+      }],
+    });
+  } finally {
+    if (button) button.disabled = false;
   }
 }
 
@@ -2353,25 +4547,44 @@ async function loadUsers() {
 
     const container = document.getElementById('users-list');
     const users = data.users || [];
+    if (users.length === 0) {
+      container.innerHTML = `<p class="px-4 py-3 text-xs text-slate-500">No users yet.</p>`;
+      return;
+    }
     container.innerHTML = users.map(u => {
-      const roleOptions = `<select data-action-change="changeUserRole" data-id="${u.id}" class="bg-slate-700 text-sm text-slate-300 rounded px-2 py-1 border-0">
+      const isCurrent = state.currentUser && u.username === state.currentUser;
+      const isAdmin = u.role === 'admin';
+      const roleOptions = `<select data-action-change="changeUserRole" data-id="${u.id}" class="bg-slate-800 text-sm text-slate-300 rounded px-2 py-1 border border-slate-700">
         <option value="user" ${u.role === 'user' ? 'selected' : ''}>${t('role_user')}</option>
         <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>${t('role_admin')}</option>
       </select>`;
       const totpBadge = u.totp_enabled ? '<span class="text-xs text-emerald-400 bg-emerald-400/10 px-1.5 py-0.5 rounded">2FA</span>' : '';
-      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleDateString() : t('never');
+      const created = u.created_at ? new Date(u.created_at).toLocaleDateString() : '—';
+      const lastLogin = u.last_login ? new Date(u.last_login).toLocaleString() : t('never');
+      const statusBadge = u.enabled === false
+        ? '<span class="rounded-full bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">Disabled</span>'
+        : '<span class="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">Enabled</span>';
+      const deleteDisabled = isAdmin || isCurrent ? 'disabled aria-disabled="true"' : '';
+      const deleteClass = isAdmin || isCurrent ? 'bg-slate-800 text-slate-600 cursor-not-allowed' : 'bg-slate-800 hover:bg-red-600 text-slate-300 hover:text-white';
+      const toggleLabel = u.enabled === false ? 'Enable' : 'Disable';
       return `
-        <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-4 py-3">
-          <div class="flex items-center gap-3">
-            <span class="text-sm font-medium text-white">${escapeHtml(u.username)}</span>
-            ${totpBadge}
-            <span class="text-xs text-slate-600">${t('last_login', {date: lastLogin})}</span>
+        <div class="grid min-w-[820px] grid-cols-[1.1fr_0.8fr_0.75fr_0.8fr_1fr_1.4fr] items-center gap-3 border-b border-slate-800 px-4 py-3 text-sm last:border-b-0">
+          <div class="min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="truncate font-medium text-white">${escapeHtml(u.username)}</span>
+              ${isCurrent ? '<span class="rounded-full bg-indigo-500/10 px-2 py-0.5 text-[11px] text-indigo-300">You</span>' : ''}
+              ${totpBadge}
+            </div>
           </div>
-          <div class="flex items-center gap-2">
-            ${roleOptions}
-            <button data-action="deleteUser" data-id="${u.id}" data-username="${escapeHtml(u.username)}" class="px-2 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-400 hover:text-white rounded transition-colors" title="${t('failed_delete_user')}">
-              <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-            </button>
+          <div>${roleOptions}</div>
+          <div>${statusBadge}</div>
+          <div class="text-xs text-slate-500">${escapeHtml(created)}</div>
+          <div class="text-xs text-slate-500">${escapeHtml(lastLogin)}</div>
+          <div class="flex flex-wrap items-center gap-1.5">
+            <button data-action="editUser" data-id="${u.id}" data-username="${escapeHtml(u.username)}" data-role="${escapeHtml(u.role)}" class="rounded bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">Edit</button>
+            <button data-action="resetUserPassword" data-id="${u.id}" data-username="${escapeHtml(u.username)}" class="rounded bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">Reset Password</button>
+            <button data-action="toggleUserEnabled" data-id="${u.id}" data-username="${escapeHtml(u.username)}" data-enabled="${u.enabled !== false}" class="rounded bg-slate-800 px-2 py-1 text-xs text-slate-300 hover:bg-slate-700">${toggleLabel}</button>
+            <button data-action="deleteUser" data-id="${u.id}" data-username="${escapeHtml(u.username)}" ${deleteDisabled} class="rounded px-2 py-1 text-xs transition-colors ${deleteClass}">Delete</button>
           </div>
         </div>
       `;
@@ -2382,14 +4595,55 @@ async function loadUsers() {
   }
 }
 
+async function editUser(id, username, role) {
+  const nextUsername = prompt('Username', username);
+  if (nextUsername === null) return;
+  const cleaned = nextUsername.trim();
+  if (!cleaned) {
+    showToast('Username is required', 'warning');
+    return;
+  }
+  const nextRole = prompt('Role: user or admin', role);
+  if (nextRole === null) return;
+  const cleanedRole = nextRole.trim().toLowerCase();
+  if (cleanedRole !== 'user' && cleanedRole !== 'admin') {
+    showToast("Role must be 'user' or 'admin'", 'warning');
+    return;
+  }
+  await updateUser(id, { username: cleaned, role: cleanedRole }, 'User updated');
+}
+
 async function changeUserRole(id, role) {
+  await updateUser(id, { role }, t('user_role_updated'));
+}
+
+async function resetUserPassword(id, username) {
+  const password = prompt(`New password for ${username}`);
+  if (password === null) return;
+  if (password.length < 6) {
+    showToast('Password must be at least 6 characters', 'warning');
+    return;
+  }
+  await updateUser(id, { password }, 'Password reset');
+}
+
+async function toggleUserEnabled(id, username, enabled) {
+  enabled = enabled === true || enabled === 'true';
+  const nextEnabled = !enabled;
+  const verb = nextEnabled ? 'enable' : 'disable';
+  if (!confirm(`Are you sure you want to ${verb} ${username}?`)) return;
+  await updateUser(id, { enabled: nextEnabled }, nextEnabled ? 'User enabled' : 'User disabled');
+}
+
+async function updateUser(id, payload, successMessage) {
   try {
     const data = await apiJson(`/api/users/${id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ role }),
+      body: JSON.stringify(payload),
     });
     if (data.success) {
-      showToast(t('user_role_updated'), 'success');
+      showToast(successMessage || 'User updated', 'success');
+      loadUsers();
     } else {
       showToast(data.error || t('failed_update_role'), 'error');
       loadUsers();
@@ -2415,9 +4669,21 @@ async function deleteUser(id, username) {
   }
 }
 
+function cancelCreateUser() {
+  document.getElementById('new-user-name').value = '';
+  document.getElementById('new-user-pass').value = '';
+  const role = document.getElementById('new-user-role');
+  if (role) role.value = 'user';
+  const admin = document.getElementById('new-user-admin');
+  if (admin) admin.checked = false;
+}
+
 async function addUser() {
   const username = document.getElementById('new-user-name').value.trim();
   const password = document.getElementById('new-user-pass').value;
+  const adminChecked = document.getElementById('new-user-admin')?.checked;
+  const selectedRole = document.getElementById('new-user-role')?.value || 'user';
+  const role = adminChecked ? 'admin' : selectedRole;
   if (!username || !password) {
     showToast(t('err_credentials_required'), 'warning');
     return;
@@ -2425,12 +4691,11 @@ async function addUser() {
   try {
     const data = await apiJson('/api/register', {
       method: 'POST',
-      body: JSON.stringify({ username, password }),
+      body: JSON.stringify({ username, password, role }),
     });
     if (data.success) {
       showToast(t('user_created'), 'success');
-      document.getElementById('new-user-name').value = '';
-      document.getElementById('new-user-pass').value = '';
+      cancelCreateUser();
       loadUsers();
     } else {
       showToast(data.error || t('failed_create_user'), 'error');
@@ -2452,23 +4717,32 @@ async function loadInviteCodes() {
       el.innerHTML = `<p class="text-xs text-slate-500">No invite codes yet.</p>`;
       return;
     }
+    const nowSeconds = Date.now() / 1000;
     el.innerHTML = list.map(inv => {
       const expires = inv.expires_at
         ? new Date(inv.expires_at * 1000).toLocaleDateString()
         : 'Never';
       const usesLabel = `${inv.uses} / ${inv.max_uses}`;
       const exhausted = inv.uses >= inv.max_uses;
+      const expired = Boolean(inv.expires_at && inv.expires_at < nowSeconds);
+      const created = inv.created_at ? new Date(inv.created_at * 1000).toLocaleDateString() : '—';
+      const used = inv.uses > 0 ? 'Yes' : 'No';
       return `
-        <div class="flex items-center justify-between bg-slate-800/50 rounded-lg px-3 py-2 text-sm">
-          <div class="flex items-center gap-3 flex-1 min-w-0">
-            <code class="text-indigo-400 font-mono text-xs truncate">${escapeHtml(inv.code)}</code>
-            <span class="text-xs text-slate-500">role: ${escapeHtml(inv.role)}</span>
-            <span class="text-xs ${exhausted ? 'text-amber-400' : 'text-slate-500'}">uses: ${usesLabel}</span>
-            <span class="text-xs text-slate-500">expires: ${escapeHtml(expires)}</span>
+        <div class="rounded-lg bg-slate-800/50 px-3 py-2 text-sm">
+          <div class="flex items-center justify-between gap-3">
+            <code class="min-w-0 flex-1 truncate font-mono text-xs text-indigo-400">${escapeHtml(inv.code)}</code>
+            <div class="flex items-center gap-1 flex-shrink-0">
+              <button data-action="copyInviteCode" data-code="${escapeHtml(inv.code)}" class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" title="Copy">Copy</button>
+              <button data-action="revokeInviteCode" data-id="${inv.id}" class="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors" title="Delete">Delete</button>
+            </div>
           </div>
-          <div class="flex items-center gap-1 flex-shrink-0">
-            <button data-action="copyInviteCode" data-code="${escapeHtml(inv.code)}" class="px-2 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" title="Copy">Copy</button>
-            <button data-action="revokeInviteCode" data-id="${inv.id}" class="px-2 py-1 text-xs bg-red-700 hover:bg-red-600 text-white rounded transition-colors" title="Revoke">Revoke</button>
+          <div class="mt-2 grid grid-cols-2 gap-2 text-xs text-slate-500 md:grid-cols-6">
+            <span>Role: <span class="text-slate-300">${escapeHtml(inv.role)}</span></span>
+            <span class="${exhausted ? 'text-amber-400' : ''}">Uses: ${escapeHtml(usesLabel)}</span>
+            <span>Expiration: ${escapeHtml(expires)}</span>
+            <span>Created: ${escapeHtml(created)}</span>
+            <span>Used: ${used}</span>
+            <span class="${expired ? 'text-amber-400' : 'text-emerald-400'}">Expired: ${expired ? 'Yes' : 'No'}</span>
           </div>
         </div>`;
     }).join('');
@@ -2534,10 +4808,12 @@ async function revokeInviteCode(id) {
 // ============================================================
 async function loadStats() {
   try {
-    const data = await apiJson('/api/stats');
+    const useNormalized = normalizedLibraryMode();
+    const data = await apiJson(useNormalized ? '/api/v1/library/summary' : '/api/stats');
     const statsEl = document.getElementById('header-stats');
-    if (data.total_items !== undefined) {
-      statsEl.textContent = t('n_items_in_library', {n: data.total_items});
+    const count = useNormalized ? data.total_books : data.total_items;
+    if (count !== undefined) {
+      statsEl.textContent = t('n_books_in_library', {n: count});
       statsEl.classList.remove('hidden');
     }
   } catch (err) {
@@ -2574,6 +4850,7 @@ document.addEventListener('keydown', (e) => {
   // Escape → close modals, clear search
   if (e.key === 'Escape') {
     hideWishlistForm();
+    closeBookDetails();
   }
 });
 
@@ -2582,9 +4859,23 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 async function init() {
   try {
+    const authResp = await fetch('/api/auth/status', { credentials: 'include' });
+    const auth = await authResp.json().catch(() => ({}));
+
+    if (auth.setup_required) {
+      showLoginModal();
+      return;
+    }
+
+    if (auth.has_users && !auth.authenticated) {
+      showLoginModal();
+      return;
+    }
+
     // Test auth by hitting config
     const cfg = await apiJson('/api/config');
     state.config = cfg;
+    setupLibrarr2Shell();
 
     // Update user header.
     if (cfg.current_user) {
@@ -2593,10 +4884,10 @@ async function init() {
 
     // Auth OK
     loadStats();
-    // Show default tab
-    document.getElementById('search-empty').classList.remove('hidden');
     // Apply language on load
     applyLanguage();
+    document.getElementById('search-empty').classList.remove('hidden');
+    switchTab('home');
   } catch (err) {
     if (err.message === 'Unauthorized') {
       // Login modal already shown by api()
@@ -2616,13 +4907,63 @@ init();
 // never invoke anything that isn't registered here.
 const CLICK_ACTIONS = {
   switchTab: el => switchTab(el.dataset.arg),
+  openImportSettings: () => openImportSettings(),
+  saveLibraryImportStandard: () => saveLibraryImportSettings(false),
+  saveLibraryImportContinue: () => saveLibraryImportSettings(true),
+  startLibraryScan: () => startLibraryScan(),
+  startLibraryImportSelected: () => startLibraryImport(false),
+  startLibraryImportAllReady: () => startLibraryImport(true),
+  viewImportedLibraryScan: () => {
+    state.libraryImport.scan.filter = 'already_imported';
+    state.libraryImport.scan.sections.already_imported = true;
+    renderLibraryScanWorkspace();
+  },
+  retryFailedLibraryImport: () => retryFailedLibraryImport(),
+  closeLibraryImportSummary: () => {
+    state.libraryImport.scan.import.result = null;
+    state.libraryImport.scan.import.error = '';
+    renderLibraryScanWorkspace();
+  },
+  useSuggestedLibraryScanCandidate: el => resolveLibraryScanCandidate(el.dataset.candidateId, 'use_suggested'),
+  editLibraryScanCandidateMetadata: el => openScanMetadataEditor(el.dataset.candidateId),
+  saveMetadataEditor: () => saveMetadataEditor(false),
+  saveAndImportMetadataEditor: () => saveMetadataEditor(true),
+  cancelMetadataEditor: () => closeMetadataEditor(),
+  resetMetadataEditor: () => resetMetadataEditor(),
+  skipLibraryScanCandidate: el => {
+    const id = el.dataset.candidateId;
+    if (!id) return;
+    state.libraryImport.scan.skipped.add(id);
+    state.libraryImport.scan.selected.delete(id);
+    renderLibraryScanWorkspace();
+  },
+  clearLibraryScanSelection: () => {
+    state.libraryImport.scan.selected.clear();
+    renderLibraryScanWorkspace();
+  },
+  skipLibraryScanSelected: () => {
+    for (const candidate of selectedReadyLibraryScanCandidates(state.libraryImport.scan.result)) {
+      state.libraryImport.scan.skipped.add(candidate.id);
+      state.libraryImport.scan.selected.delete(candidate.id);
+    }
+    renderLibraryScanWorkspace();
+  },
+  setLibraryScanFilter: el => {
+    state.libraryImport.scan.filter = el.dataset.filter || 'all';
+    renderLibraryScanWorkspace();
+  },
+  toggleLibraryScanSection: el => {
+    const section = el.dataset.section;
+    if (!section) return;
+    state.libraryImport.scan.sections[section] = state.libraryImport.scan.sections[section] === false;
+    renderLibraryScanWorkspace();
+  },
   switchSearchTab: el => switchSearchTab(el.dataset.arg),
   switchLibraryTab: el => switchLibraryTab(el.dataset.arg),
   setSortMode: el => setSortMode(el.dataset.arg),
   testConnection: el => testConnection(el.dataset.arg),
   saveIntegration: el => saveIntegration(el.dataset.arg),
   toggleMobileNav: () => toggleMobileNav(),
-  toggleLanguage: () => toggleLanguage(),
   showLoginForm: () => showLoginForm(),
   showRegisterForm: () => showRegisterForm(),
   showWishlistForm: () => showWishlistForm(),
@@ -2632,7 +4973,14 @@ const CLICK_ACTIONS = {
   doLogout: () => doLogout(),
   clearCompleted: () => clearCompleted(),
   addUser: () => addUser(),
+  cancelCreateUser: () => cancelCreateUser(),
+  editUser: el => editUser(+el.dataset.id, el.dataset.username, el.dataset.role),
+  resetUserPassword: el => resetUserPassword(+el.dataset.id, el.dataset.username),
+  toggleUserEnabled: el => toggleUserEnabled(+el.dataset.id, el.dataset.username, el.dataset.enabled),
   refreshDownloads: () => refreshDownloads(true), // toolbar button forces a refresh
+  openBookDetails: el => openBookDetails(+el.dataset.index),
+  openHomeBookDetails: el => openHomeBookDetails(+el.dataset.index),
+  closeBookDetails: () => closeBookDetails(),
   // Dynamically rendered rows/cards:
   startDownload: el => {
     // data-idx indexes the *rendered* (sorted) list, not state.searchResults.
@@ -2663,6 +5011,29 @@ const CHANGE_ACTIONS = {
   changeUserRole: el => changeUserRole(+el.dataset.id, el.value),
   toggleForeignLangFilter: () => toggleForeignLangFilter(),
   toggleRemoveTorrent: () => toggleRemoveTorrent(),
+  toggleLibraryScanCandidateSelection: el => {
+    const id = el.dataset.candidateId;
+    if (!id) return;
+    if (el.checked) {
+      state.libraryImport.scan.selected.add(id);
+    } else {
+      state.libraryImport.scan.selected.delete(id);
+    }
+    renderLibraryScanWorkspace();
+  },
+  toggleLibraryScanSelectAllReady: el => {
+    const ready = readyLibraryScanCandidates(state.libraryImport.scan.result);
+    if (el.checked) {
+      for (const candidate of ready) {
+        state.libraryImport.scan.selected.add(candidate.id);
+      }
+    } else {
+      for (const candidate of ready) {
+        state.libraryImport.scan.selected.delete(candidate.id);
+      }
+    }
+    renderLibraryScanWorkspace();
+  },
 };
 
 document.addEventListener('change', e => {
@@ -2670,6 +5041,18 @@ document.addEventListener('change', e => {
   if (!el) return;
   const fn = CHANGE_ACTIONS[el.dataset.actionChange];
   if (fn) fn(el, e);
+});
+
+document.addEventListener('input', e => {
+  const el = e.target.closest('[data-action-input]');
+  if (!el) return;
+  if (el.dataset.actionInput === 'libraryScanSearch') {
+    state.libraryImport.scan.search = el.value || '';
+    renderLibraryScanWorkspace();
+    document.getElementById('settings-library-scan-search')?.focus();
+  } else if (el.dataset.actionInput === 'metadataEditorField') {
+    updateMetadataEditorDraft(el.dataset.field, el.value || '');
+  }
 });
 
 // Cover-image fallback (replaces inline onerror=). 'error' events don't

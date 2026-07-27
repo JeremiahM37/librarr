@@ -1,4 +1,4 @@
-module github.com/JeremiahM37/librarr
+module github.com/jamie75/librarr
 
 go 1.25.0
 

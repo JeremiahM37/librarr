@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/sources/sourcestest"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/sources/sourcestest"
 )
 
 // testCfgWithSourcesURL returns a config wired up with a registry whose

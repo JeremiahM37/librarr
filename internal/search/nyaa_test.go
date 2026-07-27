@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 func TestNyaaManga_Metadata(t *testing.T) {

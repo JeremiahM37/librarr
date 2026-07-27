@@ -10,11 +10,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/organize"
-	"github.com/JeremiahM37/librarr/internal/search"
-	"github.com/JeremiahM37/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/organize"
+	"github.com/jamie75/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/sources"
 )
 
 type roundTripFunc func(*http.Request) (*http.Response, error)

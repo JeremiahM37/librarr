@@ -11,9 +11,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/coreos/go-oidc/v3/oidc"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
 	"golang.org/x/oauth2"
 )
 
@@ -266,6 +266,10 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 	if user == nil {
 		http.Error(w, "Failed to resolve OIDC user", http.StatusInternalServerError)
+		return
+	}
+	if !user.Enabled {
+		http.Error(w, "Account is disabled", http.StatusForbidden)
 		return
 	}
 

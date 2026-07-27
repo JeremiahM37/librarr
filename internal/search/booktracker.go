@@ -13,9 +13,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // BookTracker searches the BookTracker.org Russian book/audiobook tracker.

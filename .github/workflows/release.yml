@@ -21,7 +21,7 @@ jobs:
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
   docker:
     runs-on: ubuntu-latest
-    permissions: {packages: write}
+    permissions: {contents: read, packages: write}
     steps:
       - uses: actions/checkout@v4
       - name: Lowercase owner
@@ -30,11 +30,23 @@ jobs:
       - uses: docker/login-action@v3
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
       - id: version
-        run: echo "tag=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          echo "tag=${tag}" >> $GITHUB_OUTPUT
+          echo "commit=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
+          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
+          image="ghcr.io/${{ steps.owner.outputs.name }}/librarr:${tag}"
+          if echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
+            image="${image},ghcr.io/${{ steps.owner.outputs.name }}/librarr:latest"
+          fi
+          echo "images=${image}" >> $GITHUB_OUTPUT
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: |
-            ghcr.io/${{ steps.owner.outputs.name }}/librarr:${{ steps.version.outputs.tag }}
-            ghcr.io/${{ steps.owner.outputs.name }}/librarr:latest
+          tags: ${{ steps.version.outputs.images }}
+          build-args: |
+            VERSION=${{ steps.version.outputs.tag }}
+            CHANNEL=${{ steps.version.outputs.tag }}
+            COMMIT=${{ steps.version.outputs.commit }}
+            BUILD_TIME=${{ steps.version.outputs.build_time }}

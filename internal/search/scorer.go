@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // ScoreBreakdown provides a detailed breakdown of a search result's confidence score.

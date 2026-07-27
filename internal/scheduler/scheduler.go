@@ -4,17 +4,18 @@ package scheduler
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/download"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/search"
-	"github.com/JeremiahM37/librarr/internal/webhook"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/download"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/webhook"
 )
 
 // Scheduler runs periodic searches for wishlist items.
@@ -205,9 +206,14 @@ func (s *Scheduler) startDownload(result models.SearchResult, title string) {
 		if url == "" {
 			url = "magnet:?xt=urn:btih:" + result.InfoHash
 		}
-		err := s.downloadMgr.StartTorrentDownload(url, title, "", "")
+		err := s.downloadMgr.StartTorrentDownload(url, title, "", "", result.InfoHash)
 		if err != nil {
-			slog.Error("scheduler: auto-download failed", "title", title, "error", err)
+			var verificationWarning *download.TorrentVerificationWarning
+			if errors.As(err, &verificationWarning) {
+				slog.Warn("scheduler: torrent accepted; verification pending", "title", title, "warning", err.Error())
+			} else {
+				slog.Error("scheduler: auto-download failed", "title", title, "error", err)
+			}
 		}
 	}
 }

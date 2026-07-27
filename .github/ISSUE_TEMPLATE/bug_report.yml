@@ -1,0 +1,86 @@
+name: Bug report
+description: Report something that is broken or behaving unexpectedly.
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve Librarr. Do not report active security vulnerabilities here; see SECURITY.md instead.
+  - type: input
+    id: version
+    attributes:
+      label: Librarr version, build, or commit
+      description: Include the Settings/About build identity if available.
+      placeholder: v2-dogfood, v2.0.0-beta.1, or commit SHA
+    validations:
+      required: true
+  - type: input
+    id: docker_tag
+    attributes:
+      label: Docker image tag
+      placeholder: ghcr.io/jamie75/librarr:v2-dogfood
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment method
+      options:
+        - Docker Compose
+        - Portainer
+        - Docker CLI
+        - Bare binary
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser or device
+      placeholder: Safari on iPadOS, Chrome on macOS, OPDS reader app, etc.
+  - type: dropdown
+    id: repository_mode
+    attributes:
+      label: Repository mode
+      options:
+        - legacy
+        - normalized
+        - unknown
+  - type: dropdown
+    id: import_engine
+    attributes:
+      label: Import engine
+      options:
+        - legacy
+        - v2
+        - unknown
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: Tell us exactly what you did.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized logs or screenshots
+      description: Remove passwords, API keys, cookies, private URLs, and personal library contents.
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Secret review
+      options:
+        - label: I removed passwords, API keys, cookies, private URLs, and other secrets.
+          required: true

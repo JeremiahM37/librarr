@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/db"
 )
 
 // changePwTestSetup creates an in-memory DB, registers a user, and returns the

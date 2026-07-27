@@ -10,9 +10,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 var annasMetadataFormatRe = regexp.MustCompile(`(?i)·\s*([a-z0-9]+)\s*·`)

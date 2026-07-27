@@ -77,6 +77,26 @@ func TestLoad_Defaults(t *testing.T) {
 			t.Error("expected RateLimitEnabled=true by default")
 		}
 	})
+
+	t.Run("library repository mode defaults to legacy", func(t *testing.T) {
+		mode, err := cfg.NormalizedLibraryRepositoryMode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode != "legacy" {
+			t.Errorf("expected legacy repository mode, got %q", mode)
+		}
+	})
+
+	t.Run("import engine defaults to legacy", func(t *testing.T) {
+		mode, err := cfg.ImportEngineMode()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if mode != "legacy" {
+			t.Errorf("expected legacy import engine, got %q", mode)
+		}
+	})
 }
 
 func TestLoad_EnvOverrides(t *testing.T) {
@@ -87,11 +107,13 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	os.Setenv("ANNAS_ARCHIVE_DOMAIN", "https://annas-archive.org/search/")
 	os.Setenv("MIN_TORRENT_SIZE_BYTES", "50000")
 	os.Setenv("OIDC_PROXY_HEADERS_ENABLED", "true")
+	os.Setenv("LIBRARR_LIBRARY_REPOSITORY_MODE", "normalized")
+	os.Setenv("LIBRARR_IMPORT_ENGINE", "v2")
 	defer func() {
 		for _, key := range []string{
 			"LIBRARR_PORT", "LIBRARR_DB_PATH", "QB_URL",
 			"FILE_ORG_ENABLED", "ANNAS_ARCHIVE_DOMAIN", "MIN_TORRENT_SIZE_BYTES",
-			"OIDC_PROXY_HEADERS_ENABLED",
+			"OIDC_PROXY_HEADERS_ENABLED", "LIBRARR_LIBRARY_REPOSITORY_MODE", "LIBRARR_IMPORT_ENGINE",
 		} {
 			os.Unsetenv(key)
 		}
@@ -120,6 +142,26 @@ func TestLoad_EnvOverrides(t *testing.T) {
 	if !cfg.OIDCProxyHeaders {
 		t.Error("expected OIDCProxyHeaders=true with env override")
 	}
+	if cfg.LibraryRepositoryMode != "normalized" {
+		t.Errorf("expected normalized repository mode, got %q", cfg.LibraryRepositoryMode)
+	}
+	if cfg.ImportEngine != "v2" {
+		t.Errorf("expected v2 import engine, got %q", cfg.ImportEngine)
+	}
+}
+
+func TestNormalizedLibraryRepositoryModeRejectsInvalidValue(t *testing.T) {
+	cfg := &Config{LibraryRepositoryMode: "weird"}
+	if _, err := cfg.NormalizedLibraryRepositoryMode(); err == nil {
+		t.Fatal("expected invalid repository mode error")
+	}
+}
+
+func TestImportEngineModeRejectsInvalidValue(t *testing.T) {
+	cfg := &Config{ImportEngine: "weird"}
+	if _, err := cfg.ImportEngineMode(); err == nil {
+		t.Fatal("expected invalid import engine error")
+	}
 }
 
 func TestLoad_NormalizesSettingsFileDomain(t *testing.T) {
@@ -133,6 +175,41 @@ func TestLoad_NormalizesSettingsFileDomain(t *testing.T) {
 	cfg := Load()
 	if cfg.AnnasArchiveDomain != "annas-archive.gd" {
 		t.Errorf("AnnasArchiveDomain = %q, want annas-archive.gd", cfg.AnnasArchiveDomain)
+	}
+}
+
+func TestLoad_AppliesQBittorrentSavePathsFromSettings(t *testing.T) {
+	dir := t.TempDir()
+	settingsPath := dir + "/settings.json"
+	if err := os.WriteFile(settingsPath, []byte(`{
+		"qb_save_path": "/remote/ebooks",
+		"qb_category": "ebooks-cat",
+		"qb_audiobook_save_path": "/remote/audiobooks",
+		"qb_audiobook_category": "audio-cat",
+		"qb_manga_save_path": "/remote/manga",
+		"qb_manga_category": "manga-cat",
+		"incoming_dir": "/data/incoming"
+	}`), 0600); err != nil {
+		t.Fatalf("write settings file: %v", err)
+	}
+	t.Setenv("SETTINGS_FILE", settingsPath)
+	t.Setenv("QB_SAVE_PATH", "/env/ebooks")
+
+	cfg := Load()
+	if cfg.QBSavePath != "/remote/ebooks" {
+		t.Fatalf("QBSavePath = %q", cfg.QBSavePath)
+	}
+	if cfg.QBCategory != "ebooks-cat" {
+		t.Fatalf("QBCategory = %q", cfg.QBCategory)
+	}
+	if cfg.QBAudiobookSavePath != "/remote/audiobooks" || cfg.QBAudiobookCategory != "audio-cat" {
+		t.Fatalf("audiobook qB settings = %q / %q", cfg.QBAudiobookSavePath, cfg.QBAudiobookCategory)
+	}
+	if cfg.QBMangaSavePath != "/remote/manga" || cfg.QBMangaCategory != "manga-cat" {
+		t.Fatalf("manga qB settings = %q / %q", cfg.QBMangaSavePath, cfg.QBMangaCategory)
+	}
+	if cfg.IncomingDir != "/data/incoming" {
+		t.Fatalf("IncomingDir = %q", cfg.IncomingDir)
 	}
 }
 

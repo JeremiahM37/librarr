@@ -8,7 +8,13 @@ RUN go mod download
 
 # Build the binary.
 COPY . .
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /librarr ./cmd/librarr/
+ARG VERSION=development
+ARG COMMIT=unknown
+ARG BUILD_TIME=unknown
+ARG CHANNEL=development
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/jamie75/librarr/internal/api.Version=${VERSION} -X github.com/jamie75/librarr/internal/api.Commit=${COMMIT} -X github.com/jamie75/librarr/internal/api.BuildTime=${BUILD_TIME} -X github.com/jamie75/librarr/internal/api.Channel=${CHANNEL}" \
+    -o /librarr ./cmd/librarr/
 
 # --- Runtime image ---
 FROM alpine:3.21

@@ -1,6 +1,6 @@
 package torznab
 
-import "github.com/JeremiahM37/librarr/internal/models"
+import "github.com/jamie75/librarr/internal/models"
 
 // BuildCaps returns the Torznab capabilities XML structure.
 func BuildCaps() *models.TorznabCaps {

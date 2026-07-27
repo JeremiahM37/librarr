@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/JeremiahM37/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/sources"
 )
 
 //go:embed sources.json

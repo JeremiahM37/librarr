@@ -5,7 +5,7 @@ Thanks for your interest in contributing! Here's how to get started.
 ## Quick Start
 
 ```bash
-git clone https://github.com/JeremiahM37/librarr.git
+git clone https://github.com/jamie75/librarr.git
 cd librarr
 go build -o librarr ./cmd/librarr/
 go test ./...
@@ -13,7 +13,7 @@ go test ./...
 
 ## Good First Issues
 
-Check the [good first issue](https://github.com/JeremiahM37/librarr/labels/good%20first%20issue) label for beginner-friendly tasks.
+Check the [good first issue](https://github.com/jamie75/librarr/labels/good%20first%20issue) label for beginner-friendly tasks.
 
 ## How to Contribute
 
@@ -43,8 +43,9 @@ Check the [good first issue](https://github.com/JeremiahM37/librarr/labels/good%
 - **Security audit** — review HTTP clients for SSRF/injection (#4)
 - **New search sources** — more book/audiobook/manga sources
 - **UI improvements** — the web UI is functional but minimal
-- **Documentation** — guides for specific setups (Readarr integration, Calibre-Web, etc.)
+- **Documentation** — guides for specific setups, migration, OPDS clients, and Docker deployment
 
 ## License
 
-By contributing, you agree that your contributions will be licensed under GPL-3.0.
+By contributing, you agree that your contributions will be licensed under the
+same MIT License used by this repository.

@@ -11,7 +11,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/sources"
+	"github.com/jamie75/librarr/internal/sources"
 )
 
 // TestLiveDefaultRegistry fetches the registry from the real default URL the

@@ -53,7 +53,7 @@ Findings are grouped by severity. **Fixed** indicates a code change is present o
 |---|---|
 | **Files** | `internal/api/auth.go`, `internal/api/opds.go` |
 | **Scenario** | When session auth is enabled, `/opds/books` and `/opds/download/{id}` were reachable without login. |
-| **Fix** | **Fixed** — only `/opds`, `/opds/`, and `/opds/opensearch.xml` remain auth-exempt. Books/search/download require session or API key. |
+| **Fix** | **Fixed** — OPDS routes now require OPDS-compatible HTTP Basic authentication against existing enabled Librarr users. API-key access remains available for scripted clients. |
 
 ### H4: Session cookie missing Secure flag
 
@@ -159,9 +159,10 @@ Findings are grouped by severity. **Fixed** indicates a code change is present o
 
 ## Low / Informational
 
-### L1: OPDS root catalog remains public
+### L1: OPDS reader feature depth
 
-Root `/opds` catalog is still auth-exempt for e-reader discovery. Full OPDS Basic Auth support is a follow-up.
+OPDS now requires authentication and supports catalog browsing/downloads. Reading
+progress sync, annotations, highlights, and OPDS 2.0 remain future feature work.
 
 ### L2: OIDC sub not stored for account linking
 

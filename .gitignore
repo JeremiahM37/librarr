@@ -5,6 +5,7 @@
 *.db-shm
 .env
 /data/
+/\.dogfood/
 /tmp/
 /vendor/
 node_modules/

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // --- Users ---
@@ -16,7 +16,7 @@ func (d *DB) CreateUser(username, passwordHash, role string) (int64, error) {
 	defer d.mu.Unlock()
 
 	result, err := d.db.Exec(
-		`INSERT INTO users (username, password_hash, role, created_at) VALUES (?, ?, ?, ?)`,
+		`INSERT INTO users (username, password_hash, role, enabled, created_at) VALUES (?, ?, ?, 1, ?)`,
 		username, passwordHash, role, float64(time.Now().Unix()),
 	)
 	if err != nil {
@@ -28,7 +28,7 @@ func (d *DB) CreateUser(username, passwordHash, role string) (int64, error) {
 // GetUser retrieves a user by ID.
 func (d *DB) GetUser(id int64) (*models.User, error) {
 	row := d.db.QueryRow(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users WHERE id = ?`, id,
+		`SELECT id, username, password_hash, role, enabled, totp_secret, totp_enabled, created_at, last_login FROM users WHERE id = ?`, id,
 	)
 	return scanUser(row)
 }
@@ -36,7 +36,7 @@ func (d *DB) GetUser(id int64) (*models.User, error) {
 // GetUserByUsername retrieves a user by username (case-insensitive).
 func (d *DB) GetUserByUsername(username string) (*models.User, error) {
 	row := d.db.QueryRow(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users WHERE username = ? COLLATE NOCASE`, username,
+		`SELECT id, username, password_hash, role, enabled, totp_secret, totp_enabled, created_at, last_login FROM users WHERE username = ? COLLATE NOCASE`, username,
 	)
 	return scanUser(row)
 }
@@ -44,7 +44,7 @@ func (d *DB) GetUserByUsername(username string) (*models.User, error) {
 // ListUsers returns all users.
 func (d *DB) ListUsers() ([]models.User, error) {
 	rows, err := d.db.Query(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users ORDER BY created_at ASC`,
+		`SELECT id, username, password_hash, role, enabled, totp_secret, totp_enabled, created_at, last_login FROM users ORDER BY created_at ASC`,
 	)
 	if err != nil {
 		return nil, err
@@ -85,6 +85,26 @@ func (d *DB) UpdateUserPassword(id int64, passwordHash string) error {
 
 	_, err := d.db.Exec(`UPDATE users SET password_hash = ? WHERE id = ?`, passwordHash, id)
 	return err
+}
+
+// SetUserEnabled enables or disables a user account.
+func (d *DB) SetUserEnabled(id int64, enabled bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	enabledInt := 0
+	if enabled {
+		enabledInt = 1
+	}
+	result, err := d.db.Exec(`UPDATE users SET enabled = ? WHERE id = ?`, enabledInt, id)
+	if err != nil {
+		return err
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
 }
 
 // DeleteUser removes a user by ID.
@@ -180,11 +200,13 @@ func scanUser(row *sql.Row) (*models.User, error) {
 	var createdAt float64
 	var lastLogin sql.NullFloat64
 	var totpSecret sql.NullString
+	var enabledInt int
 
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &enabledInt, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
 	if err != nil {
 		return nil, err
 	}
+	u.Enabled = enabledInt != 0
 	u.CreatedAt = time.Unix(int64(createdAt), 0)
 	if lastLogin.Valid {
 		u.LastLogin = time.Unix(int64(lastLogin.Float64), 0)
@@ -200,11 +222,13 @@ func scanUserFromRows(rows *sql.Rows) (*models.User, error) {
 	var createdAt float64
 	var lastLogin sql.NullFloat64
 	var totpSecret sql.NullString
+	var enabledInt int
 
-	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
+	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &enabledInt, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
 	if err != nil {
 		return nil, err
 	}
+	u.Enabled = enabledInt != 0
 	u.CreatedAt = time.Unix(int64(createdAt), 0)
 	if lastLogin.Valid {
 		u.LastLogin = time.Unix(int64(lastLogin.Float64), 0)

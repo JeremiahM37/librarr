@@ -3,7 +3,7 @@ package db
 import (
 	"fmt"
 
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // --- Tags ---
@@ -95,7 +95,7 @@ func (d *DB) GetItemTags(itemID int64) ([]Tag, error) {
 func (d *DB) GetItemsByTag(tagID int64, limit, offset int) ([]models.LibraryItem, error) {
 	rows, err := d.db.Query(
 		`SELECT li.id, li.title, li.author, li.file_path, li.original_path, li.file_size, li.file_format,
-		        li.media_type, li.source, li.source_id, li.metadata, li.added_at
+		        li.media_type, li.source, li.source_id, li.metadata, li.content_hash, li.added_at
 		 FROM library_items li JOIN item_tags it ON li.id = it.item_id
 		 WHERE it.tag_id = ? ORDER BY li.added_at DESC LIMIT ? OFFSET ?`,
 		tagID, limit, offset,

@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"strconv"
 
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/db"
 )
 
 func (s *Server) handleListMonitoredAuthors(w http.ResponseWriter, r *http.Request) {

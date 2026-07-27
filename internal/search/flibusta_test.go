@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 const flibustaOPDSFixture = `<?xml version="1.0" encoding="UTF-8"?>

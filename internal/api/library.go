@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/db"
 )
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
@@ -68,13 +68,13 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	items, err := s.db.GetItems(mediaType, limit, offset)
+	items, err := s.library().ListLegacyItems(r.Context(), mediaType, limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 		return
 	}
 
-	total, _ := s.db.CountItems(mediaType)
+	total, _ := s.library().CountLegacyItems(r.Context(), mediaType)
 
 	var jsonItems []map[string]interface{}
 	for _, item := range items {
@@ -104,12 +104,12 @@ func (s *Server) serveLocalLibraryByMediaType(w http.ResponseWriter, r *http.Req
 	}
 	offset := (page - 1) * pageSize
 
-	items, err := s.db.GetItems(mediaType, pageSize, offset)
+	items, err := s.library().ListLegacyItems(r.Context(), mediaType, pageSize, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 		return
 	}
-	total, _ := s.db.CountItems(mediaType)
+	total, _ := s.library().CountLegacyItems(r.Context(), mediaType)
 
 	jsonItems := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
@@ -222,8 +222,8 @@ func (s *Server) handleLibraryEbooksFromABS(w http.ResponseWriter, r *http.Reque
 	})
 }
 
-func (s *Server) handleStats(w http.ResponseWriter, _ *http.Request) {
-	stats, err := s.db.GetStats()
+func (s *Server) handleStats(w http.ResponseWriter, r *http.Request) {
+	stats, err := s.library().LegacyStats(r.Context())
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 		return

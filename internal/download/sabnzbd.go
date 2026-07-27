@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 // SABnzbdClient wraps the SABnzbd API.

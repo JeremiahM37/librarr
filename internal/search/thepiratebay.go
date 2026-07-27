@@ -11,8 +11,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // tpbDefaultTrackers are the trackers appended to magnet URLs so qBittorrent

@@ -1,6 +1,6 @@
 package download
 
-import "github.com/JeremiahM37/librarr/internal/config"
+import "github.com/jamie75/librarr/internal/config"
 
 // TorrentClient is the common interface implemented by every torrent download
 // backend (qBittorrent, Transmission). The rest of Librarr — the download
@@ -13,9 +13,10 @@ import "github.com/JeremiahM37/librarr/internal/config"
 // deletion are scoped to torrents Librarr itself added (qBittorrent categories,
 // Transmission labels), so Librarr never touches a user's unrelated torrents.
 type TorrentClient interface {
-	// AddTorrent submits a torrent URL or magnet link. savePath and category
-	// fall back to the client's configured defaults when empty.
-	AddTorrent(torrentURL, title, savePath, category string) error
+	// AddTorrent submits a torrent URL, torrent file URL, or magnet link.
+	// savePath and category fall back to the client's configured defaults when
+	// empty. expectedInfoHash is optional and used for post-add verification.
+	AddTorrent(torrentURL, title, savePath, category, expectedInfoHash string) error
 	// GetTorrents returns torrents Librarr added under the given category
 	// (empty category returns all Librarr-scoped torrents).
 	GetTorrents(category string) ([]TorrentInfo, error)

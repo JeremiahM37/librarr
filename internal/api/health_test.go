@@ -36,4 +36,25 @@ func TestVersionVars(t *testing.T) {
 	if GoVersion == "" {
 		t.Error("GoVersion should not be empty")
 	}
+	if Commit == "" {
+		t.Error("Commit should not be empty")
+	}
+	if Channel == "" {
+		t.Error("Channel should not be empty")
+	}
+}
+
+func TestReportedVersionUsesInjectedValueWithEmbeddedFallback(t *testing.T) {
+	original := Version
+	t.Cleanup(func() { Version = original })
+
+	Version = "premerge-smoke"
+	if got := reportedVersion(); got != "premerge-smoke" {
+		t.Fatalf("reportedVersion() = %q, want injected version", got)
+	}
+
+	Version = "development"
+	if got := reportedVersion(); got == "" || got == "development" {
+		t.Fatalf("reportedVersion() = %q, want embedded version fallback", got)
+	}
 }

@@ -11,7 +11,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/config"
 )
 
 // TransmissionClient wraps the Transmission RPC API and satisfies TorrentClient.
@@ -73,7 +73,7 @@ type transmissionTorrent struct {
 // by GetTorrents; savePath becomes the download-dir. Both fall back to the
 // configured qBittorrent-equivalent defaults when empty, matching the
 // qBittorrent client's behaviour for drop-in parity.
-func (t *TransmissionClient) AddTorrent(torrentURL, title, savePath, category string) error {
+func (t *TransmissionClient) AddTorrent(torrentURL, title, savePath, category, expectedInfoHash string) error {
 	if savePath == "" {
 		savePath = t.cfg.QBSavePath
 	}

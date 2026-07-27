@@ -12,10 +12,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/models"
-	"github.com/JeremiahM37/librarr/internal/search"
-	"github.com/JeremiahM37/librarr/internal/webhook"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/search"
+	"github.com/jamie75/librarr/internal/webhook"
 )
 
 // SeriesInfo holds detected series data.

@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 // OpenLibrary searches a public-domain catalog over Open Library's JSON API.
@@ -39,7 +39,7 @@ func (o *OpenLibrary) Search(ctx context.Context, query string) ([]models.Search
 	q.Set("fields", "key,title,author_name,ebook_access,ia,first_publish_year,cover_i")
 	q.Set("limit", "15")
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
+	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/jamie75/librarr)")
 
 	resp, err := o.client.Do(req)
 	if err != nil {

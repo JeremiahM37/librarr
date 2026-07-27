@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/db"
-	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/models"
 )
 
 func TestConservativeWishlistMatches(t *testing.T) {
@@ -268,7 +268,7 @@ func addLibraryItem(t *testing.T, database *db.DB, title, author, mediaType stri
 		Title:      title,
 		Author:     author,
 		MediaType:  mediaType,
-		FilePath:   "/library/" + title,
+		FilePath:   "/library/" + title + "/" + author,
 		FileFormat: "epub",
 		Source:     "test",
 	})

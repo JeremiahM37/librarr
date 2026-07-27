@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/jamie75/librarr/internal/db"
 )
 
 // handleAddHistory adds a new reading history entry.

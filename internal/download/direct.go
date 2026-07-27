@@ -16,11 +16,11 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/JeremiahM37/librarr/internal/config"
-	"github.com/JeremiahM37/librarr/internal/netutil"
-	"github.com/JeremiahM37/librarr/internal/organize"
-	"github.com/JeremiahM37/librarr/internal/zlibraryparse"
 	"github.com/PuerkitoBio/goquery"
+	"github.com/jamie75/librarr/internal/config"
+	"github.com/jamie75/librarr/internal/netutil"
+	"github.com/jamie75/librarr/internal/organize"
+	"github.com/jamie75/librarr/internal/zlibraryparse"
 )
 
 // DirectDownloader handles direct HTTP file downloads (Anna's Archive, Gutenberg, etc.).
