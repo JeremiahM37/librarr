@@ -99,6 +99,13 @@ func (d *DB) migrate() error {
 			media_type TEXT NOT NULL DEFAULT 'ebook',
 			added_at REAL NOT NULL DEFAULT (strftime('%s','now'))
 		)`,
+		`CREATE TABLE IF NOT EXISTS nzb_jobs (
+			nzo_id TEXT PRIMARY KEY,
+			title TEXT NOT NULL DEFAULT '',
+			media_type TEXT NOT NULL DEFAULT 'ebook',
+			imported INTEGER NOT NULL DEFAULT 0,
+			created_at REAL NOT NULL DEFAULT (strftime('%s','now'))
+		)`,
 		`CREATE INDEX IF NOT EXISTS idx_library_items_source_id ON library_items(source_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_library_items_media_type ON library_items(media_type)`,
 		`CREATE INDEX IF NOT EXISTS idx_activity_log_timestamp ON activity_log(timestamp)`,

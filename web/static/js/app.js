@@ -1341,6 +1341,11 @@ async function startDownload(result) {
       author: result.author || '',
       info_hash: result.info_hash || '',
       magnet: result.magnet || '',
+      // Preserve usenet-vs-torrent routing: Prowlarr proxy download URLs don't
+      // match the backend's NZB URL heuristics, so without this a usenet grab
+      // is misrouted to the torrent client and silently discarded.
+      media_type: result.media_type || '',
+      download_protocol: result.download_protocol || '',
     };
 
     const data = await apiJson('/api/download', {

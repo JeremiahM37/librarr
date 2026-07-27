@@ -102,12 +102,22 @@ func (m *Manager) StartTorrentDownload(torrentURL, title, savePath, category, ex
 	return m.torrent.AddTorrent(torrentURL, title, savePath, category, expectedInfoHash)
 }
 
-// StartNZBDownload sends an NZB URL to SABnzbd.
-func (m *Manager) StartNZBDownload(nzbURL, title string) (string, error) {
+// StartNZBDownload sends an NZB URL to SABnzbd and records the media type so
+// the completion watcher can import it into the right library.
+func (m *Manager) StartNZBDownload(nzbURL, title, mediaType string) (string, error) {
 	if m.sab == nil {
 		return "", fmt.Errorf("SABnzbd not configured")
 	}
-	return m.sab.AddNZB(nzbURL, title)
+	nzoID, err := m.sab.AddNZB(nzbURL, title)
+	if err != nil {
+		return "", err
+	}
+	if nzoID != "" {
+		if err := m.db.RecordNZBJob(nzoID, title, mediaType); err != nil {
+			slog.Warn("failed to record NZB job for import tracking", "nzo_id", nzoID, "error", err)
+		}
+	}
+	return nzoID, nil
 }
 
 // StartDirectDownload starts a background download from a direct URL.

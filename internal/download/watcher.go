@@ -25,22 +25,26 @@ type Watcher struct {
 	cfg       *config.Config
 	db        *db.DB
 	torrent   TorrentClient
+	sab       *SABnzbdClient
 	organizer *organize.Organizer
 	targets   *organize.LibraryTargets
 	health    *search.HealthTracker
 
-	processing sync.Map // hash -> struct{}, tracks in-progress imports
-	imported   sync.Map // hash -> struct{}, tracks already-imported hashes
+	processing    sync.Map // hash -> struct{}, tracks in-progress imports
+	imported      sync.Map // hash -> struct{}, tracks already-imported hashes
+	processingNZB sync.Map // nzo_id -> struct{}, tracks in-progress NZB imports
 }
 
 var errTorrentContentPending = errors.New("torrent content pending synchronization")
 
-// NewWatcher creates a new torrent completion watcher.
-func NewWatcher(cfg *config.Config, database *db.DB, torrent TorrentClient, organizer *organize.Organizer, targets *organize.LibraryTargets, health *search.HealthTracker) *Watcher {
+// NewWatcher creates a new download completion watcher covering both the
+// torrent client and SABnzbd.
+func NewWatcher(cfg *config.Config, database *db.DB, torrent TorrentClient, sab *SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets, health *search.HealthTracker) *Watcher {
 	return &Watcher{
 		cfg:       cfg,
 		db:        database,
 		torrent:   torrent,
+		sab:       sab,
 		organizer: organizer,
 		targets:   targets,
 		health:    health,
@@ -49,26 +53,36 @@ func NewWatcher(cfg *config.Config, database *db.DB, torrent TorrentClient, orga
 
 // Start begins the background watcher loop. It blocks until ctx is cancelled.
 func (w *Watcher) Start(ctx context.Context) {
-	if w.torrent == nil {
-		slog.Info("torrent watcher disabled (no torrent client configured)")
+	watchNZB := w.sab != nil && w.cfg.HasSABnzbd()
+	if w.torrent == nil && !watchNZB {
+		slog.Info("download watcher disabled (no torrent client or SABnzbd configured)")
 		return
 	}
 
-	slog.Info("torrent completion watcher started", "client", w.torrent.Name(), "interval", "30s")
+	slog.Info("download completion watcher started", "torrent", w.torrent != nil, "sabnzbd", watchNZB, "interval", "30s")
 	ticker := time.NewTicker(30 * time.Second)
 	defer ticker.Stop()
 
 	// Run once immediately.
-	w.checkCompleted()
+	w.poll()
 
 	for {
 		select {
 		case <-ctx.Done():
-			slog.Info("torrent watcher stopping")
+			slog.Info("download watcher stopping")
 			return
 		case <-ticker.C:
-			w.checkCompleted()
+			w.poll()
 		}
+	}
+}
+
+func (w *Watcher) poll() {
+	if w.torrent != nil {
+		w.checkCompleted()
+	}
+	if w.sab != nil && w.cfg.HasSABnzbd() {
+		w.checkCompletedNZB()
 	}
 }
 
@@ -124,11 +138,11 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 	}
 	switch mediaType {
 	case "ebook":
-		importErr = w.importEbook(t, savePath)
+		importErr = w.importEbook(t, savePath, "torrent")
 	case "audiobook":
-		importErr = w.importAudiobook(t, savePath)
+		importErr = w.importAudiobook(t, savePath, "torrent")
 	case "manga":
-		importErr = w.importManga(t, savePath)
+		importErr = w.importManga(t, savePath, "torrent")
 	}
 
 	if importErr != nil {
@@ -159,6 +173,109 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 	if err := w.db.LogEvent("torrent_import", t.Name, fmt.Sprintf("Imported %s from torrent", mediaType), nil, t.Hash); err != nil {
 		slog.Warn("failed to log torrent import", "name", t.Name, "hash", t.Hash, "error", err)
 	}
+}
+
+// sabHistoryLimit bounds how many SABnzbd history entries we scan per poll.
+const sabHistoryLimit = 200
+
+// checkCompletedNZB imports SABnzbd downloads that librarr submitted and that
+// have finished post-processing. Because SABnzbd exposes only a single
+// category, the media type is recovered from the nzb_jobs table (recorded at
+// submit time) rather than from the history entry.
+func (w *Watcher) checkCompletedNZB() {
+	pending, err := w.db.PendingNZBJobs()
+	if err != nil {
+		slog.Warn("failed to list pending NZB jobs", "error", err)
+		return
+	}
+	if len(pending) == 0 {
+		return
+	}
+
+	mediaByNzo := make(map[string]string, len(pending))
+	for _, j := range pending {
+		mediaByNzo[j.NzoID] = j.MediaType
+	}
+
+	history, err := w.sab.GetHistory(sabHistoryLimit)
+	if err != nil {
+		slog.Warn("failed to fetch SABnzbd history", "error", err)
+		return
+	}
+
+	for _, slot := range history {
+		mediaType, tracked := mediaByNzo[slot.NzoID]
+		if !tracked {
+			continue
+		}
+		switch strings.ToLower(slot.Status) {
+		case "completed":
+			// Guard against a second goroutine for the same job while the
+			// first is still importing.
+			if _, loaded := w.processingNZB.LoadOrStore(slot.NzoID, struct{}{}); loaded {
+				continue
+			}
+			go w.importNZB(slot, mediaType)
+		case "failed":
+			// A failed job never produces files; stop tracking it so it does
+			// not linger in the pending list forever.
+			slog.Warn("SABnzbd download failed", "name", slot.Name, "nzo_id", slot.NzoID, "reason", slot.FailMessage)
+			if err := w.db.MarkNZBJobImported(slot.NzoID); err != nil {
+				slog.Warn("failed to mark failed NZB job resolved", "nzo_id", slot.NzoID, "error", err)
+			}
+		}
+	}
+}
+
+func (w *Watcher) importNZB(slot SABnzbdHistorySlot, mediaType string) {
+	defer w.processingNZB.Delete(slot.NzoID)
+
+	savePath := w.resolveNZBPath(slot, mediaType)
+	if _, err := os.Stat(savePath); err != nil {
+		// Not visible on the local mount yet — retry on the next poll.
+		slog.Info("nzb import pending", "name", slot.Name, "nzo_id", slot.NzoID, "type", mediaType, "path", savePath)
+		return
+	}
+
+	t := TorrentInfo{Name: slot.Name, Hash: slot.NzoID}
+	var importErr error
+	switch mediaType {
+	case "audiobook":
+		importErr = w.importAudiobook(t, savePath, "nzb")
+	case "manga":
+		importErr = w.importManga(t, savePath, "nzb")
+	default:
+		importErr = w.importEbook(t, savePath, "nzb")
+	}
+
+	if importErr != nil {
+		if errors.Is(importErr, errTorrentContentPending) {
+			slog.Info("nzb import pending", "name", slot.Name, "nzo_id", slot.NzoID, "type", mediaType, "path", savePath, "error", importErr)
+		} else {
+			slog.Error("nzb import failed", "name", slot.Name, "type", mediaType, "error", importErr)
+		}
+		return
+	}
+
+	if err := w.db.MarkNZBJobImported(slot.NzoID); err != nil {
+		slog.Warn("failed to mark NZB job imported", "nzo_id", slot.NzoID, "error", err)
+	}
+	if err := w.db.LogEvent("nzb_import", slot.Name, fmt.Sprintf("Imported %s from SABnzbd", mediaType), nil, slot.NzoID); err != nil {
+		slog.Warn("failed to log nzb import", "name", slot.Name, "nzo_id", slot.NzoID, "error", err)
+	}
+}
+
+// resolveNZBPath returns the local path of a completed SABnzbd download. It
+// prefers the storage path SABnzbd reports (valid when librarr and SABnzbd
+// share the completed-downloads mount) and falls back to the media type's
+// incoming directory joined with the job name.
+func (w *Watcher) resolveNZBPath(slot SABnzbdHistorySlot, mediaType string) string {
+	if storage := normalizeTorrentPath(slot.Storage); storage != "" {
+		if _, err := os.Stat(storage); err == nil {
+			return storage
+		}
+	}
+	return filepath.Join(w.incomingDirForMedia(mediaType), normalizeTorrentPath(slot.Name))
 }
 
 // resolveLocalPath maps qBittorrent container paths to local paths.
@@ -284,7 +401,7 @@ func mapTorrentPath(reportedPath, remoteRoot, localRoot string) (string, bool) {
 	return filepath.Join(localRoot, rel), true
 }
 
-func (w *Watcher) importEbook(t TorrentInfo, savePath string) error {
+func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) error {
 	bookFiles := findFilesByExt(savePath, []string{".epub", ".mobi", ".pdf", ".azw3"})
 	if len(bookFiles) == 0 {
 		return fmt.Errorf("%w: no ebook files found at %s", errTorrentContentPending, savePath)
@@ -300,7 +417,7 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath string) error {
 			destPath = bf
 		}
 
-		inserted, err := w.recordTorrentItem(t, "ebook", bf, destPath, title, author, metadata.Title, metadata.Author, fileFormat(destPath), t.TotalSize)
+		inserted, err := w.recordTorrentItem(source, t, "ebook", bf, destPath, title, author, metadata.Title, metadata.Author, fileFormat(destPath), t.TotalSize)
 		if err != nil {
 			return err
 		}
@@ -323,7 +440,7 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (w *Watcher) importAudiobook(t TorrentInfo, savePath string) error {
+func (w *Watcher) importAudiobook(t TorrentInfo, savePath, source string) error {
 	// If the source path doesn't even exist, fail the import.
 	if _, statErr := os.Stat(savePath); os.IsNotExist(statErr) {
 		return fmt.Errorf("%w: source path does not exist: %s", errTorrentContentPending, savePath)
@@ -346,7 +463,7 @@ func (w *Watcher) importAudiobook(t TorrentInfo, savePath string) error {
 		return fmt.Errorf("organize audiobook %q: %w", savePath, err)
 	}
 
-	inserted, err := w.recordTorrentItem(t, "audiobook", savePath, destPath, title, author, title, author, fileFormat(destPath), t.TotalSize)
+	inserted, err := w.recordTorrentItem(source, t, "audiobook", savePath, destPath, title, author, title, author, fileFormat(destPath), t.TotalSize)
 	if err != nil {
 		return err
 	}
@@ -358,7 +475,7 @@ func (w *Watcher) importAudiobook(t TorrentInfo, savePath string) error {
 	return nil
 }
 
-func (w *Watcher) importManga(t TorrentInfo, savePath string) error {
+func (w *Watcher) importManga(t TorrentInfo, savePath, source string) error {
 	mangaFiles := findFilesByExt(savePath, []string{".cbz", ".cbr", ".zip", ".pdf", ".epub"})
 	if len(mangaFiles) == 0 {
 		return fmt.Errorf("%w: no manga files found at %s", errTorrentContentPending, savePath)
@@ -371,7 +488,7 @@ func (w *Watcher) importManga(t TorrentInfo, savePath string) error {
 			destPath = mf
 		}
 
-		inserted, err := w.recordTorrentItem(t, "manga", mf, destPath, t.Name, "", t.Name, "", fileFormat(destPath), t.TotalSize)
+		inserted, err := w.recordTorrentItem(source, t, "manga", mf, destPath, t.Name, "", t.Name, "", fileFormat(destPath), t.TotalSize)
 		if err != nil {
 			return err
 		}
@@ -384,7 +501,7 @@ func (w *Watcher) importManga(t TorrentInfo, savePath string) error {
 	return nil
 }
 
-func (w *Watcher) recordTorrentItem(t TorrentInfo, mediaType, sourcePath, destinationPath, title, author, metadataTitle, metadataAuthor, format string, fileSize int64) (bool, error) {
+func (w *Watcher) recordTorrentItem(source string, t TorrentInfo, mediaType, sourcePath, destinationPath, title, author, metadataTitle, metadataAuthor, format string, fileSize int64) (bool, error) {
 	if info, err := os.Stat(destinationPath); err == nil && info.Mode().IsRegular() {
 		fileSize = info.Size()
 	}
@@ -396,7 +513,7 @@ func (w *Watcher) recordTorrentItem(t TorrentInfo, mediaType, sourcePath, destin
 		FileSize:     fileSize,
 		FileFormat:   format,
 		MediaType:    mediaType,
-		Source:       "torrent",
+		Source:       source,
 		SourceID:     t.Hash,
 	}
 	outcome, err := w.db.AddItemWithOutcome(item)
