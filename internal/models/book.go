@@ -109,6 +109,18 @@ type ActivityEvent struct {
 	Timestamp     time.Time `json:"timestamp"`
 }
 
+// NZBJob tracks an NZB submitted to SABnzbd so the completion watcher can
+// import it with the right media type once SABnzbd finishes. SABnzbd uses a
+// single category, so the media type can't be recovered from its history —
+// it is recorded here at submit time and cleared once imported.
+type NZBJob struct {
+	NzoID     string    `json:"nzo_id"`
+	Title     string    `json:"title"`
+	MediaType string    `json:"media_type"`
+	Imported  bool      `json:"imported"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
 // WishlistItem represents a user's wish for a book/audiobook/manga.
 type WishlistItem struct {
 	ID        int64     `json:"id"`

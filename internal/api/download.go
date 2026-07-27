@@ -232,6 +232,10 @@ func (s *Server) handleDownloadTorrent(w http.ResponseWriter, r *http.Request) {
 		req.Title = "Unknown"
 	}
 	req.MediaType = "ebook"
+	if isNZBResult(req) && s.cfg.HasSABnzbd() {
+		s.handleNZBDownload(w, req)
+		return
+	}
 	s.handleTorrentDownload(w, r, req)
 }
 
@@ -265,6 +269,12 @@ func (s *Server) handleDownloadAudiobook(w http.ResponseWriter, r *http.Request)
 		req.Title = "Unknown"
 	}
 	req.MediaType = "audiobook"
+	// Usenet audiobook grabs must go to SABnzbd, not the torrent client, which
+	// would silently discard the NZB payload.
+	if isNZBResult(req) && s.cfg.HasSABnzbd() {
+		s.handleNZBDownload(w, req)
+		return
+	}
 	s.handleTorrentDownload(w, r, req)
 }
 
@@ -464,7 +474,11 @@ func (s *Server) handleNZBDownload(w http.ResponseWriter, req models.DownloadReq
 		return
 	}
 
-	nzoID, err := s.downloadMgr.StartNZBDownload(nzbURL, req.Title)
+	mediaType := req.MediaType
+	if mediaType == "" {
+		mediaType = "ebook"
+	}
+	nzoID, err := s.downloadMgr.StartNZBDownload(nzbURL, req.Title, mediaType)
 	writeJSON(w, http.StatusOK, map[string]interface{}{
 		"success": err == nil,
 		"title":   req.Title,

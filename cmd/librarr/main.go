@@ -129,8 +129,8 @@ func main() {
 		}
 	}
 
-	// Start torrent completion watcher.
-	watcher := download.NewWatcher(cfg, database, torrentClient, organizer, targets, health)
+	// Start download completion watcher (torrents + SABnzbd).
+	watcher := download.NewWatcher(cfg, database, torrentClient, sab, organizer, targets, health)
 	go watcher.Start(ctx)
 
 	// Start audiobook folder scanner (Feature 21).

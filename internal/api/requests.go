@@ -513,7 +513,11 @@ func (s *Server) processApprovedRequest(req *models.Request) {
 
 	// Check if NZB.
 	if chosen.DownloadProtocol == "nzb" && s.cfg.HasSABnzbd() {
-		nzoID, err := s.downloadMgr.StartNZBDownload(chosen.DownloadURL, chosen.Title)
+		mediaType := dlReq.MediaType
+		if mediaType == "" {
+			mediaType = "ebook"
+		}
+		nzoID, err := s.downloadMgr.StartNZBDownload(chosen.DownloadURL, chosen.Title, mediaType)
 		if err != nil {
 			s.failRequest(req, fmt.Sprintf("NZB download failed: %v", err))
 			return

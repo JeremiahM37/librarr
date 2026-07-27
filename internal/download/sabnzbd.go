@@ -49,10 +49,13 @@ type SABnzbdQueueResponse struct {
 
 // SABnzbdHistorySlot represents a completed download in history.
 type SABnzbdHistorySlot struct {
-	NzoID  string `json:"nzo_id"`
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Size   string `json:"size"`
+	NzoID       string `json:"nzo_id"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Size        string `json:"size"`
+	Category    string `json:"category"`
+	Storage     string `json:"storage"`      // final on-disk path once complete
+	FailMessage string `json:"fail_message"` // populated when Status == "Failed"
 }
 
 // SABnzbdHistoryResponse is the response from mode=history.
