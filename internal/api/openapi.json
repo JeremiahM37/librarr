@@ -184,7 +184,12 @@
           "source_path": {"type": "string"},
           "destination_path": {"type": "string"},
           "status": {"type": "string", "enum": ["ready", "collision", "missing", "unsafe", "already_repaired", "moved", "failed"]},
-          "message": {"type": "string"}
+          "message": {"type": "string"},
+          "class": {"type": "string", "enum": ["cataloged_normalized", "cataloged_legacy_only", "cataloged_unmanaged", "duplicate_physical_copy", "uncataloged", "collision", "missing_db_record", "unsafe"]},
+          "matched_path": {"type": "string"},
+          "matched_record": {"type": "string"},
+          "hash": {"type": "string"},
+          "size": {"type": "integer"}
         }
       },
       "NestedEbookPathRepairPlan": {
@@ -196,6 +201,9 @@
           "legacy_root": {"type": "string"},
           "total_affected_files": {"type": "integer"},
           "total_affected_books": {"type": "integer"},
+          "files_found_on_disk": {"type": "integer"},
+          "correct_root_files": {"type": "integer"},
+          "reconciliation": {"type": "object", "additionalProperties": {"type": "integer"}},
           "summary": {"type": "object", "additionalProperties": {"type": "integer"}},
           "entries": {"type": "array", "items": {"$ref": "#/components/schemas/NestedEbookPathRepairEntry"}},
           "legacy_root_removed": {"type": "boolean"},

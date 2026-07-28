@@ -889,9 +889,12 @@ test('nested ebook path repair preview renders summary and statuses', async () =
     success: true,
     legacy_root: '/books/ebooks/ebooks',
     total_affected_files: 3,
+    files_found_on_disk: 4,
+    correct_root_files: 1,
+    reconciliation: { cataloged_normalized: 1, cataloged_legacy_only: 1, cataloged_unmanaged: 1, uncataloged: 1 },
     summary: { ready: 1, collision: 1, missing: 1 },
     entries: [
-      { book_title: 'Ready', file_id: 1, format: 'epub', source_path: '/books/ebooks/ebooks/A/Ready.epub', destination_path: '/books/ebooks/A/Ready.epub', status: 'ready', message: 'ready to move' },
+      { book_title: 'Ready', file_id: 1, format: 'epub', source_path: '/books/ebooks/ebooks/A/Ready.epub', destination_path: '/books/ebooks/A/Ready.epub', status: 'ready', class: 'cataloged_normalized', message: 'ready to move' },
       { book_title: 'Collision', file_id: 2, format: 'mobi', source_path: '/books/ebooks/ebooks/A/Collision.mobi', destination_path: '/books/ebooks/A/Collision.mobi', status: 'collision', message: 'destination already exists' },
       { book_title: 'Missing', file_id: 3, format: 'pdf', source_path: '/books/ebooks/ebooks/A/Missing.pdf', destination_path: '/books/ebooks/A/Missing.pdf', status: 'missing', message: 'source file is missing' },
     ],
@@ -907,10 +910,45 @@ test('nested ebook path repair preview renders summary and statuses', async () =
 
   await context.previewNestedEbookPathRepair();
 
-  assert.match(output.innerHTML, /Affected files/);
-  assert.match(output.innerHTML, /Ready/);
+  assert.match(output.innerHTML, /Files on disk/);
+  assert.match(output.innerHTML, /Normalized/);
+  assert.match(output.innerHTML, /Legacy-only/);
+  assert.match(output.innerHTML, /Unmanaged/);
+  assert.match(output.innerHTML, /Ready to move/);
+  assert.match(output.innerHTML, /cataloged normalized/);
   assert.match(output.innerHTML, /Collision/);
   assert.match(output.innerHTML, /source file is missing/);
+});
+
+test('nested ebook path repair no-op explains why nothing can move', async () => {
+  const output = { innerHTML: '' };
+  const context = createContext({
+    state: {
+      libraryRepair: {
+        nestedEbookPaths: {
+          loading: false,
+          running: false,
+          error: '',
+          plan: {
+            success: true,
+            legacy_root: '/books/ebooks/ebooks',
+            files_found_on_disk: 27,
+            reconciliation: { uncataloged: 27 },
+            summary: { ready: 0 },
+            entries: [{ source_path: '/books/ebooks/ebooks/Orphan.epub', status: 'already_repaired', class: 'uncataloged', message: 'left unchanged' }],
+          },
+          result: null,
+        },
+      },
+    },
+    document: { getElementById: id => id === 'settings-library-repairs-output' ? output : null },
+  });
+
+  context.renderNestedEbookPathRepair();
+
+  assert.match(output.innerHTML, /No files are currently eligible/);
+  assert.match(output.innerHTML, /Uncataloged/);
+  assert.match(output.innerHTML, /left unchanged/);
 });
 
 test('nested ebook path repair execution requires confirmation and renders success', async () => {

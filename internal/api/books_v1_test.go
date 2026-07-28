@@ -324,6 +324,118 @@ func TestV1NestedEbookPathRepairPreservesUnknownNonEmptyDirectoriesAndRequiresAd
 	}
 }
 
+func TestV1NestedEbookPathRepairReconcilesDiskOnlyAndZeroReady(t *testing.T) {
+	s, cleanup := newNestedEbookRepairServer(t)
+	defer cleanup()
+	legacyRoot := filepath.Join(s.cfg.EbookDir, filepath.Base(s.cfg.EbookDir))
+	orphan := filepath.Join(legacyRoot, "Orphans", "Nested Only.epub")
+	writeTestFile(t, orphan, []byte("orphan"))
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/library/repairs/nested-ebook-paths", nil)
+	rr := httptest.NewRecorder()
+	s.handleV1NestedEbookPathRepairPreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("preview status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var preview nestedEbookRepairResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.FilesFoundOnDisk != 1 || preview.Summary[nestedEbookRepairReady] != 0 || preview.Reconciliation[nestedEbookClassUncataloged] != 1 {
+		t.Fatalf("preview summary=%+v reconciliation=%+v files=%d entries=%+v", preview.Summary, preview.Reconciliation, preview.FilesFoundOnDisk, preview.Entries)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/api/v1/library/repairs/nested-ebook-paths", nil)
+	rr = httptest.NewRecorder()
+	s.handleV1NestedEbookPathRepairRun(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("run status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var result nestedEbookRepairResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if !result.Executed || result.Summary[nestedEbookRepairMoved] != 0 || result.Reconciliation[nestedEbookClassUncataloged] != 1 {
+		t.Fatalf("result summary=%+v reconciliation=%+v", result.Summary, result.Reconciliation)
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatalf("orphan should not move on zero-ready repair: %v", err)
+	}
+}
+
+func TestV1NestedEbookPathRepairClassifiesLegacyOnlyAndUnmanagedIncoming(t *testing.T) {
+	s, cleanup := newNestedEbookRepairServer(t)
+	defer cleanup()
+	ctx := context.Background()
+	legacyRoot := filepath.Join(s.cfg.EbookDir, filepath.Base(s.cfg.EbookDir))
+
+	legacyOnly := filepath.Join(legacyRoot, "Legacy", "Legacy Only.epub")
+	legacyContent := []byte("legacy-only")
+	writeTestFile(t, legacyOnly, legacyContent)
+	if _, err := s.db.SQLDB().Exec(`INSERT INTO library_items (title, author, file_path, original_path, file_size, file_format, media_type, source, source_id, metadata, content_hash)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		"Legacy Only", "Writer", legacyOnly, legacyOnly, len(legacyContent), "epub", "ebook", "test", "legacy-only", "{}", sha256ForTest(t, legacyContent)); err != nil {
+		t.Fatal(err)
+	}
+
+	nestedIncomingCopy := filepath.Join(legacyRoot, "Incoming", "Incoming Backed.epub")
+	incomingPath := filepath.Join(s.cfg.IncomingDir, "Incoming Backed.epub")
+	incomingContent := []byte("incoming-backed")
+	writeTestFile(t, nestedIncomingCopy, incomingContent)
+	writeTestFile(t, incomingPath, incomingContent)
+	_, edition := createAPIScanBook(t, s.libraryService, "Incoming Backed", "Writer")
+	if _, err := s.libraryService.AttachFile(ctx, library.BookFile{
+		EditionID:    edition.ID,
+		MediaType:    library.MediaTypeEbook,
+		Format:       "epub",
+		Path:         incomingPath,
+		OriginalPath: incomingPath,
+		ContentHash:  sha256ForTest(t, incomingContent),
+		Managed:      false,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/library/repairs/nested-ebook-paths", nil)
+	rr := httptest.NewRecorder()
+	s.handleV1NestedEbookPathRepairPreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("preview status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var preview nestedEbookRepairResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.Reconciliation[nestedEbookClassCatalogedLegacyOnly] != 1 || preview.Reconciliation[nestedEbookClassCatalogedUnmanaged] != 1 || preview.Summary[nestedEbookRepairReady] != 0 {
+		t.Fatalf("summary=%+v reconciliation=%+v entries=%+v", preview.Summary, preview.Reconciliation, preview.Entries)
+	}
+}
+
+func TestV1NestedEbookPathRepairClassifiesDuplicatePhysicalCopy(t *testing.T) {
+	s, cleanup := newNestedEbookRepairServer(t)
+	defer cleanup()
+	legacyRoot := filepath.Join(s.cfg.EbookDir, filepath.Base(s.cfg.EbookDir))
+	nestedPath := filepath.Join(legacyRoot, "Mark Twain", "Biography.epub")
+	correctPath := filepath.Join(s.cfg.EbookDir, "Mark Twain", "Biography.epub")
+	content := []byte("same-book")
+	writeTestFile(t, nestedPath, content)
+	writeTestFile(t, correctPath, content)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/library/repairs/nested-ebook-paths", nil)
+	rr := httptest.NewRecorder()
+	s.handleV1NestedEbookPathRepairPreview(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("preview status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var preview nestedEbookRepairResponse
+	if err := json.Unmarshal(rr.Body.Bytes(), &preview); err != nil {
+		t.Fatal(err)
+	}
+	if preview.FilesFoundOnDisk != 1 || preview.CorrectRootFiles != 1 || preview.Reconciliation[nestedEbookClassDuplicatePhysical] != 1 {
+		t.Fatalf("preview = %+v", preview)
+	}
+}
+
 func TestV1BookDetailFilesAndEditions(t *testing.T) {
 	s, ids, cleanup := newNormalizedBooksAPIServer(t)
 	defer cleanup()

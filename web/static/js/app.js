@@ -3273,22 +3273,36 @@ function renderNestedEbookPathRepair() {
     return;
   }
   const summary = plan.summary || {};
+  const reconciliation = plan.reconciliation || {};
   const entries = Array.isArray(plan.entries) ? plan.entries : [];
   const visibleEntries = entries.slice(0, 25);
+  const ready = summary.ready || 0;
+  const moved = summary.moved || 0;
+  const displayReady = plan.executed ? moved || ready : ready;
+  const noReadyReason = !plan.executed && ready === 0
+    ? `<div class="mt-3 rounded-lg border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">No files are currently eligible for automatic movement. Files shown as legacy-only, unmanaged, uncataloged, duplicates, collisions, or unsafe need an explicit adopt/organize or cleanup workflow before Librarr will move them.</div>`
+    : '';
   out.innerHTML = `
     <div class="rounded-lg border border-slate-800 bg-slate-950/40 p-4">
       <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        ${renderRepairMetric('Affected files', plan.total_affected_files || 0)}
-        ${renderRepairMetric('Ready', summary.ready || 0)}
-        ${renderRepairMetric('Moved', summary.moved || 0)}
-        ${renderRepairMetric('Needs attention', (summary.collision || 0) + (summary.missing || 0) + (summary.unsafe || 0) + (summary.failed || 0))}
+        ${renderRepairMetric('Files on disk', plan.files_found_on_disk || 0)}
+        ${renderRepairMetric('Normalized', reconciliation.cataloged_normalized || 0)}
+        ${renderRepairMetric('Legacy-only', reconciliation.cataloged_legacy_only || 0)}
+        ${renderRepairMetric('Unmanaged', reconciliation.cataloged_unmanaged || 0)}
+        ${renderRepairMetric('Duplicates', reconciliation.duplicate_physical_copy || 0)}
+        ${renderRepairMetric('Uncataloged', reconciliation.uncataloged || 0)}
+        ${renderRepairMetric('Ready to move', displayReady)}
+        ${renderRepairMetric('Moved', moved)}
+        ${renderRepairMetric('Collisions', summary.collision || 0)}
+        ${renderRepairMetric('Unsafe', summary.unsafe || 0)}
       </div>
       <p class="mt-3 text-xs text-slate-500">Legacy root: ${escapeHtml(plan.legacy_root || '')}</p>
-      ${plan.executed ? `<p class="mt-2 text-sm text-emerald-200">Repair complete. ${plan.legacy_root_removed ? 'The legacy nested directory was removed because it was empty.' : 'Non-empty legacy directories were preserved.'}</p>` : ''}
+      ${noReadyReason}
+      ${plan.executed ? `<p class="mt-2 text-sm ${moved ? 'text-emerald-200' : 'text-amber-200'}">${moved ? 'Repair complete.' : 'Repair finished with no eligible files to move.'} ${plan.legacy_root_removed ? 'The legacy nested directory was removed because it was empty.' : 'Non-empty legacy directories were preserved.'}</p>` : ''}
       <details class="mt-4">
         <summary class="cursor-pointer text-sm font-medium text-slate-200">File plan (${entries.length})</summary>
         <div class="mt-3 max-h-80 overflow-y-auto rounded-lg border border-slate-800">
-          ${visibleEntries.length ? visibleEntries.map(renderRepairEntry).join('') : `<p class="px-3 py-2 text-sm text-slate-500">No nested ebook paths were found.</p>`}
+          ${visibleEntries.length ? visibleEntries.map(renderRepairEntry).join('') : `<p class="px-3 py-2 text-sm text-slate-500">No nested ebook files or cataloged nested paths were found.</p>`}
         </div>
         ${entries.length > visibleEntries.length ? `<p class="mt-2 text-xs text-slate-500">Showing first ${visibleEntries.length} entries.</p>` : ''}
       </details>
@@ -3312,11 +3326,13 @@ function renderRepairEntry(entry) {
     <div class="border-b border-slate-800 px-3 py-2 last:border-0">
       <div class="flex flex-wrap items-center gap-2">
         <span class="rounded-full px-2 py-0.5 text-[11px] font-medium ${tone}">${escapeHtml(status || 'unknown')}</span>
+        ${entry.class ? `<span class="rounded-full bg-slate-800 px-2 py-0.5 text-[11px] font-medium text-slate-300">${escapeHtml(String(entry.class).replace(/_/g, ' '))}</span>` : ''}
         <span class="text-sm font-medium text-slate-100">${escapeHtml(entry.book_title || `File ${entry.file_id || ''}`)}</span>
         ${entry.format ? `<span class="text-xs uppercase tracking-[0.18em] text-amber-300">${escapeHtml(entry.format)}</span>` : ''}
       </div>
       <p class="mt-1 truncate text-xs text-slate-500">${escapeHtml(entry.source_path || '')}</p>
       <p class="truncate text-xs text-slate-400">→ ${escapeHtml(entry.destination_path || '')}</p>
+      ${entry.matched_path ? `<p class="truncate text-xs text-slate-500">Matched: ${escapeHtml(entry.matched_path)}</p>` : ''}
       ${entry.message ? `<p class="mt-1 text-xs text-slate-500">${escapeHtml(entry.message)}</p>` : ''}
     </div>
   `;
@@ -3360,7 +3376,7 @@ async function runNestedEbookPathRepair() {
   const repair = state.libraryRepair.nestedEbookPaths;
   const ready = repair.plan?.summary?.ready || 0;
   const affected = repair.plan?.total_affected_files || ready;
-  const ok = window.confirm(`Move ${ready} cataloged files from the legacy nested ebook folder and update their Librarr paths?\n\nFiles with collisions or missing sources will be skipped.`);
+  const ok = window.confirm(`Move ${ready} cataloged files from the legacy nested ebook folder and update their Librarr paths?\n\nFiles with collisions, missing sources, unmanaged records, legacy-only records, duplicates, uncataloged files, or unsafe paths will be skipped.`);
   if (!ok) return;
   repair.running = true;
   repair.error = '';
@@ -3369,7 +3385,9 @@ async function runNestedEbookPathRepair() {
     repair.result = await apiJson('/api/v1/library/repairs/nested-ebook-paths', { method: 'POST' });
     repair.plan = repair.result;
     await loadLibrary();
-    showToast(`Nested ebook path repair complete: ${repair.result.summary?.moved || 0} moved, ${affected - ready} skipped.`, 'success');
+    const moved = repair.result.summary?.moved || 0;
+    const noOp = ready === 0 || moved === 0;
+    showToast(noOp ? 'Nested ebook path repair finished: no eligible files were moved.' : `Nested ebook path repair complete: ${moved} moved, ${affected - ready} skipped.`, noOp ? 'warning' : 'success');
   } catch (err) {
     repair.error = err.message || 'Failed to run nested ebook path repair';
     showToast(repair.error, 'error');
