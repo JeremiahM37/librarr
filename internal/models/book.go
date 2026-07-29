@@ -118,6 +118,26 @@ type WishlistItem struct {
 	AddedAt   time.Time `json:"added_at"`
 }
 
+// WantedBook represents a normalized wanted/discover record.
+type WantedBook struct {
+	ID          int64     `json:"id"`
+	Title       string    `json:"title"`
+	Author      string    `json:"author"`
+	ISBN        string    `json:"isbn,omitempty"`
+	ASIN        string    `json:"asin,omitempty"`
+	Series      string    `json:"series,omitempty"`
+	Publisher   string    `json:"publisher,omitempty"`
+	Language    string    `json:"language,omitempty"`
+	CoverURL    string    `json:"cover_url,omitempty"`
+	Description string    `json:"description,omitempty"`
+	Source      string    `json:"source,omitempty"`
+	MediaType   string    `json:"media_type,omitempty"`
+	Monitored   bool      `json:"monitored"`
+	Status      string    `json:"status"`
+	AddedAt     time.Time `json:"added_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
 // ActivityEntry represents an entry in the enhanced activity log.
 type ActivityEntry struct {
 	ID        int64     `json:"id"`

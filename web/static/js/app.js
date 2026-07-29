@@ -10,6 +10,7 @@ const I18N = {
     nav_search: 'Search',
     nav_discover: 'Discover',
     nav_library: 'Library',
+    nav_wanted: 'Wanted',
     nav_downloads: 'Downloads',
     nav_wishlist: 'Wishlist',
     nav_activity: 'Activity',
@@ -39,6 +40,10 @@ const I18N = {
     dashboard_activity: 'Recent Activity',
     dashboard_totals: 'Library Summary',
     dashboard_formats: 'Format Distribution',
+    dashboard_wanted: 'Wanted Books',
+    wanted_total: 'Total Wanted',
+    wanted_monitored: 'Monitored',
+    wanted_ignored: 'Ignored',
     dashboard_empty: 'No recent activity yet.',
     dashboard_attention: 'Needs Attention',
     dashboard_quick_actions: 'Quick Actions',
@@ -59,6 +64,30 @@ const I18N = {
     library_formats: 'Formats',
     quick_details: 'Details',
     quick_more: 'More',
+    wanted_add: 'Add to Wanted',
+    wanted_added: 'Wanted',
+    wanted_in_library: 'In Library',
+    wanted_title: 'Wanted Books',
+    wanted_empty: 'No wanted books yet',
+    wanted_empty_hint: 'Add books from Discover to keep track of what you want next.',
+    wanted_group_wanted: 'Wanted',
+    wanted_group_ignored: 'Ignored',
+    wanted_status_wanted: 'Wanted',
+    wanted_status_downloaded: 'Downloaded',
+    wanted_status_ignored: 'Ignored',
+    wanted_status_missing: 'Missing',
+    wanted_status_searching: 'Searching (future)',
+    wanted_status_downloaded_future: 'Downloaded (future)',
+    wanted_toggle_monitored: 'Monitored',
+    wanted_toggle_unmonitored: 'Unmonitored',
+    wanted_remove: 'Remove',
+    wanted_added_success: 'Added to Wanted',
+    wanted_add_failed: 'Could not add wanted book',
+    wanted_removed_success: 'Removed from Wanted',
+    wanted_remove_failed: 'Could not remove wanted book',
+    wanted_update_failed: 'Could not update wanted book',
+    wanted_duplicate: 'That book is already in Wanted',
+    wanted_remove_confirm: 'Remove "{title}" from Wanted?',
     details_kicker: 'Book Details',
     details_metadata: 'Metadata',
     metadata_edit: 'Edit Metadata',
@@ -282,6 +311,7 @@ const I18N = {
     nav_search: 'Поиск',
     nav_discover: 'Обзор',
     nav_library: 'Библиотека',
+    nav_wanted: 'Wanted',
     nav_downloads: 'Загрузки',
     nav_wishlist: 'Желаемое',
     nav_activity: 'Активность',
@@ -566,8 +596,8 @@ function refreshDynamicContent() {
     refreshDownloads();
   } else if (tab === 'library') {
     loadLibrary();
-  } else if (tab === 'wishlist') {
-    loadWishlist();
+  } else if (tab === 'wanted') {
+    loadWanted();
   } else if (tab === 'settings') {
     loadConfig();
     loadSources();
@@ -584,6 +614,9 @@ const state = {
   searchResults: [],
   libraryBooks: [],
   homeBooks: [],
+  wantedBooks: [],
+  wantedIndex: new Set(),
+  libraryMatchIndex: new Set(),
   homeData: null,
   pendingDownloads: new Set(),
   trackedDownloadJobs: new Map(),
@@ -1085,9 +1118,12 @@ function closeMobileNav() {
 
 // TAB NAVIGATION
 // ============================================================
-function switchTab(tab) {
+function switchTab(tab, options = {}) {
   closeMobileNav();
   state.currentTab = tab;
+  if (!options.fromRoute) {
+    syncTabRoute(tab);
+  }
 
   // Update nav
   document.querySelectorAll('.nav-tab').forEach(el => {
@@ -1104,7 +1140,7 @@ function switchTab(tab) {
   if (tab === 'library') loadLibrary();
   if (tab === 'downloads') { refreshDownloads(); startDownloadPolling(); }
   else stopDownloadPolling();
-  if (tab === 'wishlist') loadWishlist();
+  if (tab === 'wanted') loadWanted();
   if (tab === 'settings') loadSettings();
   if (tab === 'settings' && window.location.hash) {
     scrollToSettingsSection(window.location.hash.slice(1));
@@ -1159,6 +1195,9 @@ function setupLibrarr2Shell() {
       </button>
       <button data-action="switchTab" data-arg="search" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="search">
         <span data-i18n="nav_discover">Discover</span>
+      </button>
+      <button data-action="switchTab" data-arg="wanted" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="wanted">
+        <span data-i18n="nav_wanted">Wanted</span>
       </button>
       <button data-action="switchTab" data-arg="settings" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent whitespace-nowrap" data-tab="settings">
         <span data-i18n="nav_settings">Settings</span>
@@ -1217,6 +1256,26 @@ function setupLibrarr2Shell() {
   if (libraryResults) {
     libraryResults.className = 'grid gap-5 sm:grid-cols-2 xl:grid-cols-3';
   }
+}
+
+function routeTabFromLocation() {
+  const hash = String(window.location?.hash || '').replace(/^#/, '').trim().toLowerCase();
+  if (!hash) return 'home';
+  if (['home', 'library', 'search', 'wanted', 'settings'].includes(hash)) return hash;
+  if (hash.startsWith('settings-')) return 'settings';
+  return 'home';
+}
+
+function syncTabRoute(tab) {
+  if (!window.location) return;
+  if (tab === 'settings') {
+    const currentHash = String(window.location.hash || '').replace(/^#/, '');
+    if (!currentHash.startsWith('settings')) {
+      window.location.hash = 'settings';
+    }
+    return;
+  }
+  window.location.hash = tab;
 }
 
 // ============================================================
@@ -1282,7 +1341,7 @@ async function doSearch(query) {
 async function doJsonSearch(endpoint, query, gen, signal) {
   const data = await apiJson(`${endpoint}?q=${encodeURIComponent(query)}`, { signal });
   if (gen !== searchGeneration) return;
-  updateSearchResults(data.results || [], false);
+  await updateSearchResults(data.results || [], false);
 }
 
 async function doStreamingSearch(endpoint, query, gen, signal) {
@@ -1307,7 +1366,7 @@ async function doStreamingSearch(endpoint, query, gen, signal) {
       const evt = parseSSEFrame(frame);
       if (!evt || gen !== searchGeneration) continue;
       if (evt.event === 'results' || evt.event === 'complete') {
-        updateSearchResults(evt.data.results || [], evt.event !== 'complete');
+        await updateSearchResults(evt.data.results || [], evt.event !== 'complete');
         completed = evt.event === 'complete';
       }
     }
@@ -1337,7 +1396,7 @@ function parseSSEFrame(frame) {
   }
 }
 
-function updateSearchResults(results, searching) {
+async function updateSearchResults(results, searching) {
   state.searchResults = results || [];
   document.getElementById('search-spinner').classList.toggle('hidden', !searching);
 
@@ -1356,7 +1415,79 @@ function updateSearchResults(results, searching) {
   document.getElementById('search-no-results').classList.add('hidden');
   document.getElementById('search-sort-bar').classList.remove('hidden');
   document.getElementById('search-result-count').textContent = t('n_results', {n: state.searchResults.length});
+  await refreshDiscoverIndexes();
   renderSearchResults();
+}
+
+function normalizeWantedKeyPart(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/['’]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim();
+}
+
+function wantedIdentityKey(title, author, mediaType) {
+  return [normalizeWantedKeyPart(title), normalizeWantedKeyPart(author), normalizeWantedKeyPart(mediaType || 'ebook')].join('|');
+}
+
+async function refreshDiscoverIndexes() {
+  await Promise.all([refreshWantedData(true), refreshLibraryMatchIndex()]);
+}
+
+async function refreshWantedData(silent = false) {
+  try {
+    const data = await apiJson('/api/v1/wanted');
+    state.wantedBooks = data.items || [];
+    state.wantedIndex = new Set(state.wantedBooks.map(item => wantedIdentityKey(item.title, item.author, item.media_type)));
+    return data;
+  } catch (err) {
+    state.wantedBooks = [];
+    state.wantedIndex = new Set();
+    if (!silent && err.message !== 'Unauthorized') {
+      showToast('Failed to load wanted books', 'error');
+    }
+    return { items: [], counts: {} };
+  }
+}
+
+async function refreshLibraryMatchIndex() {
+  try {
+    if (normalizedLibraryMode()) {
+      let offset = 0;
+      const limit = 200;
+      const books = [];
+      while (true) {
+        const data = await apiJson(`/api/v1/books?limit=${limit}&offset=${offset}`);
+        const items = data.items || [];
+        books.push(...items);
+        const total = data.pagination?.total || items.length;
+        offset += items.length;
+        if (items.length === 0 || offset >= total) break;
+      }
+      state.libraryMatchIndex = new Set(books.map(book => wantedIdentityKey(book.title, book.primary_author?.name || book.author || '', book.media_type || 'ebook')));
+      return;
+    }
+    const data = await apiJson('/api/library');
+    state.libraryMatchIndex = new Set((data.items || []).map(item => wantedIdentityKey(item.title, item.author, item.media_type || 'ebook')));
+  } catch (_) {
+    state.libraryMatchIndex = new Set();
+  }
+}
+
+function searchResultMediaType(result) {
+  const mediaType = String(result.media_type || result.mediaType || '').toLowerCase();
+  if (mediaType) return mediaType;
+  if (state.searchTab === 'audiobooks') return 'audiobook';
+  if (state.searchTab === 'manga') return 'manga';
+  return 'ebook';
+}
+
+function wantedStateForResult(result) {
+  const key = wantedIdentityKey(result.title, result.author, searchResultMediaType(result));
+  if (state.libraryMatchIndex.has(key)) return 'library';
+  if (state.wantedIndex.has(key)) return 'wanted';
+  return 'none';
 }
 
 function showSearchSkeleton() {
@@ -1459,6 +1590,12 @@ function renderBookCard(result, index) {
   const displayButtonText = buttonState === 'loading' && trackedJob?.detail
     ? escapeHtml(trackedJob.detail)
     : (buttonText[buttonState] || buttonText.idle);
+  const wantedState = wantedStateForResult(result);
+  const wantedButton = wantedState === 'library'
+    ? `<button disabled class="w-full rounded-lg border border-emerald-500/30 bg-emerald-500/10 py-1.5 text-sm font-medium text-emerald-200">${t('wanted_in_library')}</button>`
+    : wantedState === 'wanted'
+      ? `<button disabled class="w-full rounded-lg border border-amber-500/30 bg-amber-500/10 py-1.5 text-sm font-medium text-amber-100">${t('wanted_added')}</button>`
+      : `<button data-action="addWantedFromSearch" data-idx="${index}" class="w-full rounded-lg border border-slate-700 bg-slate-800 py-1.5 text-sm font-medium text-slate-100 transition-colors hover:bg-slate-700">${t('wanted_add')}</button>`;
 
   return `
     <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 flex flex-col">
@@ -1480,6 +1617,9 @@ function renderBookCard(result, index) {
           ${buttonIcon[buttonState] || buttonIcon.idle}
           <span class="truncate">${displayButtonText}</span>
         </button>
+        <div class="mt-2">
+          ${wantedButton}
+        </div>
       </div>
     </div>
   `;
@@ -2160,11 +2300,12 @@ async function loadHomeDashboard() {
 		const statsRequest = useNormalized
 			? apiJson('/api/v1/library/summary')
 			: apiJson('/api/stats');
-    const [statsRes, downloadsRes, activityRes, libraryRes] = await Promise.allSettled([
+    const [statsRes, downloadsRes, activityRes, libraryRes, wantedRes] = await Promise.allSettled([
       statsRequest,
       apiJson('/api/downloads'),
       apiJson('/api/activity?limit=6'),
       recentLibraryRequest,
+      apiJson('/api/v1/wanted'),
     ]);
 
 		const stats = statsRes.status === 'fulfilled' ? statsRes.value : {};
@@ -2175,6 +2316,9 @@ async function loadHomeDashboard() {
 				? (libraryRes.value.items || []).map(mapV1BookToUIBook)
 				: groupLibraryItems(libraryRes.value.items || [], 'ebooks').slice(0, 8))
 			: [];
+    const wanted = wantedRes.status === 'fulfilled' ? wantedRes.value : { items: [], counts: {} };
+    state.wantedBooks = wanted.items || [];
+    state.wantedIndex = new Set(state.wantedBooks.map(item => wantedIdentityKey(item.title, item.author, item.media_type)));
 		state.homeBooks = recentBooks;
 		const bookCount = currentLibraryCount(useNormalized, stats);
 		const displayBookCount = bookCount || (recentBooks.length ? recentBooks.length : 0);
@@ -2195,6 +2339,7 @@ async function loadHomeDashboard() {
 			activitySummary,
 			attention,
 			stats,
+      wanted,
 			bookCount: displayBookCount,
 			isAdmin: isAdminUser(),
 		});
@@ -2204,9 +2349,9 @@ async function loadHomeDashboard() {
 	}
 }
 
-function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, downloads, activity, activitySummary, attention, stats, bookCount, isAdmin }) {
+function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, downloads, activity, activitySummary, attention, stats, wanted, bookCount, isAdmin }) {
 	if (showOnboarding) {
-		return renderOnboardingChecklist(isAdmin);
+		return renderOnboardingChecklist(isAdmin, wanted);
 	}
 
 	const summary = activitySummary || {};
@@ -2244,6 +2389,7 @@ function buildHomeDashboardMarkup({ showOnboarding, recentBooks, formatCounts, d
 				</div>
 			</div>
 		</section>
+		${renderWantedDashboardPanel(wanted)}
 		<section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
 			<h3 class="text-lg font-semibold text-white mb-4">${t('dashboard_quick_actions')}</h3>
 			<div class="grid gap-2">
@@ -2467,7 +2613,25 @@ function updateHomeHero(isOnboarding, bookCount = 0) {
   `;
 }
 
-function renderOnboardingChecklist(isAdmin = isAdminUser()) {
+function renderWantedDashboardPanel(wanted = {}) {
+	return `
+		<section class="dashboard-panel lg:col-span-4 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<button data-action="switchTab" data-arg="wanted" class="block w-full text-left">
+				<div class="flex items-center justify-between gap-4 mb-4">
+					<h3 class="text-lg font-semibold text-white">${t('dashboard_wanted')}</h3>
+					<span class="text-sm text-amber-300">${t('nav_wanted')}</span>
+				</div>
+				<div class="grid grid-cols-3 gap-3">
+					${renderMetricCard(t('wanted_total'), wanted?.counts?.total ?? 0)}
+					${renderMetricCard(t('wanted_monitored'), wanted?.counts?.monitored ?? 0)}
+					${renderMetricCard(t('wanted_ignored'), wanted?.counts?.ignored ?? 0)}
+				</div>
+			</button>
+		</section>
+	`;
+}
+
+function renderOnboardingChecklist(isAdmin = isAdminUser(), wanted = {}) {
 	const checklistItems = [
 		{ done: Boolean(state.currentUser), label: t('home_step_admin_done') },
 		{ done: Boolean(state.libraryImport?.completed), label: t('home_step_configure_folders') },
@@ -2477,28 +2641,29 @@ function renderOnboardingChecklist(isAdmin = isAdminUser()) {
 	];
 
 	return `
-    <section class="dashboard-panel lg:col-span-12 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-      <div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-        <div class="max-w-2xl">
-          <h3 class="text-xl font-semibold text-white mb-2">${t('home_onboarding_title')}</h3>
-          <p class="text-stone-400 leading-7">${t('home_import_hint')}</p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          ${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-950 hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>` : ''}
-          ${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_scan_library')}</button>` : ''}
-          <button data-action="switchTab" data-arg="search" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_discover')}</button>
-          <a href="/opds" target="_blank" rel="noreferrer" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('dashboard_open_opds')}</a>
-        </div>
-      </div>
-      <div class="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
-        ${checklistItems.map(item => `
-          <div class="flex items-center gap-3 rounded-2xl border ${item.done ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-stone-800 bg-stone-900/60 text-stone-200'} px-4 py-3">
-            <span class="text-base">${item.done ? '✅' : '⬜'}</span>
-            <span class="text-sm font-medium">${escapeHtml(item.label)}</span>
-          </div>
-        `).join('')}
-      </div>
-    </section>
+		<section class="dashboard-panel lg:col-span-8 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+			<div class="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+				<div class="max-w-2xl">
+					<h3 class="text-xl font-semibold text-white mb-2">${t('home_onboarding_title')}</h3>
+					<p class="text-stone-400 leading-7">${t('home_import_hint')}</p>
+				</div>
+				<div class="flex flex-wrap gap-2">
+					${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-amber-500 px-4 py-2.5 text-sm font-semibold text-stone-950 hover:bg-amber-400 transition-colors">${t('home_import_library')}</button>` : ''}
+					${isAdmin ? `<button data-action="openImportSettings" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_scan_library')}</button>` : ''}
+					<button data-action="switchTab" data-arg="search" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('home_discover')}</button>
+					<a href="/opds" target="_blank" rel="noreferrer" class="rounded-2xl bg-stone-800 px-4 py-2.5 text-sm font-semibold text-stone-100 hover:bg-stone-700 transition-colors">${t('dashboard_open_opds')}</a>
+				</div>
+			</div>
+			<div class="mt-6 grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+				${checklistItems.map(item => `
+					<div class="flex items-center gap-3 rounded-2xl border ${item.done ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100' : 'border-stone-800 bg-stone-900/60 text-stone-200'} px-4 py-3">
+						<span class="text-base">${item.done ? '✅' : '⬜'}</span>
+						<span class="text-sm font-medium">${escapeHtml(item.label)}</span>
+					</div>
+				`).join('')}
+			</div>
+		</section>
+		${renderWantedDashboardPanel(wanted)}
   `;
 }
 
@@ -3130,105 +3295,160 @@ async function loadBookHistory(book) {
 }
 
 // ============================================================
-// WISHLIST
+// WANTED
 // ============================================================
-async function loadWishlist() {
-  try {
-    const data = await apiJson('/api/wishlist');
-    const items = data.items || [];
-    const container = document.getElementById('wishlist-list');
-    const emptyEl = document.getElementById('wishlist-empty');
+async function loadWanted() {
+  const container = document.getElementById('wanted-list');
+  const emptyEl = document.getElementById('wanted-empty');
+  const summaryEl = document.getElementById('wanted-summary');
+  if (!container || !emptyEl || !summaryEl) return;
 
-    if (items.length === 0) {
-      container.innerHTML = '';
-      emptyEl.classList.remove('hidden');
-      return;
-    }
+  const data = await refreshWantedData();
+  const items = data.items || [];
+  const counts = data.counts || {};
 
-    emptyEl.classList.add('hidden');
-    container.innerHTML = items.map(renderWishlistItem).join('');
-  } catch (err) {
-    if (err.message !== 'Unauthorized') {
-      showToast(t('failed_load_wishlist'), 'error');
-    }
-  }
-}
+  summaryEl.innerHTML = [
+    renderMetricCard(t('wanted_total'), counts.total ?? 0),
+    renderMetricCard(t('wanted_monitored'), counts.monitored ?? 0),
+    renderMetricCard(t('wanted_ignored'), counts.ignored ?? 0),
+  ].join('');
 
-function renderWishlistItem(item) {
-  const typeColors = { ebook: 'bg-indigo-500/20 text-indigo-400', audiobook: 'bg-purple-500/20 text-purple-400', manga: 'bg-pink-500/20 text-pink-400' };
-  const tc = typeColors[item.media_type] || typeColors.ebook;
-  const date = item.created_at ? new Date(item.created_at).toLocaleDateString() : '';
-
-  return `
-    <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-4">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-0.5">
-          <span class="px-2 py-0.5 rounded text-xs font-medium ${tc}">${escapeHtml(item.media_type || 'ebook')}</span>
-          ${date ? `<span class="text-xs text-slate-600">${date}</span>` : ''}
-        </div>
-        <h4 class="text-sm font-medium text-white truncate">${escapeHtml(item.title || '')}</h4>
-        ${item.author ? `<p class="text-xs text-slate-400">${escapeHtml(item.author)}</p>` : ''}
-      </div>
-      <div class="flex items-center gap-2 flex-shrink-0">
-        <button data-action="searchWishlistItem" data-title="${escapeHtml(item.title)}" data-media-type="${escapeHtml(item.media_type || 'ebook')}" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors" title="${t('wishlist_search')}">${t('wishlist_search')}</button>
-        <button data-action="deleteWishlistItem" data-id="${item.id}" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded transition-colors" title="Remove">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-        </button>
-      </div>
-    </div>
-  `;
-}
-
-function showWishlistForm() {
-  document.getElementById('wishlist-form').classList.remove('hidden');
-  document.getElementById('wl-title').focus();
-}
-
-function hideWishlistForm() {
-  document.getElementById('wishlist-form').classList.add('hidden');
-  document.getElementById('wl-title').value = '';
-  document.getElementById('wl-author').value = '';
-}
-
-async function addWishlistItem() {
-  const title = document.getElementById('wl-title').value.trim();
-  const author = document.getElementById('wl-author').value.trim();
-  const mediaType = document.getElementById('wl-type').value;
-
-  if (!title) {
-    showToast(t('err_title_required'), 'warning');
+  if (items.length === 0) {
+    emptyEl.classList.remove('hidden');
+    container.innerHTML = '';
     return;
   }
 
+  emptyEl.classList.add('hidden');
+  container.innerHTML = renderWantedGroups(items);
+}
+
+function renderWantedGroups(items) {
+  const groups = [
+    ['wanted', t('wanted_group_wanted')],
+    ['ignored', t('wanted_group_ignored')],
+  ];
+  return groups
+    .map(([status, label]) => {
+      const groupItems = items.filter(item => (item.status || 'wanted') === status);
+      if (groupItems.length === 0) return '';
+      return `
+        <section class="rounded-[1.5rem] border border-stone-800 bg-[#1b1715]/95 overflow-hidden">
+          <div class="flex items-center justify-between px-5 py-4 border-b border-stone-800">
+            <h3 class="text-lg font-semibold text-white">${label}</h3>
+            <span class="text-sm text-stone-500">${groupItems.length}</span>
+          </div>
+          <div class="grid gap-4 p-5 md:grid-cols-2 xl:grid-cols-3">
+            ${groupItems.map(renderWantedCard).join('')}
+          </div>
+        </section>
+      `;
+    })
+    .join('');
+}
+
+function renderWantedCard(item) {
+  const status = item.status || 'wanted';
+  const monitoredLabel = item.monitored ? t('wanted_toggle_monitored') : t('wanted_toggle_unmonitored');
+  const mediaLabel = (item.media_type || 'ebook').toUpperCase();
+  const coverHtml = item.cover_url
+    ? `<img src="${escapeHtml(item.cover_url)}" alt="" class="h-48 w-full object-cover" loading="lazy">`
+    : makePlaceholderHtml(item.title || '?', item.id || 0);
+
+  return `
+    <article class="overflow-hidden rounded-[1.35rem] border border-stone-800 bg-stone-900/70">
+      <div class="relative">${coverHtml}</div>
+      <div class="p-4">
+        <div class="mb-3 flex flex-wrap items-center gap-2">
+          <span class="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">${t(`wanted_status_${status}`)}</span>
+          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-300">${mediaLabel}</span>
+          <span class="rounded-full ${item.monitored ? 'bg-emerald-500/10 text-emerald-200' : 'bg-stone-800 text-stone-400'} px-3 py-1 text-xs font-medium">${monitoredLabel}</span>
+          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_missing')}</span>
+          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_searching')}</span>
+          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_downloaded_future')}</span>
+        </div>
+        <h4 class="text-lg font-semibold text-white line-clamp-2">${escapeHtml(item.title || '')}</h4>
+        <p class="mt-1 text-sm text-stone-300 line-clamp-1">${escapeHtml(item.author || '')}</p>
+        <div class="mt-4 flex items-center justify-between gap-2">
+          <label class="inline-flex items-center gap-2 text-sm text-stone-300">
+            <input data-action-change="toggleWantedMonitored" data-id="${item.id}" type="checkbox" ${item.monitored ? 'checked' : ''} class="rounded border-stone-600 bg-stone-950 text-amber-500">
+            <span>${t('wanted_toggle_monitored')}</span>
+          </label>
+          <div class="flex items-center gap-2">
+            ${status === 'wanted' ? `<button data-action="ignoreWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_ignored')}</button>` : `<button data-action="markWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_wanted')}</button>`}
+            <button data-action="removeWantedBook" data-id="${item.id}" data-title="${escapeHtml(item.title || '')}" class="rounded-xl bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100 hover:bg-red-500/20">${t('wanted_remove')}</button>
+          </div>
+        </div>
+      </div>
+    </article>
+  `;
+}
+
+async function addWantedFromSearchResult(index) {
+  const result = (state.renderedResults || [])[index];
+  if (!result) return;
   try {
-    await apiJson('/api/wishlist', {
+    const response = await apiJson('/api/v1/wanted', {
       method: 'POST',
-      body: JSON.stringify({ title, author, media_type: mediaType }),
+      body: JSON.stringify({
+        title: result.title,
+        author: result.author,
+        cover_url: result.cover_url || '',
+        description: result.description || '',
+        source: result.source || '',
+        media_type: searchResultMediaType(result),
+        monitored: true,
+        status: 'wanted',
+      }),
     });
-    showToast(t('added_to_wishlist'), 'success');
-    hideWishlistForm();
-    loadWishlist();
+    if (response.item) {
+      state.wantedBooks.unshift(response.item);
+    }
+    await refreshWantedData(true);
+    renderSearchResults();
+    if (state.currentTab === 'home') await loadHomeDashboard();
+    showToast(t('wanted_added_success'), 'success');
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast(t('failed_add_wishlist'), 'error');
+    if (err.message === 'Unauthorized') return;
+    showToast(err.message.includes('409') ? t('wanted_duplicate') : t('wanted_add_failed'), 'error');
   }
 }
 
-async function deleteWishlistItem(id) {
+async function updateWantedBook(id, payload) {
   try {
-    await api(`/api/wishlist/${id}`, { method: 'DELETE' });
-    showToast(t('removed_from_wishlist'), 'success');
-    loadWishlist();
+    await apiJson(`/api/v1/wanted/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify(payload),
+    });
+    await loadWanted();
+    if (state.searchResults.length > 0) {
+      await refreshDiscoverIndexes();
+      renderSearchResults();
+    }
+    await loadHomeDashboard();
   } catch (err) {
-    if (err.message !== 'Unauthorized') showToast(t('failed_delete'), 'error');
+    if (err.message !== 'Unauthorized') showToast(t('wanted_update_failed'), 'error');
   }
 }
 
-function searchWishlistItem(title, mediaType) {
-  const tabMap = { ebook: 'ebooks', audiobook: 'audiobooks', manga: 'manga' };
-  switchTab('search');
-  switchSearchTab(tabMap[mediaType] || 'ebooks');
-  document.getElementById('search-input').value = title;
-  doSearch(title);
+async function toggleWantedMonitored(id, monitored) {
+  await updateWantedBook(id, { monitored });
+}
+
+async function removeWantedBook(id, title) {
+  if (!window.confirm(t('wanted_remove_confirm', { title: title || '' }))) return;
+  try {
+    await apiJson(`/api/v1/wanted/${id}`, { method: 'DELETE' });
+    await loadWanted();
+    if (state.searchResults.length > 0) {
+      await refreshDiscoverIndexes();
+      renderSearchResults();
+    }
+    await loadHomeDashboard();
+    showToast(t('wanted_removed_success'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('wanted_remove_failed'), 'error');
+  }
 }
 
 // ============================================================
@@ -5389,7 +5609,6 @@ document.addEventListener('keydown', (e) => {
 
   // Escape → close modals, clear search
   if (e.key === 'Escape') {
-    hideWishlistForm();
     closeBookDetails();
   }
 });
@@ -5427,13 +5646,24 @@ async function init() {
     // Apply language on load
     applyLanguage();
     document.getElementById('search-empty').classList.remove('hidden');
-    switchTab('home');
+    switchTab(routeTabFromLocation(), { fromRoute: true });
   } catch (err) {
     if (err.message === 'Unauthorized') {
       // Login modal already shown by api()
     }
   }
 }
+
+window.addEventListener('hashchange', () => {
+  const tab = routeTabFromLocation();
+  if (tab === state.currentTab) {
+    if (tab === 'settings' && window.location.hash) {
+      scrollToSettingsSection(window.location.hash.slice(1));
+    }
+    return;
+  }
+  switchTab(tab, { fromRoute: true });
+});
 
 // Start
 init();
@@ -5509,9 +5739,10 @@ const CLICK_ACTIONS = {
   toggleMobileNav: () => toggleMobileNav(),
   showLoginForm: () => showLoginForm(),
   showRegisterForm: () => showRegisterForm(),
-  showWishlistForm: () => showWishlistForm(),
-  hideWishlistForm: () => hideWishlistForm(),
-  addWishlistItem: () => addWishlistItem(),
+  addWantedFromSearch: el => addWantedFromSearchResult(+el.dataset.idx),
+  removeWantedBook: el => removeWantedBook(+el.dataset.id, el.dataset.title),
+  ignoreWantedBook: el => updateWantedBook(+el.dataset.id, { status: 'ignored' }),
+  markWantedBook: el => updateWantedBook(+el.dataset.id, { status: 'wanted' }),
   generateInviteCode: () => generateInviteCode(),
   doLogout: () => doLogout(),
   clearCompleted: () => clearCompleted(),
@@ -5541,8 +5772,6 @@ const CLICK_ACTIONS = {
   retryDownload: el => retryDownload(el.dataset.jobId),
   deleteLibraryItem: el => deleteLibraryItem(el.dataset.id, el.dataset.type, el.dataset.title),
   goLibraryPage: el => goLibraryPage(+el.dataset.page),
-  searchWishlistItem: el => searchWishlistItem(el.dataset.title, el.dataset.mediaType),
-  deleteWishlistItem: el => deleteWishlistItem(+el.dataset.id),
   deleteUser: el => deleteUser(+el.dataset.id, el.dataset.username),
   copyInviteCode: el => copyInviteCode(el.dataset.code),
   revokeInviteCode: el => revokeInviteCode(+el.dataset.id),
@@ -5585,6 +5814,7 @@ const CHANGE_ACTIONS = {
     }
     renderLibraryScanWorkspace();
   },
+  toggleWantedMonitored: el => toggleWantedMonitored(+el.dataset.id, el.checked),
 };
 
 document.addEventListener('change', e => {

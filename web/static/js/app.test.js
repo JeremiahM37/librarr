@@ -63,6 +63,7 @@ const functionBundle = [
   extractFunctionSource('buildDashboardActivitySummary'),
   extractFunctionSource('buildDashboardAttention'),
   extractFunctionSource('buildHomeDashboardMarkup'),
+  extractFunctionSource('renderWantedDashboardPanel'),
   extractFunctionSource('renderRecentlyAddedShelf'),
   extractFunctionSource('renderHomeBookCard'),
   extractFunctionSource('renderNeedsAttention'),
@@ -74,7 +75,16 @@ const functionBundle = [
   extractFunctionSource('normalizeFormatLabels'),
   extractFunctionSource('renderBookCover'),
   extractFunctionSource('makePlaceholderHtml'),
+  extractFunctionSource('normalizeWantedKeyPart'),
+  extractFunctionSource('wantedIdentityKey'),
+  extractFunctionSource('searchResultMediaType'),
+  extractFunctionSource('wantedStateForResult'),
+  extractFunctionSource('refreshWantedData'),
+  extractFunctionSource('renderBookCard'),
   extractFunctionSource('renderLibraryBookCard'),
+  extractFunctionSource('renderWantedGroups'),
+  extractFunctionSource('renderWantedCard'),
+  extractFunctionSource('removeWantedBook'),
   extractFunctionSource('renderBookDeletionPanel'),
   extractFunctionSource('renderBookDeleteConfirmation'),
   extractFunctionSource('openBookDeleteDialog'),
@@ -83,6 +93,7 @@ const functionBundle = [
   extractFunctionSource('confirmBookDelete'),
   extractFunctionSource('formatBookDeleteError'),
   extractFunctionSource('renderMetricCard'),
+  extractFunctionSource('loadHomeDashboard'),
   extractFunctionSource('renderCompactDownload'),
   extractFunctionSource('renderActivityRow'),
   extractFunctionSource('renderDashboardEmpty'),
@@ -93,6 +104,11 @@ const functionBundle = [
   extractFunctionSource('libraryImportSummaryLines'),
   extractFunctionSource('applyLibraryImportLoadedState'),
   extractFunctionSource('setLibraryImportStep2State'),
+  extractFunctionSource('routeTabFromLocation'),
+  extractFunctionSource('syncTabRoute'),
+  extractFunctionSource('switchTab'),
+  extractFunctionSource('setupLibrarr2Shell'),
+  extractFunctionSource('loadWanted'),
   extractFunctionSource('updateLibraryRepairCardVisibility'),
   extractFunctionSource('renderNestedEbookPathRepair'),
   extractFunctionSource('renderRepairMetric'),
@@ -241,17 +257,27 @@ function createContext(overrides = {}) {
     renderCompactBookCard: (book, index) => `<article data-book="${index}">${book.title}</article>`,
     renderMetricCard: (label, value) => `<metric data-label="${label}">${value}</metric>`,
     renderCompactDownload: item => `<download>${item.title}</download>`,
-    renderCompactWishlist: item => `<wishlist>${item.title}</wishlist>`,
     renderActivityRow: item => `<activity>${item.title}</activity>`,
     renderDashboardEmpty: () => '<empty />',
     escapeHtml: value => String(value),
+    updateHomeHero: () => {},
     COVER_GRADIENTS: ['from-amber-700 to-stone-900', 'from-slate-700 to-stone-900'],
     LIBRARY_IMPORT_FIELDS: ['incoming_dir', 'ebook_dir', 'audiobook_dir', 'manga_dir'],
     state: {
+      currentTab: 'home',
       libraryImport: libraryImportState(),
       libraryMetadataEditor: { open: false, draft: null, errors: [] },
       bookDeleteDialog: { open: false, deleteFiles: false, loading: false, error: '' },
       libraryBooks: [],
+      wantedBooks: [],
+      wantedIndex: new Set(),
+      libraryMatchIndex: new Set(),
+      searchTab: 'ebooks',
+      searchResults: [],
+      renderedResults: [],
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
       activeDetailBook: null,
       activeDetailContext: null,
       libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: null, result: null, error: '' } },
@@ -261,9 +287,23 @@ function createContext(overrides = {}) {
     api: async () => ({ ok: true, json: async () => ({ success: true }) }),
     apiJson: async () => ({ success: true }),
     showToast: () => {},
+    closeMobileNav: () => {},
+    stopDownloadPolling: () => {},
+    startDownloadPolling: () => {},
+    loadHomeDashboard: async () => {},
+    loadLibrary: async () => {},
+    loadWanted: async () => {},
+    loadSettings: async () => {},
+    refreshDownloads: async () => {},
+    getDownloadKey: result => result.title,
+    hasTrackedAnnaDownload: () => false,
+    hasTrackedDirectDownload: () => false,
+    getTrackedDownloadJob: () => null,
+    SOURCE_COLORS: { prowlarr: { bg: '#000', text: '#fff', label: 'Prowlarr' } },
     scrollToSettingsSection: () => {},
-    window: { setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {}, prompt: () => null },
+    window: { setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {}, prompt: () => null, location: { hash: '' }, addEventListener: () => {} },
     normalizedLibraryMode: () => false,
+    groupLibraryItems: items => items,
   };
   const context = vm.createContext({ ...base, ...overrides });
   vm.runInContext(functionBundle, context);
@@ -289,13 +329,14 @@ test('buildHomeDashboardMarkup returns onboarding-only markup for empty librarie
     recentBooks: [],
     formatCounts: {},
     downloads: [],
-    wishlist: [],
+    wanted: { counts: { total: 1, monitored: 1, ignored: 0 } },
     activity: [],
     stats: { total_books: 0 },
     bookCount: 0,
   });
 
   assert.match(markup, /onboarding/);
+  assert.match(markup, /dashboard_wanted/);
   assert.doesNotMatch(markup, /dashboard_recent/);
   assert.doesNotMatch(markup, /dashboard_totals/);
 });
@@ -307,11 +348,11 @@ test('buildHomeDashboardMarkup returns dashboard panels for non-empty libraries'
     recentBooks: [{ title: 'The Martian', author: 'Andy Weir', formats: ['EPUB'], coverUrl: '/api/v1/books/1/cover' }],
     formatCounts: { EPUB: 1 },
     downloads: [],
-    wishlist: [],
     activity: [],
     activitySummary: {},
     attention: [],
     stats: { ebooks: 1, audiobooks: 0, manga: 0 },
+    wanted: { counts: { wanted: 2, monitored: 1, ignored: 1 } },
     bookCount: 1,
     isAdmin: true,
   });
@@ -320,7 +361,63 @@ test('buildHomeDashboardMarkup returns dashboard panels for non-empty libraries'
   assert.match(markup, /dashboard_totals/);
   assert.match(markup, /dashboard_downloading/);
   assert.match(markup, /dashboard_quick_actions/);
+  assert.match(markup, /dashboard_wanted/);
   assert.doesNotMatch(markup, /id="onboarding"/);
+});
+
+test('discover card shows add to wanted when result is neither wanted nor in library', () => {
+  const context = createContext({
+    state: {
+      wantedIndex: new Set(),
+      libraryMatchIndex: new Set(),
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
+      searchTab: 'ebooks',
+    },
+  });
+
+  const html = context.renderBookCard({ title: 'The Martian', author: 'Andy Weir', source: 'prowlarr' }, 0);
+
+  assert.match(html, /data-action="addWantedFromSearch"/);
+  assert.match(html, /wanted_add/);
+});
+
+test('discover card shows wanted badge for existing wanted result', () => {
+  const key = 'the martian|andy weir|ebook';
+  const context = createContext({
+    state: {
+      wantedIndex: new Set([key]),
+      libraryMatchIndex: new Set(),
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
+      searchTab: 'ebooks',
+    },
+  });
+
+  const html = context.renderBookCard({ title: 'The Martian', author: 'Andy Weir', source: 'prowlarr' }, 0);
+
+  assert.doesNotMatch(html, /data-action="addWantedFromSearch"/);
+  assert.match(html, /wanted_added/);
+});
+
+test('discover card shows in-library badge when result already exists in library', () => {
+  const key = 'the martian|andy weir|ebook';
+  const context = createContext({
+    state: {
+      wantedIndex: new Set(),
+      libraryMatchIndex: new Set([key]),
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
+      searchTab: 'ebooks',
+    },
+  });
+
+  const html = context.renderBookCard({ title: 'The Martian', author: 'Andy Weir', source: 'prowlarr' }, 0);
+
+  assert.match(html, /wanted_in_library/);
 });
 
 test('home dashboard renders recent shelf with whole-card details action and covers', () => {
@@ -1015,12 +1112,183 @@ test('main navigation is focused on Librarr 2.0 primary destinations', () => {
   assert.match(indexHTML, /data-arg="home"/);
   assert.match(indexHTML, /data-arg="library"/);
   assert.match(indexHTML, /data-arg="search"[\s\S]*nav_discover/);
+  assert.match(indexHTML, /data-arg="wanted"[\s\S]*nav_wanted/);
   assert.match(indexHTML, /data-arg="settings"/);
   assert.doesNotMatch(indexHTML, /id="lang-toggle"/);
   assert.doesNotMatch(appSource, /lang-toggle|toggleLanguage/);
   assert.doesNotMatch(appCSS, /Russian locale/);
   assert.doesNotMatch(indexHTML, /data-arg="downloads" class="nav-tab/);
   assert.doesNotMatch(indexHTML, /data-arg="wishlist" class="nav-tab/);
+});
+
+test('setupLibrarr2Shell preserves Wanted nav in runtime shell', () => {
+  const nav = { innerHTML: '' };
+  const main = { insertBefore: () => {} };
+  const context = createContext({
+    document: {
+      body: { classList: { remove: () => {}, add: () => {} } },
+      querySelector: selector => {
+        if (selector === 'header') return { classList: { add: () => {} } };
+        if (selector === 'main') return main;
+        return null;
+      },
+      getElementById: id => {
+        if (id === 'app') return { classList: { add: () => {} } };
+        if (id === 'main-nav') return nav;
+        if (id === 'tab-search') return {};
+        if (id === 'tab-home') return {};
+        if (id === 'book-detail-modal') return {};
+        if (id === 'library-results') return null;
+        return null;
+      },
+      createElement: () => ({ className: '', id: '', innerHTML: '' }),
+    },
+  });
+
+  context.setupLibrarr2Shell();
+
+  assert.match(nav.innerHTML, /data-arg="wanted"/);
+});
+
+test('routeTabFromLocation resolves wanted and settings section hashes', () => {
+  const context = createContext({ window: { location: { hash: '#wanted' }, addEventListener: () => {}, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} } });
+  assert.equal(context.routeTabFromLocation(), 'wanted');
+  context.window.location.hash = '#settings-library-import';
+  assert.equal(context.routeTabFromLocation(), 'settings');
+  context.window.location.hash = '';
+  assert.equal(context.routeTabFromLocation(), 'home');
+});
+
+test('switchTab activates wanted, renders tab, and loads wanted data', () => {
+  const calls = [];
+  const navWanted = { dataset: { tab: 'wanted' }, classList: { toggle: (name, active) => calls.push(`nav:${name}:${active}`) } };
+  const navHome = { dataset: { tab: 'home' }, classList: { toggle: () => {} } };
+  const tabWanted = { id: 'tab-wanted', classList: { toggle: (name, active) => calls.push(`tab-wanted:${active}`) } };
+  const tabHome = { id: 'tab-home', classList: { toggle: () => {} } };
+  const context = createContext({
+    document: {
+      querySelectorAll: selector => {
+        if (selector === '.nav-tab') return [navHome, navWanted];
+        if (selector === '.tab-content') return [tabHome, tabWanted];
+        return [];
+      },
+    },
+    closeMobileNav: () => calls.push('closeMobileNav'),
+    stopDownloadPolling: () => calls.push('stopDownloadPolling'),
+    window: { location: { hash: '' }, addEventListener: () => {}, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} },
+  });
+  context.loadWanted = () => calls.push('loadWanted');
+
+  context.switchTab('wanted');
+
+  assert.equal(context.state.currentTab, 'wanted');
+  assert.equal(context.window.location.hash, 'wanted');
+  assert.match(calls.join('|'), /loadWanted/);
+  assert.match(calls.join('|'), /tab-wanted:true/);
+});
+
+test('loadWanted calls wanted API and renders summary counts', async () => {
+  const wantedList = { innerHTML: '' };
+  const wantedEmpty = { classList: { remove: () => {}, add: () => {} } };
+  const wantedSummary = { innerHTML: '' };
+  const context = createContext({
+    document: {
+      getElementById: id => {
+        if (id === 'wanted-list') return wantedList;
+        if (id === 'wanted-empty') return wantedEmpty;
+        if (id === 'wanted-summary') return wantedSummary;
+        return null;
+      },
+    },
+    apiJson: async url => {
+      assert.equal(url, '/api/v1/wanted');
+      return {
+        items: [{ id: 1, title: 'The Martian', author: 'Andy Weir', status: 'wanted', monitored: true, media_type: 'ebook' }],
+        counts: { total: 1, wanted: 1, monitored: 1, ignored: 0 },
+      };
+    },
+  });
+
+  await context.loadWanted();
+
+  assert.match(wantedSummary.innerHTML, />1</);
+  assert.match(wantedList.innerHTML, /The Martian/);
+});
+
+test('home wanted widget is clickable and survives wanted API failure', () => {
+  const context = createContext();
+  const markup = context.buildHomeDashboardMarkup({
+    showOnboarding: false,
+    recentBooks: [{ title: 'The Martian', author: 'Andy Weir', formats: ['EPUB'] }],
+    formatCounts: { EPUB: 1 },
+    downloads: [],
+    activity: [],
+    activitySummary: {},
+    attention: [],
+    stats: { ebooks: 1, audiobooks: 0, manga: 0 },
+    wanted: { counts: {} },
+    bookCount: 1,
+    isAdmin: false,
+  });
+
+  assert.match(markup, /data-action="switchTab" data-arg="wanted"/);
+  assert.match(markup, /dashboard_wanted/);
+});
+
+test('loadHomeDashboard keeps Home usable when wanted API fails', async () => {
+  const container = { innerHTML: '' };
+  const context = createContext({
+    normalizedLibraryMode: () => true,
+    document: { getElementById: id => id === 'home-dashboard' ? container : null },
+    apiJson: async url => {
+      if (url === '/api/v1/library/summary') return { total_books: 2, ebooks: 2, audiobooks: 0, manga: 0, format_distribution: { EPUB: 2 } };
+      if (url === '/api/v1/books?limit=8&offset=0&sort=recently_added&order=desc') return { items: [{ id: 1, title: 'The Martian', primary_author: { name: 'Andy Weir' }, media_type: 'ebook', formats: ['EPUB'], cover_url: '/cover' }] };
+      if (url === '/api/downloads') return [];
+      if (url === '/api/activity?limit=6') return { events: [] };
+      if (url === '/api/v1/wanted') throw new Error('API error: 500');
+      throw new Error(`unexpected ${url}`);
+    },
+    mapV1BookToUIBook: book => ({ title: book.title, author: book.primary_author?.name || '', formats: book.formats || [], coverUrl: book.cover_url || '' }),
+  });
+
+  await context.loadHomeDashboard();
+
+  assert.match(container.innerHTML, /dashboard_recent/);
+  assert.match(container.innerHTML, /dashboard_wanted/);
+});
+
+test('wanted page groups wanted and ignored books', () => {
+  const context = createContext();
+  const html = context.renderWantedGroups([
+    { id: 1, title: 'The Martian', author: 'Andy Weir', status: 'wanted', monitored: true, media_type: 'ebook' },
+    { id: 2, title: 'Ignored Book', author: 'Writer', status: 'ignored', monitored: false, media_type: 'ebook' },
+  ]);
+
+  assert.match(html, /wanted_group_wanted/);
+  assert.match(html, /wanted_group_ignored/);
+  assert.match(html, /The Martian/);
+  assert.match(html, /Ignored Book/);
+});
+
+test('remove wanted book confirms before deleting', async () => {
+  const calls = [];
+  const context = createContext({
+    apiJson: async (url, options = {}) => {
+      calls.push(`${options.method}:${url}`);
+      return { success: true };
+    },
+    refreshDiscoverIndexes: async () => calls.push('refreshDiscoverIndexes'),
+    renderSearchResults: () => calls.push('renderSearchResults'),
+    showToast: message => calls.push(message),
+    window: { confirm: () => true, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} },
+    state: { searchResults: [] },
+  });
+  context.loadWanted = async () => calls.push('loadWanted');
+  context.loadHomeDashboard = async () => calls.push('loadHomeDashboard');
+
+  await context.removeWantedBook(7, 'The Martian');
+
+  assert.deepEqual(calls.slice(0, 3), ['DELETE:/api/v1/wanted/7', 'loadWanted', 'loadHomeDashboard']);
 });
 
 test('unfinished device actions are not exposed in book cards', () => {
@@ -1189,10 +1457,10 @@ test('successful normalized book deletion refreshes library and home state', asy
     closeBookDetails: () => calls.push({ type: 'closeBookDetails' }),
     loadLibrary: async () => calls.push({ type: 'loadLibrary' }),
     loadStats: async () => calls.push({ type: 'loadStats' }),
-    loadHomeDashboard: async () => calls.push({ type: 'loadHomeDashboard' }),
     showToast: (message, kind) => calls.push({ type: 'toast', message, kind }),
     normalizedLibraryMode: () => true,
   });
+  context.loadHomeDashboard = async () => calls.push({ type: 'loadHomeDashboard' });
 
   await context.confirmBookDelete();
 
@@ -1460,7 +1728,6 @@ test('successful import selected posts, polls, refreshes review, and clears impo
   const context = createContext({
     state: { currentTab: 'home', libraryImport: libraryImportState({ completed: true, scan: scanState }) },
     document: { getElementById: id => id === 'settings-library-scan-workspace' ? workspace : null },
-    loadHomeDashboard: async () => calls.push({ url: 'home-refresh', method: 'CALL' }),
     apiJson: async (url, options = {}) => {
       calls.push({ url, method: options.method || 'GET', body: options.body || '' });
       if (url === '/api/v1/library/import') return { job_id: 'imp-1', job: { started_at: '2026-01-01T00:00:00Z', progress: { status: 'importing', total: 1, imported: 0, started_at: '2026-01-01T00:00:00Z' } } };
@@ -1470,6 +1737,7 @@ test('successful import selected posts, polls, refreshes review, and clears impo
       throw new Error(`unexpected ${url}`);
     },
   });
+  context.loadHomeDashboard = async () => calls.push({ url: 'home-refresh', method: 'CALL' });
 
   await context.startLibraryImport(false);
 

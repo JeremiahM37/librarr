@@ -404,6 +404,10 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("POST /api/v1/library/import", requireAdmin(s.handleV1LibraryImportStart))
 	s.mux.HandleFunc("GET /api/v1/library/import/{job_id}", requireAdmin(s.handleV1LibraryImportJob))
 	s.mux.HandleFunc("GET /api/v1/library/import/{job_id}/results", requireAdmin(s.handleV1LibraryImportResults))
+	s.mux.HandleFunc("GET /api/v1/wanted", s.handleV1WantedList)
+	s.mux.HandleFunc("POST /api/v1/wanted", requireAdmin(s.handleV1WantedCreate))
+	s.mux.HandleFunc("PATCH /api/v1/wanted/{id}", requireAdmin(s.handleV1WantedPatch))
+	s.mux.HandleFunc("DELETE /api/v1/wanted/{id}", requireAdmin(s.handleV1WantedDelete))
 
 	// Library.
 	s.mux.HandleFunc("GET /api/library", s.handleLibrary)

@@ -405,6 +405,36 @@
         "description": "Returns native counts from normalized Librarr 2.0 tables. Requires LIBRARR_LIBRARY_REPOSITORY_MODE=normalized."
       }
     },
+    "/api/v1/wanted": {
+      "get": {
+        "summary": "List wanted books",
+        "responses": {
+          "200": {"description": "Wanted books", "content": {"application/json": {"schema": {"type": "object"}}}}
+        }
+      },
+      "post": {
+        "summary": "Create a wanted book",
+        "requestBody": {
+          "required": true,
+          "content": {"application/json": {"schema": {"type": "object"}}}
+        },
+        "responses": {
+          "201": {"description": "Created"},
+          "400": {"description": "Validation error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
+          "409": {"description": "Duplicate wanted book", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+        }
+      }
+    },
+    "/api/v1/wanted/{id}": {
+      "patch": {
+        "summary": "Update monitored/state for a wanted book",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+      },
+      "delete": {
+        "summary": "Delete a wanted book",
+        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+      }
+    },
     "/api/v1/library/repairs/nested-ebook-paths": {
       "get": {
         "summary": "Preview nested ebook path repair",

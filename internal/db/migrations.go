@@ -18,6 +18,7 @@ var versionedMigrations = []schemaMigration{
 	{version: 2, name: "librarr_2_file_metadata_json", run: migrateLibrarr2FileMetadataJSON},
 	{version: 3, name: "librarr_2_backfill_state", run: migrateLibrarr2BackfillState},
 	{version: 4, name: "librarr_2_metadata_provenance", run: migrateLibrarr2MetadataProvenance},
+	{version: 5, name: "librarr_2_wanted_books", run: migrateLibrarr2WantedBooks},
 }
 
 func (d *DB) runVersionedMigrations() error {
@@ -317,6 +318,45 @@ func migrateLibrarr2MetadataProvenance(tx *sql.Tx) error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_evidence_scope ON metadata_evidence(scope_type, scope_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_metadata_evidence_field ON metadata_evidence(field)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateLibrarr2WantedBooks(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS wanted_books (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			title TEXT NOT NULL DEFAULT '',
+			author TEXT NOT NULL DEFAULT '',
+			isbn TEXT NOT NULL DEFAULT '',
+			asin TEXT NOT NULL DEFAULT '',
+			series TEXT NOT NULL DEFAULT '',
+			publisher TEXT NOT NULL DEFAULT '',
+			language TEXT NOT NULL DEFAULT '',
+			cover_url TEXT NOT NULL DEFAULT '',
+			description TEXT NOT NULL DEFAULT '',
+			source TEXT NOT NULL DEFAULT '',
+			media_type TEXT NOT NULL DEFAULT 'ebook',
+			monitored INTEGER NOT NULL DEFAULT 1,
+			status TEXT NOT NULL DEFAULT 'wanted',
+			added_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			updated_at DATETIME NOT NULL DEFAULT (datetime('now'))
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_books_status ON wanted_books(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_books_monitored ON wanted_books(monitored)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_books_title ON wanted_books(title)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_wanted_books_identity ON wanted_books(
+			lower(trim(title)),
+			lower(trim(author)),
+			lower(trim(isbn)),
+			lower(trim(asin)),
+			lower(trim(media_type))
+		)`,
 	}
 	for _, statement := range statements {
 		if _, err := tx.Exec(statement); err != nil {

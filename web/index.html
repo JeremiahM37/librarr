@@ -139,6 +139,9 @@
         <button data-action="switchTab" data-arg="search" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="search">
           <span data-i18n="nav_discover">Discover</span>
         </button>
+        <button data-action="switchTab" data-arg="wanted" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="wanted">
+          <span data-i18n="nav_wanted">Wanted</span>
+        </button>
         <button data-action="switchTab" data-arg="settings" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="settings">
           <span data-i18n="nav_settings">Settings</span>
         </button>
@@ -239,32 +242,19 @@
       <div id="downloads-list" class="space-y-3"></div>
     </div>
 
-    <!-- ==================== WISHLIST TAB ==================== -->
-    <div id="tab-wishlist" class="tab-content">
-      <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
-        <h2 class="text-xl font-bold text-white" data-i18n="wishlist_title">Wishlist</h2>
-        <button data-action="showWishlistForm" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="wishlist_add_book">Add Book</button>
+    <!-- ==================== WANTED TAB ==================== -->
+    <div id="tab-wanted" class="tab-content">
+      <div class="mb-6 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-2">Wanted</p>
+        <h2 class="text-2xl font-semibold tracking-tight text-white" data-i18n="wanted_title">Wanted Books</h2>
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-400">Track books you want next. Download automation will come in a later milestone.</p>
       </div>
-      <div id="wishlist-empty" class="hidden text-center py-16">
-        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="wishlist_empty">Wishlist is empty</h2>
-        <p class="text-slate-400" data-i18n="wishlist_empty_hint">Add books you want to find later</p>
+      <div id="wanted-empty" class="hidden text-center py-16">
+        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="wanted_empty">No wanted books yet</h2>
+        <p class="text-slate-400" data-i18n="wanted_empty_hint">Add books from Discover to keep track of what you want next.</p>
       </div>
-      <div id="wishlist-list" class="space-y-3"></div>
-      <div id="wishlist-form" class="hidden mt-6 bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          <input id="wl-title" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="Title" data-i18n-placeholder="ph_wishlist_title">
-          <input id="wl-author" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="Author (optional)" data-i18n-placeholder="ph_wishlist_author">
-          <select id="wl-type" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
-            <option value="ebook" data-i18n="opt_ebook">Ebook</option>
-            <option value="audiobook" data-i18n="opt_audiobook">Audiobook</option>
-            <option value="manga" data-i18n="opt_manga">Manga</option>
-          </select>
-        </div>
-        <div class="flex items-center gap-2 mt-3">
-          <button data-action="addWishlistItem" class="px-3 py-1.5 text-sm bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg transition-colors" data-i18n="add">Add</button>
-          <button data-action="hideWishlistForm" class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
-        </div>
-      </div>
+      <div id="wanted-summary" class="grid gap-4 sm:grid-cols-3 mb-6"></div>
+      <div id="wanted-list" class="space-y-6"></div>
     </div>
 
     <!-- ==================== SETTINGS TAB ==================== -->
