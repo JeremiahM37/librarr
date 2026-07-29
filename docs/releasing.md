@@ -6,10 +6,12 @@ Librarr 2.0 stable.
 
 ## Release channels
 
-- `v2-dogfood` — current development and household validation builds.
-- `v2.0.0-beta.1`, `v2.0.0-beta.2`, ... — public beta builds.
-- `v2.0.0` — first stable Librarr 2.0 release after release criteria are met.
-- `latest` — stable releases only.
+- `latest` — current production image from `main`.
+- `v2` — stable Librarr 2 line.
+- `main` — latest image built from the `main` branch.
+- `v2-dogfood` — mutable feature-branch dogfood and household validation builds.
+- `2.0.0`, `2.0`, ... — immutable/minor version tags created from
+  stable release tags such as `v2.0.0`.
 
 The GitHub release workflow publishes container images under:
 
@@ -17,8 +19,25 @@ The GitHub release workflow publishes container images under:
 ghcr.io/jamie75/librarr:<tag>
 ```
 
-The workflow only publishes `ghcr.io/jamie75/librarr:latest` for stable semver
-tags matching `vMAJOR.MINOR.PATCH`.
+## Container tag matrix
+
+| Source ref | Published tags |
+|---|---|
+| `main` branch | `latest`, `v2`, `main`, `sha-<short-sha>` |
+| `feature/**` branches | `v2-dogfood`, `dogfood-<short-sha>` |
+| Pull requests | Build/test only; no GHCR publish |
+| Stable tag `v2.0.0` on `main` | `2.0.0`, `2.0`, `v2`, `latest` |
+| Stable tag `v2.0.0` not on `main` | `2.0.0`, `2.0`, `v2`; no `latest` |
+
+The workflow strips the leading `v` from stable semantic version image tags, so
+Git tag `v2.0.0` publishes container tag `2.0.0`. `v2-dogfood` is intentionally
+mutable and may change between feature builds. Use `latest` for normal
+production installs, `v2` to pin the stable Librarr 2 line, and `v2-dogfood`
+only for active validation.
+
+All image pushes use `GITHUB_TOKEN` with package-write permission and publish
+only to `ghcr.io/jamie75/librarr`. Published images are built for
+`linux/amd64` and `linux/arm64`.
 
 ## Pre-release checklist
 
@@ -71,9 +90,11 @@ GitHub before telling users they can pull images without authentication.
 
 ### Docker
 
-Image:
+Images:
 
-`ghcr.io/jamie75/librarr:<version>`
+- `ghcr.io/jamie75/librarr:<version>`
+- `ghcr.io/jamie75/librarr:v2`
+- `ghcr.io/jamie75/librarr:latest`
 
 ### Known limitations
 

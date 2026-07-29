@@ -129,7 +129,15 @@ The built image tag is:
 librarr:v2-dogfood
 ```
 
-It is local-only unless you explicitly retag and push it.
+It is local-only unless you explicitly retag and push it. CI-published dogfood
+images use:
+
+```text
+ghcr.io/jamie75/librarr:v2-dogfood
+```
+
+That GHCR tag is intentionally mutable and may change between feature builds.
+Use it only for active dogfood validation, not as a production pin.
 
 ## Start
 

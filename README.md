@@ -435,6 +435,17 @@ LIBRARR_IMPORT_ENGINE=v2      # planner + executor + normalized repository
 
 Docker is the preferred deployment path.
 
+Published GHCR tags follow the source branch:
+
+- Production/current `main`: `ghcr.io/jamie75/librarr:latest`
+- Stable Librarr 2 line: `ghcr.io/jamie75/librarr:v2`
+- Main branch pin: `ghcr.io/jamie75/librarr:main`
+- Dogfood/feature validation: `ghcr.io/jamie75/librarr:v2-dogfood`
+
+`v2-dogfood` is intentionally mutable and may change between feature builds.
+Use `latest` for production installs, or pin `v2` when you want the stable
+Librarr 2 line without following every `latest` update.
+
 ```yaml
 services:
   librarr:

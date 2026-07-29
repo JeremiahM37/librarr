@@ -1,52 +1,113 @@
 name: Release
 on:
   push:
+    branches:
+      - main
+      - 'feature/**'
     tags: ['v*']
 permissions:
-  contents: write
+  contents: read
   packages: write
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+  IMAGE_NAME: ghcr.io/jamie75/librarr
 jobs:
-  release:
+  test:
     runs-on: ubuntu-latest
+    permissions: {contents: read}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with: {go-version: '1.25.x', cache: true, check-latest: true}
+      - run: go test ./... -count=1
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: test
+    runs-on: ubuntu-latest
+    permissions: {contents: write}
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
       - uses: actions/setup-go@v5
-        with: {go-version: '1.25', cache: false}
-      - run: go test ./... -count=1
+        with: {go-version: '1.25.x', cache: false, check-latest: true}
       - uses: goreleaser/goreleaser-action@v6
         with: {version: '~> v2', args: "release --clean"}
         env: {GITHUB_TOKEN: "${{ secrets.GITHUB_TOKEN }}"}
+
   docker:
+    if: github.repository == 'jamie75/librarr'
+    needs: test
     runs-on: ubuntu-latest
     permissions: {contents: read, packages: write}
     steps:
       - uses: actions/checkout@v4
-      - name: Lowercase owner
-        id: owner
-        run: echo "name=$(echo ${{ github.repository_owner }} | tr '[:upper:]' '[:lower:]')" >> $GITHUB_OUTPUT
+        with: {fetch-depth: 0}
+      - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with: {registry: ghcr.io, username: "${{ github.actor }}", password: "${{ secrets.GITHUB_TOKEN }}"}
-      - id: version
+      - name: Compute image tags
+        id: meta
+        shell: bash
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          echo "tag=${tag}" >> $GITHUB_OUTPUT
-          echo "commit=${GITHUB_SHA::7}" >> $GITHUB_OUTPUT
-          echo "build_time=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> $GITHUB_OUTPUT
-          image="ghcr.io/${{ steps.owner.outputs.name }}/librarr:${tag}"
-          if echo "$tag" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+$'; then
-            image="${image},ghcr.io/${{ steps.owner.outputs.name }}/librarr:latest"
+          set -euo pipefail
+
+          short_sha="${GITHUB_SHA::7}"
+          build_time="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          version="development-${short_sha}"
+          channel="development"
+          tags=()
+
+          if [[ "${GITHUB_REF}" == "refs/heads/main" ]]; then
+            version="main-${short_sha}"
+            channel="main"
+            tags=("latest" "v2" "main" "sha-${short_sha}")
+          elif [[ "${GITHUB_REF}" == refs/heads/feature/* ]]; then
+            branch="${GITHUB_REF#refs/heads/}"
+            version="${branch//\//-}-${short_sha}"
+            channel="v2-dogfood"
+            tags=("v2-dogfood" "dogfood-${short_sha}")
+          elif [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            raw_tag="${GITHUB_REF#refs/tags/}"
+            version="${raw_tag#v}"
+            channel="${raw_tag}"
+            tags=("${version}")
+
+            if [[ "${version}" =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+              major="${BASH_REMATCH[1]}"
+              minor="${BASH_REMATCH[2]}"
+              tags+=("${major}.${minor}" "v${major}")
+
+              if git merge-base --is-ancestor "${GITHUB_SHA}" "origin/main"; then
+                tags+=("latest")
+              else
+                echo "::notice::Stable tag ${raw_tag} is not on origin/main; latest will not be published."
+              fi
+            fi
+          else
+            echo "::error::Unsupported image publishing ref: ${GITHUB_REF}"
+            exit 1
           fi
-          echo "images=${image}" >> $GITHUB_OUTPUT
+
+          {
+            echo "tags<<EOF"
+            for tag in "${tags[@]}"; do
+              echo "${IMAGE_NAME}:${tag}"
+            done
+            echo "EOF"
+            echo "version=${version}"
+            echo "channel=${channel}"
+            echo "commit=${short_sha}"
+            echo "build_time=${build_time}"
+          } >> "$GITHUB_OUTPUT"
       - uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          tags: ${{ steps.version.outputs.images }}
+          platforms: linux/amd64,linux/arm64
+          tags: ${{ steps.meta.outputs.tags }}
           build-args: |
-            VERSION=${{ steps.version.outputs.tag }}
-            CHANNEL=${{ steps.version.outputs.tag }}
-            COMMIT=${{ steps.version.outputs.commit }}
-            BUILD_TIME=${{ steps.version.outputs.build_time }}
+            VERSION=${{ steps.meta.outputs.version }}
+            CHANNEL=${{ steps.meta.outputs.channel }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILD_TIME=${{ steps.meta.outputs.build_time }}
