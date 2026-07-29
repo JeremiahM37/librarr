@@ -177,38 +177,159 @@ func (p *Prowlarr) doSearch(ctx context.Context, params prowlarrSearchParams) ([
 		if isNZBURL(item.DownloadURL) || item.Protocol == "usenet" {
 			protocol = "nzb"
 		}
+		format := extractFormatFromTitle(item.Title)
+		if format == "" {
+			format = extractFormatFromTitle(item.FileType)
+		}
 
 		results = append(results, models.SearchResult{
 			Source:           source,
 			Title:            item.Title,
-			Size:             item.Size,
-			SizeHuman:        HumanSize(item.Size),
+			Author:           item.Author(),
+			Size:             int64(item.Size),
+			SizeHuman:        HumanSize(int64(item.Size)),
 			Seeders:          item.Seeders,
 			Leechers:         item.Leechers,
+			Grabs:            item.Grabs,
 			Indexer:          item.Indexer,
 			DownloadURL:      item.DownloadURL,
 			MagnetURL:        item.MagnetURL,
 			InfoHash:         item.InfoHash,
 			GUID:             item.GUID,
 			DownloadProtocol: protocol,
-			Format:           extractFormatFromTitle(item.Title),
+			Format:           format,
+			Language:         firstProwlarrLanguage(item.Language, item.Languages),
+			PublishDate:      item.PublishDate,
+			Categories:       prowlarrCategories(item.Categories),
 		})
 	}
+	slog.Info("prowlarr search response parsed",
+		"tab", p.tab,
+		"query", params.query,
+		"raw_items", len(items),
+		"normalized_results", len(results),
+	)
 
 	return results, nil
 }
 
 type prowlarrItem struct {
-	Title       string `json:"title"`
-	Size        int64  `json:"size"`
-	Seeders     int    `json:"seeders"`
-	Leechers    int    `json:"leechers"`
-	Indexer     string `json:"indexer"`
-	DownloadURL string `json:"downloadUrl"`
-	MagnetURL   string `json:"magnetUrl"`
-	InfoHash    string `json:"infoHash"`
-	GUID        string `json:"guid"`
-	Protocol    string `json:"protocol"`
+	Title       string              `json:"title"`
+	AuthorName  string              `json:"author"`
+	AuthorInfo  string              `json:"author_info"`
+	FileType    string              `json:"filetype"`
+	Size        prowlarrSizeBytes   `json:"size"`
+	Seeders     int                 `json:"seeders"`
+	Leechers    int                 `json:"leechers"`
+	Grabs       int                 `json:"grabs"`
+	Indexer     string              `json:"indexer"`
+	DownloadURL string              `json:"downloadUrl"`
+	MagnetURL   string              `json:"magnetUrl"`
+	InfoHash    string              `json:"infoHash"`
+	GUID        string              `json:"guid"`
+	Protocol    string              `json:"protocol"`
+	PublishDate string              `json:"publishDate"`
+	Language    string              `json:"language"`
+	Languages   []string            `json:"languages"`
+	Categories  prowlarrCategoryIDs `json:"categories"`
+}
+
+func (p prowlarrItem) Author() string {
+	if strings.TrimSpace(p.AuthorName) != "" {
+		return strings.TrimSpace(p.AuthorName)
+	}
+	var authorInfo map[string]string
+	if err := json.Unmarshal([]byte(p.AuthorInfo), &authorInfo); err == nil {
+		for _, author := range authorInfo {
+			if strings.TrimSpace(author) != "" {
+				return strings.TrimSpace(author)
+			}
+		}
+	}
+	return ""
+}
+
+type prowlarrCategoryIDs []int
+
+type prowlarrSizeBytes int64
+
+func (s *prowlarrSizeBytes) UnmarshalJSON(data []byte) error {
+	var number int64
+	if err := json.Unmarshal(data, &number); err == nil {
+		*s = prowlarrSizeBytes(number)
+		return nil
+	}
+	var text string
+	if err := json.Unmarshal(data, &text); err == nil {
+		*s = prowlarrSizeBytes(parseSizeBytes(text))
+		return nil
+	}
+	return fmt.Errorf("unsupported prowlarr size shape")
+}
+
+func (c *prowlarrCategoryIDs) UnmarshalJSON(data []byte) error {
+	var ints []int
+	if err := json.Unmarshal(data, &ints); err == nil {
+		*c = ints
+		return nil
+	}
+
+	var objects []struct {
+		ID int `json:"id"`
+	}
+	if err := json.Unmarshal(data, &objects); err == nil {
+		out := make([]int, 0, len(objects))
+		for _, object := range objects {
+			if object.ID != 0 {
+				out = append(out, object.ID)
+			}
+		}
+		*c = out
+		return nil
+	}
+
+	var encoded string
+	if err := json.Unmarshal(data, &encoded); err == nil {
+		if strings.TrimSpace(encoded) == "" {
+			*c = nil
+			return nil
+		}
+		return c.UnmarshalJSON([]byte(encoded))
+	}
+
+	return fmt.Errorf("unsupported prowlarr categories shape")
+}
+
+func firstProwlarrLanguage(language string, languages []string) string {
+	if len(languages) > 1 {
+		return "multi"
+	}
+	if strings.TrimSpace(language) != "" {
+		return normalizeProwlarrLanguage(language)
+	}
+	for _, candidate := range languages {
+		if strings.TrimSpace(candidate) != "" {
+			return normalizeProwlarrLanguage(candidate)
+		}
+	}
+	return ""
+}
+
+func normalizeProwlarrLanguage(language string) string {
+	switch strings.ToLower(strings.TrimSpace(language)) {
+	case "en", "eng", "english":
+		return "en"
+	default:
+		return strings.TrimSpace(language)
+	}
+}
+
+func prowlarrCategories(categories []int) []string {
+	out := make([]string, 0, len(categories))
+	for _, category := range categories {
+		out = append(out, fmt.Sprintf("%d", category))
+	}
+	return out
 }
 
 // isNZBURL checks if a URL points to an NZB download.

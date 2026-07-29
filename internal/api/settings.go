@@ -54,6 +54,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"flibusta_url":                s.cfg.FlibustaURL,
 		"zlibrary_enabled":            s.cfg.ZLibraryEnabled,
 		"remove_torrent_after_import": s.cfg.RemoveTorrentAfterImport,
+		"wanted_monitor_enabled":      s.cfg.WantedMonitorEnabled,
+		"wanted_search_interval":      s.cfg.WantedSearchIntervalMode(),
+		"wanted_retry_failures":       s.cfg.WantedRetryFailures,
+		"wanted_max_results_keep":     s.cfg.WantedMaxResultsKeep,
 
 		// Integration URLs and credentials (sensitive ones are masked below).
 		"qb_url":                 s.cfg.QBUrl,
@@ -181,6 +185,31 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		if b, ok := v.(bool); ok {
 			s.cfg.RemoveTorrentAfterImport = b
 			slog.Info("remove torrent after import updated", "enabled", b)
+		}
+	}
+	if v, ok := data["wanted_monitor_enabled"]; ok {
+		if b, ok := v.(bool); ok {
+			s.cfg.WantedMonitorEnabled = b
+		}
+	}
+	if v, ok := data["wanted_retry_failures"]; ok {
+		if b, ok := v.(bool); ok {
+			s.cfg.WantedRetryFailures = b
+		}
+	}
+	if v, ok := data["wanted_search_interval"].(string); ok && strings.TrimSpace(v) != "" {
+		s.cfg.WantedSearchInterval = strings.TrimSpace(v)
+	}
+	if v, ok := data["wanted_max_results_keep"]; ok {
+		switch n := v.(type) {
+		case float64:
+			if int(n) > 0 {
+				s.cfg.WantedMaxResultsKeep = int(n)
+			}
+		case int:
+			if n > 0 {
+				s.cfg.WantedMaxResultsKeep = n
+			}
 		}
 	}
 	if v, ok := data["annas_archive_domain"].(string); ok && v != "" {

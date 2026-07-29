@@ -2,12 +2,18 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Librarr API",
-    "description": "Self-hosted book, audiobook, and manga search and download manager — the *arr for books. The HTTP/JSON API powers both the SPA and any external tooling (CLI scripts, AI agents, *arr-family integrations).",
+    "description": "Self-hosted book, audiobook, and manga search and download manager \u2014 the *arr for books. The HTTP/JSON API powers both the SPA and any external tooling (CLI scripts, AI agents, *arr-family integrations).",
     "version": "1.x",
-    "license": {"name": "MIT", "identifier": "MIT"}
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
   },
   "servers": [
-    {"url": "http://localhost:5050", "description": "Default local install"}
+    {
+      "url": "http://localhost:5050",
+      "description": "Default local install"
+    }
   ],
   "components": {
     "securitySchemes": {
@@ -32,195 +38,898 @@
     "schemas": {
       "Error": {
         "type": "object",
-        "required": ["success", "error"],
+        "required": [
+          "success",
+          "error"
+        ],
         "properties": {
-          "success": {"type": "boolean", "enum": [false]},
-          "error":   {"type": "string"}
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
         }
       },
       "SearchResult": {
         "type": "object",
-        "description": "A single search hit. Fields are populated per driver — direct-download drivers omit seeders/leechers; torrent drivers usually omit MD5.",
+        "description": "A single search hit. Fields are populated per driver \u2014 direct-download drivers omit seeders/leechers; torrent drivers usually omit MD5.",
         "properties": {
-          "title":        {"type": "string"},
-          "author":       {"type": "string"},
-          "source":       {"type": "string", "description": "Driver identifier (e.g. annas, gutenberg, prowlarr)."},
-          "size":         {"type": "integer", "format": "int64"},
-          "size_human":   {"type": "string"},
-          "seeders":      {"type": "integer"},
-          "leechers":     {"type": "integer"},
-          "magnet_url":   {"type": "string"},
-          "download_url": {"type": "string", "format": "uri"},
-          "md5":          {"type": "string"},
-          "info_hash":    {"type": "string"},
-          "url":          {"type": "string", "format": "uri"},
-          "cover_url":    {"type": "string", "format": "uri"},
-          "format":       {"type": "string", "description": "epub, pdf, mobi, mp3, m4b, cbz, etc."},
-          "score":        {"type": "integer", "description": "0-100 confidence score."},
-          "media_type":   {"type": "string", "enum": ["ebook", "audiobook", "manga"]}
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Driver identifier (e.g. annas, gutenberg, prowlarr)."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size_human": {
+            "type": "string"
+          },
+          "seeders": {
+            "type": "integer"
+          },
+          "leechers": {
+            "type": "integer"
+          },
+          "magnet_url": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "md5": {
+            "type": "string"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "cover_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "format": {
+            "type": "string",
+            "description": "epub, pdf, mobi, mp3, m4b, cbz, etc."
+          },
+          "score": {
+            "type": "integer",
+            "description": "0-100 confidence score."
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ebook",
+              "audiobook",
+              "manga"
+            ]
+          }
         }
       },
       "WishlistItem": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
-          "id":         {"type": "integer", "format": "int64"},
-          "title":      {"type": "string"},
-          "author":     {"type": "string"},
-          "media_type": {"type": "string", "enum": ["ebook", "audiobook", "manga"]}
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ebook",
+              "audiobook",
+              "manga"
+            ]
+          }
         }
       },
       "PaginatedList": {
         "type": "object",
         "description": "Standard list response shape used across /api/library, /api/activity, etc.",
         "properties": {
-          "items":  {"type": "array", "items": {"type": "object"}},
-          "total":  {"type": "integer"},
-          "limit":  {"type": "integer"},
-          "offset": {"type": "integer"}
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
         }
       },
       "LibraryScanJob": {
         "type": "object",
         "properties": {
-          "id": {"type": "string"},
-          "status": {"type": "string", "enum": ["pending", "scanning", "processing_metadata", "classifying", "completed", "failed", "cancelled"]},
-          "progress": {"type": "object"},
-          "error": {"type": "string"},
-          "started_at": {"type": "string", "format": "date-time"},
-          "completed_at": {"type": "string", "format": "date-time"}
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "scanning",
+              "processing_metadata",
+              "classifying",
+              "completed",
+              "failed",
+              "cancelled"
+            ]
+          },
+          "progress": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "LibraryScanCandidate": {
         "type": "object",
         "properties": {
-          "id": {"type": "string"},
-          "media_type": {"type": "string", "enum": ["ebook", "audiobook", "manga"]},
-          "format": {"type": "string"},
-          "path": {"type": "string"},
-          "relative_path": {"type": "string"},
-          "filename": {"type": "string"},
-          "size": {"type": "integer", "format": "int64"},
-          "modified_at": {"type": "string", "format": "date-time"},
-          "title": {"type": "string"},
-          "author": {"type": "string"},
-          "series": {"type": "string"},
-          "volume": {"type": "string"},
-          "cover_url": {"type": "string"},
-          "metadata": {"type": "object"},
-          "classification": {"type": "string", "enum": ["new", "manual_review", "already_imported", "duplicate", "unsupported", "unreadable"]},
-          "classification_reason": {"type": "string"},
-          "existing_path": {"type": "string"},
-          "destination_path": {"type": "string"},
-          "manual_review": {"type": "object"},
-          "duplicate": {"type": "object"},
-          "error": {"type": "string"}
+          "id": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ebook",
+              "audiobook",
+              "manga"
+            ]
+          },
+          "format": {
+            "type": "string"
+          },
+          "path": {
+            "type": "string"
+          },
+          "relative_path": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "modified_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "series": {
+            "type": "string"
+          },
+          "volume": {
+            "type": "string"
+          },
+          "cover_url": {
+            "type": "string"
+          },
+          "metadata": {
+            "type": "object"
+          },
+          "classification": {
+            "type": "string",
+            "enum": [
+              "new",
+              "manual_review",
+              "already_imported",
+              "duplicate",
+              "unsupported",
+              "unreadable"
+            ]
+          },
+          "classification_reason": {
+            "type": "string"
+          },
+          "existing_path": {
+            "type": "string"
+          },
+          "destination_path": {
+            "type": "string"
+          },
+          "manual_review": {
+            "type": "object"
+          },
+          "duplicate": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          }
         }
       },
       "LibraryScanResult": {
         "type": "object",
         "properties": {
-          "job_id": {"type": "string"},
-          "status": {"type": "string"},
-          "totals": {"type": "object"},
-          "candidates": {"type": "array", "items": {"$ref": "#/components/schemas/LibraryScanCandidate"}},
-          "warnings": {"type": "array", "items": {"type": "object"}},
-          "started_at": {"type": "string", "format": "date-time"},
-          "completed_at": {"type": "string", "format": "date-time"}
+          "job_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "totals": {
+            "type": "object"
+          },
+          "candidates": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/LibraryScanCandidate"
+            }
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "LibraryImportJob": {
         "type": "object",
         "properties": {
-          "id": {"type": "string"},
-          "scan_job_id": {"type": "string"},
-          "status": {"type": "string", "enum": ["pending", "importing", "completed", "failed"]},
-          "progress": {"type": "object"},
-          "error": {"type": "string"},
-          "started_at": {"type": "string", "format": "date-time"},
-          "completed_at": {"type": "string", "format": "date-time"}
+          "id": {
+            "type": "string"
+          },
+          "scan_job_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "importing",
+              "completed",
+              "failed"
+            ]
+          },
+          "progress": {
+            "type": "object"
+          },
+          "error": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "LibraryImportResult": {
         "type": "object",
         "properties": {
-          "job_id": {"type": "string"},
-          "scan_job_id": {"type": "string"},
-          "status": {"type": "string"},
-          "summary": {"type": "object"},
-          "items": {"type": "array", "items": {"type": "object"}},
-          "started_at": {"type": "string", "format": "date-time"},
-          "completed_at": {"type": "string", "format": "date-time"}
+          "job_id": {
+            "type": "string"
+          },
+          "scan_job_id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "summary": {
+            "type": "object"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time"
+          }
         }
       },
       "DiagnosticStep": {
         "type": "object",
         "properties": {
-          "name": {"type": "string"},
-          "status": {"type": "string", "enum": ["success", "warning", "failed", "skipped"]},
-          "duration_ms": {"type": "integer"},
-          "message": {"type": "string"},
-          "suggestion": {"type": "string"}
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "success",
+              "warning",
+              "failed",
+              "skipped"
+            ]
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "suggestion": {
+            "type": "string"
+          }
         }
       },
       "DiagnosticResult": {
         "type": "object",
         "properties": {
-          "service": {"type": "string"},
-          "status": {"type": "string", "enum": ["connected", "warning", "failed"]},
-          "success": {"type": "boolean"},
-          "duration_ms": {"type": "integer"},
-          "summary": {"type": "string"},
-          "steps": {"type": "array", "items": {"$ref": "#/components/schemas/DiagnosticStep"}}
+          "service": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "connected",
+              "warning",
+              "failed"
+            ]
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "duration_ms": {
+            "type": "integer"
+          },
+          "summary": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DiagnosticStep"
+            }
+          }
         }
       },
       "NestedEbookPathRepairEntry": {
         "type": "object",
         "properties": {
-          "book_id": {"type": "integer"},
-          "book_title": {"type": "string"},
-          "file_id": {"type": "integer"},
-          "format": {"type": "string"},
-          "source_path": {"type": "string"},
-          "destination_path": {"type": "string"},
-          "status": {"type": "string", "enum": ["ready", "collision", "missing", "unsafe", "already_repaired", "moved", "failed"]},
-          "message": {"type": "string"},
-          "class": {"type": "string", "enum": ["cataloged_normalized", "cataloged_legacy_only", "cataloged_unmanaged", "duplicate_physical_copy", "uncataloged", "collision", "missing_db_record", "unsafe"]},
-          "matched_path": {"type": "string"},
-          "matched_record": {"type": "string"},
-          "hash": {"type": "string"},
-          "size": {"type": "integer"}
+          "book_id": {
+            "type": "integer"
+          },
+          "book_title": {
+            "type": "string"
+          },
+          "file_id": {
+            "type": "integer"
+          },
+          "format": {
+            "type": "string"
+          },
+          "source_path": {
+            "type": "string"
+          },
+          "destination_path": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ready",
+              "collision",
+              "missing",
+              "unsafe",
+              "already_repaired",
+              "moved",
+              "failed"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "class": {
+            "type": "string",
+            "enum": [
+              "cataloged_normalized",
+              "cataloged_legacy_only",
+              "cataloged_unmanaged",
+              "duplicate_physical_copy",
+              "uncataloged",
+              "collision",
+              "missing_db_record",
+              "unsafe"
+            ]
+          },
+          "matched_path": {
+            "type": "string"
+          },
+          "matched_record": {
+            "type": "string"
+          },
+          "hash": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          }
         }
       },
       "NestedEbookPathRepairPlan": {
         "type": "object",
         "properties": {
-          "success": {"type": "boolean"},
-          "executed": {"type": "boolean"},
-          "ebook_root": {"type": "string"},
-          "legacy_root": {"type": "string"},
-          "total_affected_files": {"type": "integer"},
-          "total_affected_books": {"type": "integer"},
-          "files_found_on_disk": {"type": "integer"},
-          "correct_root_files": {"type": "integer"},
-          "reconciliation": {"type": "object", "additionalProperties": {"type": "integer"}},
-          "summary": {"type": "object", "additionalProperties": {"type": "integer"}},
-          "entries": {"type": "array", "items": {"$ref": "#/components/schemas/NestedEbookPathRepairEntry"}},
-          "legacy_root_removed": {"type": "boolean"},
-          "removed_empty_folders": {"type": "array", "items": {"type": "string"}},
-          "error": {"type": "string"}
+          "success": {
+            "type": "boolean"
+          },
+          "executed": {
+            "type": "boolean"
+          },
+          "ebook_root": {
+            "type": "string"
+          },
+          "legacy_root": {
+            "type": "string"
+          },
+          "total_affected_files": {
+            "type": "integer"
+          },
+          "total_affected_books": {
+            "type": "integer"
+          },
+          "files_found_on_disk": {
+            "type": "integer"
+          },
+          "correct_root_files": {
+            "type": "integer"
+          },
+          "reconciliation": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "summary": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "entries": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/NestedEbookPathRepairEntry"
+            }
+          },
+          "legacy_root_removed": {
+            "type": "boolean"
+          },
+          "removed_empty_folders": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "error": {
+            "type": "string"
+          }
+        }
+      },
+      "WantedBook": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "isbn": {
+            "type": "string"
+          },
+          "asin": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "preferred_format": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string"
+          },
+          "origin_source": {
+            "type": "string"
+          },
+          "origin_release_title": {
+            "type": "string"
+          },
+          "origin_indexer": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "monitored": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          },
+          "selected_release_id": {
+            "type": "integer"
+          },
+          "selected_release_title": {
+            "type": "string"
+          },
+          "download_job_id": {
+            "type": "string"
+          },
+          "download_client": {
+            "type": "string"
+          },
+          "download_hash": {
+            "type": "string"
+          },
+          "download_started_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "download_error": {
+            "type": "string"
+          }
+        }
+      },
+      "WantedCreateRequest": {
+        "type": "object",
+        "required": [
+          "title"
+        ],
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "isbn": {
+            "type": "string"
+          },
+          "asin": {
+            "type": "string"
+          },
+          "language": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string"
+          },
+          "preferred_format": {
+            "type": "string"
+          },
+          "origin_source": {
+            "type": "string"
+          },
+          "origin_release_title": {
+            "type": "string"
+          },
+          "origin_indexer": {
+            "type": "string"
+          },
+          "source_id": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string",
+            "description": "Origin release acquisition URL used only to seed a server-side wanted_search_releases snapshot. This is not exposed by the read-only release API."
+          },
+          "magnet_url": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "download_protocol": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "size_human": {
+            "type": "string"
+          },
+          "seeders": {
+            "type": "integer"
+          },
+          "leechers": {
+            "type": "integer"
+          },
+          "grabs": {
+            "type": "integer"
+          },
+          "publish_date": {
+            "type": "string"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "type": "number"
+          },
+          "monitored": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "string"
+          }
+        }
+      },
+      "WantedListResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WantedBook"
+            }
+          },
+          "counts": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "WantedRelease": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "wanted_book_id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "guid": {
+            "type": "string"
+          },
+          "indexer": {
+            "type": "string"
+          },
+          "protocol": {
+            "type": "string"
+          },
+          "publish_date": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer"
+          },
+          "size_human": {
+            "type": "string"
+          },
+          "seeders": {
+            "type": "integer"
+          },
+          "leechers": {
+            "type": "integer"
+          },
+          "grabs": {
+            "type": "integer"
+          },
+          "language": {
+            "type": "string"
+          },
+          "format": {
+            "type": "string"
+          },
+          "download_available": {
+            "type": "boolean"
+          },
+          "selected": {
+            "type": "boolean"
+          },
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "score": {
+            "type": "number"
+          },
+          "search_query": {
+            "type": "string"
+          },
+          "search_time": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WantedReleasesResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WantedRelease"
+            }
+          },
+          "total": {
+            "type": "integer"
+          }
+        }
+      },
+      "WantedReleaseDownloadResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "wanted_id": {
+            "type": "integer"
+          },
+          "release_id": {
+            "type": "integer"
+          },
+          "download_job_id": {
+            "type": "string"
+          },
+          "download_hash": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "warning": {
+            "type": "string"
+          },
+          "item": {
+            "$ref": "#/components/schemas/WantedBook"
+          }
+        }
+      },
+      "WantedSearchHistory": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "integer"
+          },
+          "wanted_book_id": {
+            "type": "integer"
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "query": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "result_count": {
+            "type": "integer"
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "best_match_score": {
+            "type": "number"
+          },
+          "best_match_title": {
+            "type": "string"
+          },
+          "searched_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WantedHistoryResponse": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WantedSearchHistory"
+            }
+          }
         }
       }
     }
   },
-  "security": [{"apiKey": []}, {"session": []}],
+  "security": [
+    {
+      "apiKey": []
+    },
+    {
+      "session": []
+    }
+  ],
   "paths": {
     "/api/health": {
       "get": {
         "summary": "Health check",
         "description": "Liveness probe. Returns 200 if the binary is running. No auth required.",
         "security": [],
-        "responses": {"200": {"description": "OK"}}
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
       }
     },
     "/api/openapi.json": {
@@ -231,25 +940,60 @@
         "responses": {
           "200": {
             "description": "OpenAPI 3.1 document",
-            "content": {"application/json": {"schema": {"type": "object"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WantedListResponse"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/auth/status": {
-      "get": {"summary": "Current auth state"}
+      "get": {
+        "summary": "Current auth state"
+      }
     },
-    "/api/login":  {"post": {"summary": "Session login", "security": []}},
-    "/api/login/totp": {"post": {"summary": "TOTP 2FA verification step", "security": []}},
-    "/api/logout": {"post": {"summary": "End session"}},
-    "/api/register": {"post": {"summary": "Register new user (requires invite code when configured)", "security": []}},
-
+    "/api/login": {
+      "post": {
+        "summary": "Session login",
+        "security": []
+      }
+    },
+    "/api/login/totp": {
+      "post": {
+        "summary": "TOTP 2FA verification step",
+        "security": []
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "End session"
+      }
+    },
+    "/api/register": {
+      "post": {
+        "summary": "Register new user (requires invite code when configured)",
+        "security": []
+      }
+    },
     "/api/test/prowlarr": {
       "post": {
         "summary": "Run staged Prowlarr connection diagnostics",
         "description": "Checks configuration, URL validation, DNS, TCP, HTTPS, authentication, API validation, version, and latency. Secrets are not returned.",
         "responses": {
-          "200": {"description": "Diagnostic result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticResult"}}}}
+          "200": {
+            "description": "Diagnostic result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResult"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -258,17 +1002,40 @@
         "summary": "Run staged qBittorrent connection diagnostics",
         "description": "Checks configuration, URL validation, DNS, TCP, HTTPS, authentication, API validation, version, and latency. Secrets are not returned.",
         "responses": {
-          "200": {"description": "Diagnostic result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/DiagnosticResult"}}}}
+          "200": {
+            "description": "Diagnostic result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiagnosticResult"
+                }
+              }
+            }
+          }
         }
       }
     },
-
     "/api/search": {
       "get": {
         "summary": "Search ebooks across all configured sources",
         "parameters": [
-          {"name": "q",      "in": "query", "required": true,  "schema": {"type": "string"}, "description": "Search query."},
-          {"name": "author", "in": "query", "required": false, "schema": {"type": "string"}}
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query."
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -278,9 +1045,53 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "results":        {"type": "array", "items": {"$ref": "#/components/schemas/SearchResult"}},
-                    "search_time_ms": {"type": "integer"},
-                    "sources":        {"type": "array", "items": {"type": "object"}}
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SearchResult"
+                      }
+                    },
+                    "search_time_ms": {
+                      "type": "integer"
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    },
+                    "diagnostics": {
+                      "type": "object",
+                      "properties": {
+                        "upstream_results": {
+                          "type": "integer"
+                        },
+                        "filtered_results": {
+                          "type": "integer"
+                        },
+                        "returned_results": {
+                          "type": "integer"
+                        },
+                        "upstream_by_source": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "filtered_by_source": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        },
+                        "returned_by_source": {
+                          "type": "object",
+                          "additionalProperties": {
+                            "type": "integer"
+                          }
+                        }
+                      }
+                    }
                   }
                 }
               }
@@ -293,38 +1104,100 @@
       "get": {
         "summary": "Search audiobooks",
         "parameters": [
-          {"name": "q",      "in": "query", "required": true,  "schema": {"type": "string"}},
-          {"name": "author", "in": "query", "required": false, "schema": {"type": "string"}}
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ]
       }
     },
     "/api/search/manga": {
       "get": {
         "summary": "Search manga",
-        "parameters": [{"name": "q", "in": "query", "required": true, "schema": {"type": "string"}}]
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
-
     "/api/sources": {
       "get": {
         "summary": "List configured search sources + health",
         "description": "Returns each registered driver with enabled state, circuit-breaker status, last success/fail counters. Useful for AI agents debugging why a source isn't returning results."
       }
     },
-
     "/api/library": {
       "get": {
         "summary": "List ebooks in the library",
         "parameters": [
-          {"name": "limit",  "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
-          {"name": "offset", "in": "query", "schema": {"type": "integer", "minimum": 0, "default": 0}},
-          {"name": "type",   "in": "query", "schema": {"type": "string", "enum": ["ebook", "audiobook", "manga"]}},
-          {"name": "tag",    "in": "query", "schema": {"type": "string"}, "description": "Filter by tag name."}
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ebook",
+                "audiobook",
+                "manga"
+              ]
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by tag name."
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated library items",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginatedList"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedList"
+                }
+              }
+            }
           }
         }
       }
@@ -334,69 +1207,219 @@
         "summary": "List normalized Librarr 2.0 books",
         "description": "Returns one logical book per item with batched normalized enrichment. Requires LIBRARR_LIBRARY_REPOSITORY_MODE=normalized.",
         "parameters": [
-          {"name": "limit", "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
-          {"name": "offset", "in": "query", "schema": {"type": "integer", "minimum": 0, "default": 0}},
-          {"name": "search", "in": "query", "schema": {"type": "string"}},
-          {"name": "media_type", "in": "query", "schema": {"type": "string", "enum": ["ebook", "audiobook", "comic", "manga"]}},
-          {"name": "format", "in": "query", "schema": {"type": "string"}},
-          {"name": "sort", "in": "query", "schema": {"type": "string", "enum": ["title", "author", "recently_added", "recently_updated"]}},
-          {"name": "order", "in": "query", "schema": {"type": "string", "enum": ["asc", "desc"]}}
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "search",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "media_type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ebook",
+                "audiobook",
+                "comic",
+                "manga"
+              ]
+            }
+          },
+          {
+            "name": "format",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "title",
+                "author",
+                "recently_added",
+                "recently_updated"
+              ]
+            }
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "asc",
+                "desc"
+              ]
+            }
+          }
         ]
       }
     },
     "/api/v1/books/{id}": {
       "get": {
         "summary": "Get a normalized Librarr 2.0 book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       },
       "delete": {
         "summary": "Remove a normalized book from the catalog, optionally deleting managed files",
         "description": "Admin-only. With delete_files=false, removes the normalized catalog record and leaves files on disk. With delete_files=true, Librarr resolves attached files from the selected book, verifies each path is inside configured library roots, deletes files first, then removes catalog records. The client never supplies filesystem paths.",
         "parameters": [
-          {"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}},
-          {"name": "delete_files", "in": "query", "schema": {"type": "boolean", "default": false}}
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "delete_files",
+            "in": "query",
+            "schema": {
+              "type": "boolean",
+              "default": false
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Book removed or deleted"},
-          "400": {"description": "Invalid or unsafe attached file path"},
-          "403": {"description": "Admin access required"},
-          "404": {"description": "Book not found"},
-          "409": {"description": "One or more files could not be deleted; catalog record was retained"}
+          "200": {
+            "description": "Book removed or deleted"
+          },
+          "400": {
+            "description": "Invalid or unsafe attached file path"
+          },
+          "403": {
+            "description": "Admin access required"
+          },
+          "404": {
+            "description": "Book not found"
+          },
+          "409": {
+            "description": "One or more files could not be deleted; catalog record was retained"
+          }
         }
       }
     },
     "/api/v1/books/{id}/metadata": {
       "get": {
         "summary": "Get normalized metadata for a Librarr 2.0 book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       },
       "patch": {
         "summary": "Apply manual metadata overrides for a Librarr 2.0 book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/books/{id}/provenance": {
       "get": {
         "summary": "Get metadata provenance and competing evidence for a Librarr 2.0 book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/books/{id}/files": {
       "get": {
         "summary": "List all files attached to a normalized book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/books/{id}/editions": {
       "get": {
         "summary": "List editions for a normalized book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/books/{id}/cover": {
       "get": {
         "summary": "Serve a stored local cover image for a normalized book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/library/summary": {
@@ -409,30 +1432,83 @@
       "get": {
         "summary": "List wanted books",
         "responses": {
-          "200": {"description": "Wanted books", "content": {"application/json": {"schema": {"type": "object"}}}}
+          "200": {
+            "description": "Wanted books",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WantedCreateRequest"
+                }
+              }
+            }
+          }
         }
       },
       "post": {
         "summary": "Create a wanted book",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object"
+              }
+            }
+          }
         },
         "responses": {
-          "201": {"description": "Created"},
-          "400": {"description": "Validation error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "409": {"description": "Duplicate wanted book", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Duplicate wanted book",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/wanted/{id}": {
       "patch": {
         "summary": "Update monitored/state for a wanted book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       },
       "delete": {
         "summary": "Delete a wanted book",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
     "/api/v1/library/repairs/nested-ebook-paths": {
@@ -440,18 +1516,72 @@
         "summary": "Preview nested ebook path repair",
         "description": "Admin-only dry run for cataloged ebook files under a repeated ebook root such as /books/ebooks/ebooks. No files or database paths are changed.",
         "responses": {
-          "200": {"description": "Repair preview", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NestedEbookPathRepairPlan"}}}},
-          "400": {"description": "Repair cannot be planned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "403": {"description": "Admin access required", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Repair preview",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NestedEbookPathRepairPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Repair cannot be planned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       },
       "post": {
         "summary": "Run nested ebook path repair",
         "description": "Admin-only explicit repair. Moves only ready entries, updates normalized file paths through LibraryService, skips collisions/missing/unsafe entries, and removes only empty legacy directories.",
         "responses": {
-          "200": {"description": "Repair execution result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/NestedEbookPathRepairPlan"}}}},
-          "400": {"description": "Repair cannot be planned", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "403": {"description": "Admin access required", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Repair execution result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NestedEbookPathRepairPlan"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Repair cannot be planned",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Admin access required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -462,34 +1592,119 @@
         "responses": {
           "202": {
             "description": "Scan accepted",
-            "content": {"application/json": {"schema": {"type": "object", "properties": {
-              "success": {"type": "boolean"},
-              "job_id": {"type": "string"},
-              "job": {"$ref": "#/components/schemas/LibraryScanJob"}
-            }}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "job_id": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "$ref": "#/components/schemas/LibraryScanJob"
+                    }
+                  }
+                }
+              }
+            }
           },
-          "409": {"description": "A scan is already running", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "409": {
+            "description": "A scan is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/library/scan/{job_id}": {
       "get": {
         "summary": "Get library scan job progress",
-        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Scan job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibraryScanJob"}}}},
-          "404": {"description": "Unknown scan job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Scan job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryScanJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown scan job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/library/scan/{job_id}/results": {
       "get": {
         "summary": "Get completed library scan review payload",
-        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Completed review payload", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibraryScanResult"}}}},
-          "409": {"description": "Scan results are not ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "404": {"description": "Unknown scan job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Completed review payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryScanResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Scan results are not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown scan job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -498,12 +1713,37 @@
         "summary": "Serve a temporary local cover image extracted during scan review",
         "description": "Returns user-owned artwork extracted from a local scan candidate when available. Does not download or proxy external covers.",
         "parameters": [
-          {"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}},
-          {"name": "candidate_id", "in": "path", "required": true, "schema": {"type": "string"}}
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "candidate_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
-          "200": {"description": "Local cover image"},
-          "404": {"description": "Cover not found", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Local cover image"
+          },
+          "404": {
+            "description": "Cover not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -511,30 +1751,112 @@
       "post": {
         "summary": "Resolve or edit a scan review candidate in memory",
         "description": "Marks a manual_review candidate as ready_to_import using suggested metadata, or applies manually edited metadata to a manual_review or ready candidate before import. This does not write library data.",
-        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "properties": {
-            "id": {"type": "string"},
-            "action": {"type": "string", "enum": ["use_suggested", "edit_metadata"]},
-            "title": {"type": "string"},
-            "subtitle": {"type": "string"},
-            "author": {"type": "string"},
-            "series": {"type": "string"},
-            "series_number": {"type": "string"},
-            "publisher": {"type": "string"},
-            "publication_year": {"type": "string"},
-            "isbn": {"type": "string"},
-            "language": {"type": "string"},
-            "description": {"type": "string"},
-            "tags": {"type": "array", "items": {"type": "string"}},
-            "library": {"type": "string"}
-          }, "required": ["id", "action"]}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "action": {
+                    "type": "string",
+                    "enum": [
+                      "use_suggested",
+                      "edit_metadata"
+                    ]
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "subtitle": {
+                    "type": "string"
+                  },
+                  "author": {
+                    "type": "string"
+                  },
+                  "series": {
+                    "type": "string"
+                  },
+                  "series_number": {
+                    "type": "string"
+                  },
+                  "publisher": {
+                    "type": "string"
+                  },
+                  "publication_year": {
+                    "type": "string"
+                  },
+                  "isbn": {
+                    "type": "string"
+                  },
+                  "language": {
+                    "type": "string"
+                  },
+                  "description": {
+                    "type": "string"
+                  },
+                  "tags": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "library": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "action"
+                ]
+              }
+            }
+          }
         },
         "responses": {
-          "200": {"description": "Updated scan review payload", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibraryScanResult"}}}},
-          "400": {"description": "Invalid resolution", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "404": {"description": "Unknown scan job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Updated scan review payload",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryScanResult"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid resolution",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown scan job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
@@ -544,164 +1866,651 @@
         "description": "Imports only ready_to_import candidates from a completed scan review. Duplicates, already imported, unsupported, and unreadable entries are never imported.",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"type": "object", "properties": {
-            "scan_job_id": {"type": "string"},
-            "candidate_ids": {"type": "array", "items": {"type": "string"}},
-            "all_ready": {"type": "boolean"}
-          }, "required": ["scan_job_id"]}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "scan_job_id": {
+                    "type": "string"
+                  },
+                  "candidate_ids": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "all_ready": {
+                    "type": "boolean"
+                  }
+                },
+                "required": [
+                  "scan_job_id"
+                ]
+              }
+            }
+          }
         },
         "responses": {
-          "202": {"description": "Import accepted", "content": {"application/json": {"schema": {"type": "object", "properties": {
-            "success": {"type": "boolean"},
-            "job_id": {"type": "string"},
-            "job": {"$ref": "#/components/schemas/LibraryImportJob"}
-          }}}}},
-          "400": {"description": "No ready candidates selected", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "409": {"description": "An import is already running", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "202": {
+            "description": "Import accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "job_id": {
+                      "type": "string"
+                    },
+                    "job": {
+                      "$ref": "#/components/schemas/LibraryImportJob"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "No ready candidates selected",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An import is already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/library/import/{job_id}": {
       "get": {
         "summary": "Get library import job progress",
-        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Import job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibraryImportJob"}}}},
-          "404": {"description": "Unknown import job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Import job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryImportJob"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown import job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/v1/library/import/{job_id}/results": {
       "get": {
         "summary": "Get completed library import result",
-        "parameters": [{"name": "job_id", "in": "path", "required": true, "schema": {"type": "string"}}],
+        "parameters": [
+          {
+            "name": "job_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
-          "200": {"description": "Completed import result", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/LibraryImportResult"}}}},
-          "409": {"description": "Import results are not ready", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}},
-          "404": {"description": "Unknown import job", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "200": {
+            "description": "Completed import result",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LibraryImportResult"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Import results are not ready",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown import job",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
-    "/api/library/audiobooks": {"get": {"summary": "List audiobooks (proxied from Audiobookshelf when configured)"}},
-    "/api/library/manga":      {"get": {"summary": "List manga"}},
-    "/api/library/book/{id}":      {"delete": {"summary": "Remove an ebook from the library", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]}},
-    "/api/library/audiobook/{id}": {"delete": {"summary": "Remove an audiobook", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]}},
-    "/api/library/{id}/tags":      {"get":  {"summary": "List tags for a library item"}, "post": {"summary": "Add a tag to a library item"}},
-    "/api/library/{id}/tags/{tagId}": {"delete": {"summary": "Remove a tag from a library item"}},
-
+    "/api/library/audiobooks": {
+      "get": {
+        "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
+      }
+    },
+    "/api/library/manga": {
+      "get": {
+        "summary": "List manga"
+      }
+    },
+    "/api/library/book/{id}": {
+      "delete": {
+        "summary": "Remove an ebook from the library",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/library/audiobook/{id}": {
+      "delete": {
+        "summary": "Remove an audiobook",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/library/{id}/tags": {
+      "get": {
+        "summary": "List tags for a library item"
+      },
+      "post": {
+        "summary": "Add a tag to a library item"
+      }
+    },
+    "/api/library/{id}/tags/{tagId}": {
+      "delete": {
+        "summary": "Remove a tag from a library item"
+      }
+    },
     "/api/wishlist": {
-      "get":  {"summary": "List wishlist items"},
+      "get": {
+        "summary": "List wishlist items"
+      },
       "post": {
         "summary": "Add a wishlist item",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WishlistItem"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WishlistItem"
+              }
+            }
+          }
         },
         "responses": {
-          "201": {"description": "Created"},
-          "400": {"description": "Validation error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/wishlist/{id}": {
       "delete": {
         "summary": "Delete a wishlist item",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
       }
     },
-
     "/api/requests": {
-      "get":  {"summary": "List requests"},
-      "post": {"summary": "Create a request"}
+      "get": {
+        "summary": "List requests"
+      },
+      "post": {
+        "summary": "Create a request"
+      }
     },
-    "/api/requests/{id}":          {"get": {"summary": "Get a request"}, "delete": {"summary": "Delete a request"}},
-    "/api/requests/{id}/search":   {"post": {"summary": "Trigger a search for a request"}},
-    "/api/requests/{id}/download": {"post": {"summary": "Trigger a download for a request"}},
-
+    "/api/requests/{id}": {
+      "get": {
+        "summary": "Get a request"
+      },
+      "delete": {
+        "summary": "Delete a request"
+      }
+    },
+    "/api/requests/{id}/search": {
+      "post": {
+        "summary": "Trigger a search for a request"
+      }
+    },
+    "/api/requests/{id}/download": {
+      "post": {
+        "summary": "Trigger a download for a request"
+      }
+    },
     "/api/downloads": {
-      "get": {"summary": "List active and recent downloads"}
+      "get": {
+        "summary": "List active and recent downloads"
+      }
     },
-    "/api/downloads/torrent/{hash}": {"delete": {"summary": "Remove a torrent download"}},
-    "/api/downloads/novel/{jobID}":  {"delete": {"summary": "Remove a novel download job"}},
-    "/api/downloads/jobs/{id}/retry": {"post": {"summary": "Retry a failed download"}},
-    "/api/downloads/clear":           {"post": {"summary": "Clear finished downloads"}},
-
-    "/api/quality-profiles":       {"get": {"summary": "List quality profiles"}, "post": {"summary": "Create quality profile"}},
-    "/api/quality-profiles/{id}":  {"delete": {"summary": "Delete quality profile"}},
-    "/api/quality-profiles/default": {"get": {"summary": "Default profile"}},
-    "/api/release-profiles":       {"get": {"summary": "List release profiles"}, "post": {"summary": "Create"}},
-    "/api/release-profiles/{id}":  {"delete": {"summary": "Delete release profile"}},
-    "/api/blocklist":              {"get": {"summary": "List blocklist entries"}, "post": {"summary": "Add an entry"}},
-    "/api/blocklist/{id}":         {"delete": {"summary": "Remove an entry"}},
-    "/api/tags":                   {"get": {"summary": "List tags"}, "post": {"summary": "Create a tag"}},
-    "/api/tags/{id}":              {"delete": {"summary": "Delete a tag"}},
-
-    "/api/users":                  {"get": {"summary": "List users with role, status, creation time, and last login (admin only)"}},
-    "/api/users/{id}":             {
-      "patch":  {"summary": "Update user username, role, password, or enabled status (admin only)"},
-      "delete": {"summary": "Delete a non-admin user (admin only). Administrator accounts cannot be deleted."}
+    "/api/v1/downloads": {
+      "get": {
+        "summary": "List active and recent downloads"
+      }
     },
-    "/api/invites":                {"get": {"summary": "List invites (admin)"}, "post": {"summary": "Create invite (admin)"}},
-    "/api/invites/{id}":           {"delete": {"summary": "Revoke invite (admin)"}},
-
-    "/api/totp/setup":   {"post": {"summary": "Generate TOTP secret + QR code"}},
-    "/api/totp/verify":  {"post": {"summary": "Verify TOTP code and enable 2FA"}},
-    "/api/totp/disable": {"post": {"summary": "Disable TOTP"}},
-    "/api/totp/status":  {"get":  {"summary": "Check if TOTP is enabled"}},
-
-    "/api/notifications":              {"get": {"summary": "List notifications"}},
-    "/api/notifications/{id}":         {"delete": {"summary": "Delete notification"}},
-    "/api/notifications/{id}/read":    {"put": {"summary": "Mark as read"}},
-    "/api/notifications/read-all":     {"put": {"summary": "Mark all as read"}},
-    "/api/notifications/unread":       {"get": {"summary": "Unread count"}},
-
-    "/api/webhooks":      {"get": {"summary": "List webhooks"}, "post": {"summary": "Create webhook"}},
-    "/api/webhooks/{id}": {"delete": {"summary": "Delete webhook"}},
-    "/api/webhooks/test": {"post": {"summary": "Send a test payload"}},
-
-    "/api/stats":    {"get": {"summary": "Library statistics"}},
-    "/api/activity": {"get": {"summary": "Recent activity log"}},
-    "/api/history":  {"get": {"summary": "Reading history"}},
-    "/api/history/{id}":   {"delete": {"summary": "Delete history entry"}},
-    "/api/history/stats":  {"get": {"summary": "Reading-history statistics"}},
-
-    "/api/authors":         {"get": {"summary": "List monitored authors"}},
-    "/api/authors/{id}":    {"delete": {"summary": "Unmonitor an author"}},
-    "/api/series":          {"get": {"summary": "List series with completeness"}},
-    "/api/series/{name}/missing": {"get": {"summary": "Missing volumes in a series"}},
-
-    "/api/settings":           {"get": {"summary": "Get configuration"}, "post": {"summary": "Update configuration (admin)"}},
-    "/api/config":             {"get": {"summary": "Public-safe config subset"}},
-    "/api/scheduler/status":   {"get": {"summary": "Wishlist scheduler status"}},
-    "/api/admin/dashboard":    {"get": {"summary": "Admin dashboard data"}},
-    "/api/admin/health":       {"get": {"summary": "Admin health summary"}},
-    "/api/admin/activity":     {"get": {"summary": "Admin-level activity log"}},
-    "/api/admin/bulk/retry":   {"post": {"summary": "Bulk retry failed downloads"}},
-    "/api/admin/bulk/cancel":  {"post": {"summary": "Bulk cancel active downloads"}},
-    "/api/backup":             {"get": {"summary": "Download a database backup"}},
-    "/api/backup/list":        {"get": {"summary": "List existing backups"}},
-    "/api/restore":            {"post": {"summary": "Restore from a backup file (admin)"}},
-
-    "/api/import/csv":         {"post": {"summary": "Import wishlist from a Goodreads/StoryGraph CSV"}},
-    "/api/import/goodreads":   {"post": {"summary": "Import Goodreads shelves"}},
-    "/api/import/storygraph":  {"post": {"summary": "Import StoryGraph reading list"}},
-    "/api/export/library":     {"get": {"summary": "Export library as JSON/CSV"}},
-    "/api/export/wishlist":    {"get": {"summary": "Export wishlist as JSON/CSV"}},
-    "/api/export/requests":    {"get": {"summary": "Export requests as JSON/CSV"}},
-
+    "/api/downloads/torrent/{hash}": {
+      "delete": {
+        "summary": "Remove a torrent download"
+      }
+    },
+    "/api/downloads/novel/{jobID}": {
+      "delete": {
+        "summary": "Remove a novel download job"
+      }
+    },
+    "/api/downloads/jobs/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed download"
+      }
+    },
+    "/api/downloads/clear": {
+      "post": {
+        "summary": "Clear finished downloads"
+      }
+    },
+    "/api/quality-profiles": {
+      "get": {
+        "summary": "List quality profiles"
+      },
+      "post": {
+        "summary": "Create quality profile"
+      }
+    },
+    "/api/quality-profiles/{id}": {
+      "delete": {
+        "summary": "Delete quality profile"
+      }
+    },
+    "/api/quality-profiles/default": {
+      "get": {
+        "summary": "Default profile"
+      }
+    },
+    "/api/release-profiles": {
+      "get": {
+        "summary": "List release profiles"
+      },
+      "post": {
+        "summary": "Create"
+      }
+    },
+    "/api/release-profiles/{id}": {
+      "delete": {
+        "summary": "Delete release profile"
+      }
+    },
+    "/api/blocklist": {
+      "get": {
+        "summary": "List blocklist entries"
+      },
+      "post": {
+        "summary": "Add an entry"
+      }
+    },
+    "/api/blocklist/{id}": {
+      "delete": {
+        "summary": "Remove an entry"
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "summary": "List tags"
+      },
+      "post": {
+        "summary": "Create a tag"
+      }
+    },
+    "/api/tags/{id}": {
+      "delete": {
+        "summary": "Delete a tag"
+      }
+    },
+    "/api/users": {
+      "get": {
+        "summary": "List users with role, status, creation time, and last login (admin only)"
+      }
+    },
+    "/api/users/{id}": {
+      "patch": {
+        "summary": "Update user username, role, password, or enabled status (admin only)"
+      },
+      "delete": {
+        "summary": "Delete a non-admin user (admin only). Administrator accounts cannot be deleted."
+      }
+    },
+    "/api/invites": {
+      "get": {
+        "summary": "List invites (admin)"
+      },
+      "post": {
+        "summary": "Create invite (admin)"
+      }
+    },
+    "/api/invites/{id}": {
+      "delete": {
+        "summary": "Revoke invite (admin)"
+      }
+    },
+    "/api/totp/setup": {
+      "post": {
+        "summary": "Generate TOTP secret + QR code"
+      }
+    },
+    "/api/totp/verify": {
+      "post": {
+        "summary": "Verify TOTP code and enable 2FA"
+      }
+    },
+    "/api/totp/disable": {
+      "post": {
+        "summary": "Disable TOTP"
+      }
+    },
+    "/api/totp/status": {
+      "get": {
+        "summary": "Check if TOTP is enabled"
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "List notifications"
+      }
+    },
+    "/api/notifications/{id}": {
+      "delete": {
+        "summary": "Delete notification"
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "put": {
+        "summary": "Mark as read"
+      }
+    },
+    "/api/notifications/read-all": {
+      "put": {
+        "summary": "Mark all as read"
+      }
+    },
+    "/api/notifications/unread": {
+      "get": {
+        "summary": "Unread count"
+      }
+    },
+    "/api/webhooks": {
+      "get": {
+        "summary": "List webhooks"
+      },
+      "post": {
+        "summary": "Create webhook"
+      }
+    },
+    "/api/webhooks/{id}": {
+      "delete": {
+        "summary": "Delete webhook"
+      }
+    },
+    "/api/webhooks/test": {
+      "post": {
+        "summary": "Send a test payload"
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Library statistics"
+      }
+    },
+    "/api/activity": {
+      "get": {
+        "summary": "Recent activity log"
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Reading history"
+      }
+    },
+    "/api/history/{id}": {
+      "delete": {
+        "summary": "Delete history entry"
+      }
+    },
+    "/api/history/stats": {
+      "get": {
+        "summary": "Reading-history statistics"
+      }
+    },
+    "/api/authors": {
+      "get": {
+        "summary": "List monitored authors"
+      }
+    },
+    "/api/authors/{id}": {
+      "delete": {
+        "summary": "Unmonitor an author"
+      }
+    },
+    "/api/series": {
+      "get": {
+        "summary": "List series with completeness"
+      }
+    },
+    "/api/series/{name}/missing": {
+      "get": {
+        "summary": "Missing volumes in a series"
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get configuration"
+      },
+      "post": {
+        "summary": "Update configuration (admin)"
+      }
+    },
+    "/api/config": {
+      "get": {
+        "summary": "Public-safe config subset"
+      }
+    },
+    "/api/scheduler/status": {
+      "get": {
+        "summary": "Wishlist scheduler status"
+      }
+    },
+    "/api/admin/dashboard": {
+      "get": {
+        "summary": "Admin dashboard data"
+      }
+    },
+    "/api/admin/health": {
+      "get": {
+        "summary": "Admin health summary"
+      }
+    },
+    "/api/admin/activity": {
+      "get": {
+        "summary": "Admin-level activity log"
+      }
+    },
+    "/api/admin/bulk/retry": {
+      "post": {
+        "summary": "Bulk retry failed downloads"
+      }
+    },
+    "/api/admin/bulk/cancel": {
+      "post": {
+        "summary": "Bulk cancel active downloads"
+      }
+    },
+    "/api/backup": {
+      "get": {
+        "summary": "Download a database backup"
+      }
+    },
+    "/api/backup/list": {
+      "get": {
+        "summary": "List existing backups"
+      }
+    },
+    "/api/restore": {
+      "post": {
+        "summary": "Restore from a backup file (admin)"
+      }
+    },
+    "/api/import/csv": {
+      "post": {
+        "summary": "Import wishlist from a Goodreads/StoryGraph CSV"
+      }
+    },
+    "/api/import/goodreads": {
+      "post": {
+        "summary": "Import Goodreads shelves"
+      }
+    },
+    "/api/import/storygraph": {
+      "post": {
+        "summary": "Import StoryGraph reading list"
+      }
+    },
+    "/api/export/library": {
+      "get": {
+        "summary": "Export library as JSON/CSV"
+      }
+    },
+    "/api/export/wishlist": {
+      "get": {
+        "summary": "Export wishlist as JSON/CSV"
+      }
+    },
+    "/api/export/requests": {
+      "get": {
+        "summary": "Export requests as JSON/CSV"
+      }
+    },
     "/torznab/api": {
       "get": {
         "summary": "Torznab indexer API",
         "description": "Lets Prowlarr / Readarr / other *arr apps use Librarr as a Torznab indexer.",
         "parameters": [
-          {"name": "t",      "in": "query", "schema": {"type": "string", "enum": ["caps", "search", "book", "audio"]}},
-          {"name": "q",      "in": "query", "schema": {"type": "string"}},
-          {"name": "title",  "in": "query", "schema": {"type": "string"}},
-          {"name": "author", "in": "query", "schema": {"type": "string"}},
-          {"name": "apikey", "in": "query", "schema": {"type": "string"}, "description": "Required when TORZNAB_API_KEY is set."}
+          {
+            "name": "t",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caps",
+                "search",
+                "book",
+                "audio"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "apikey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required when TORZNAB_API_KEY is set."
+          }
         ],
         "responses": {
-          "200": {"description": "Torznab XML (RSS feed or caps document)", "content": {"application/xml": {}}}
+          "200": {
+            "description": "Torznab XML (RSS feed or caps document)",
+            "content": {
+              "application/xml": {}
+            }
+          }
         }
       }
     },
@@ -715,82 +2524,506 @@
       "get": {
         "summary": "OPDS 1.2 catalog root",
         "description": "Browse your normalized Librarr library from OPDS-compatible reader apps.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "responses": {"200": {"description": "Navigation Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Navigation Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/books": {
       "get": {
         "summary": "OPDS all-books feed",
         "description": "Returns one OPDS entry per logical book with acquisition links for available files.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}}],
-        "responses": {"200": {"description": "Acquisition Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Acquisition Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/recent": {
       "get": {
         "summary": "OPDS recently added feed",
         "description": "Returns recently added logical books with acquisition links.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}}],
-        "responses": {"200": {"description": "Acquisition Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Acquisition Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/authors": {
       "get": {
         "summary": "OPDS author navigation feed",
         "description": "Groups catalog entries by primary author.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "responses": {"200": {"description": "Navigation Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Navigation Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/authors/{key}": {
       "get": {
         "summary": "OPDS books by author",
         "description": "Returns books whose primary author matches the author key.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "key", "in": "path", "required": true, "schema": {"type": "string"}}],
-        "responses": {"200": {"description": "Acquisition Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "key",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Acquisition Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/search": {
       "get": {
         "summary": "OPDS search feed",
         "description": "Searches normalized library books by title and author.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "q", "in": "query", "schema": {"type": "string"}}, {"name": "page", "in": "query", "schema": {"type": "integer", "minimum": 1}}],
-        "responses": {"200": {"description": "Acquisition Atom feed", "content": {"application/atom+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Acquisition Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/opds/download/{id}": {
       "get": {
         "summary": "Download a library file for OPDS acquisition",
         "description": "Streams a normalized library file by stable file ID without exposing filesystem paths.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
-        "responses": {"200": {"description": "Library file stream"}, "401": {"description": "Authentication required"}, "404": {"description": "File not found"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Library file stream"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "File not found"
+          }
+        }
       }
     },
     "/opds/cover/{id}": {
       "get": {
         "summary": "Serve a local book cover for OPDS",
         "description": "Serves the existing cached primary cover for a normalized book when available.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer", "format": "int64"}}],
-        "responses": {"200": {"description": "Cover image"}, "401": {"description": "Authentication required"}, "404": {"description": "Cover not found"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "format": "int64"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Cover image"
+          },
+          "401": {
+            "description": "Authentication required"
+          },
+          "404": {
+            "description": "Cover not found"
+          }
+        }
+      }
+    },
+    "/api/v1/wanted/{id}/releases": {
+      "get": {
+        "summary": "List stored releases for a wanted book",
+        "description": "Returns releases from the most recent successful Wanted search. This endpoint is read-only and does not trigger a new search or expose internal download URLs.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Stored wanted releases",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WantedReleasesResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wanted book not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wanted/{id}/releases/{release_id}/download": {
+      "post": {
+        "summary": "Send a stored wanted release to the configured torrent client",
+        "description": "Manually submits one stored Wanted release to the existing torrent download pipeline. The client sends only the Wanted id and stored release id; internal download URLs remain server-side.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "release_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Release submitted to the torrent client",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WantedReleaseDownloadResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wanted book or release not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Wanted item is already downloading or complete",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Release cannot be submitted through the configured torrent pipeline",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "Torrent client handoff failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/opds/opensearch.xml": {
       "get": {
         "summary": "OPDS OpenSearch description",
         "description": "Returns OpenSearch discovery metadata for OPDS clients.",
-        "security": [{"opdsBasic": []}, {"apiKey": []}],
-        "responses": {"200": {"description": "OpenSearch description", "content": {"application/opensearchdescription+xml": {}}}, "401": {"description": "Authentication required"}}
+        "security": [
+          {
+            "opdsBasic": []
+          },
+          {
+            "apiKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OpenSearch description",
+            "content": {
+              "application/opensearchdescription+xml": {}
+            }
+          },
+          "401": {
+            "description": "Authentication required"
+          }
+        }
       }
     },
     "/metrics": {
-      "get": {"summary": "Prometheus metrics", "security": []}
+      "get": {
+        "summary": "Prometheus metrics",
+        "security": []
+      }
+    },
+    "/api/v1/wanted/history": {
+      "get": {
+        "summary": "List wanted search history",
+        "responses": {
+          "200": {
+            "description": "Wanted search history",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WantedHistoryResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wanted/search": {
+      "post": {
+        "summary": "Search all monitored wanted books",
+        "responses": {
+          "200": {
+            "description": "Wanted search summary",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Wanted monitor already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/v1/wanted/{id}/search": {
+      "post": {
+        "summary": "Search one wanted book",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Updated wanted book",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Wanted book not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Wanted monitor already running",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   }
 }

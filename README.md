@@ -4,7 +4,7 @@
 [![Go Report Card](https://goreportcard.com/badge/github.com/jamie75/librarr)](https://goreportcard.com/report/github.com/jamie75/librarr)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-**Self-hosted book acquisition, organization, cataloging, and OPDS delivery for homelabs.**
+**Self-hosted book acquisition, organization, cataloging, Wanted monitoring, and OPDS delivery for homelabs.**
 
 Librarr 2.0 is under active development. It is evolving from its Readarr roots
 into a book-centric, Docker-first personal library application for ebooks,
@@ -51,9 +51,12 @@ Librarr 2.0 currently has:
 - logical book cards that group available formats such as EPUB and MOBI
 - safe library removal with separate catalog-only and delete-files actions
 - embedded EPUB cover extraction with local cover caching
+- Wanted Books with monitored Prowlarr searches, search history, release inspection, and manual qBittorrent handoff
+- Wanted/library reconciliation so imported Wanted titles move out of the active queue
 - expanded User Management with local accounts, roles, status, password resets, and invite codes
 - rich connection diagnostics for Prowlarr and qBittorrent
 - normalized `/api/v1` read endpoints
+- `/api/v1` Wanted and Downloads endpoints for new UI/API consumers
 - OPDS 1.2 catalog browsing and downloads for compatible reader apps
 - compatibility endpoints for existing legacy behavior
 - optional Prowlarr and download-client integration
@@ -207,40 +210,6 @@ Once users exist, the SQLite users table is authoritative. `AUTH_USERNAME` and
 changing those Docker environment variables later does not rename or modify
 existing database users.
 
-- progress
-- summary cards
-- search
-- filters
-- collapsible sections
-- destination preview
-- duplicate details
-- metadata source and confidence display
-- `Use Suggested`
-- `Edit Metadata`
-- `Skip`
-
-The import workflow supports:
-
-- Select All
-- Import Selected
-- Import All Ready
-- Skip Selected
-- Clear Selection
-- progress display
-- completion summary
-- automatic review refresh
-- automatic library summary refresh
-- duplicate exclusion
-- partial failure reporting
-- concurrent import protection
-- retry failed imports without rescanning
-
-Current manual-review limitations:
-
-- no internet metadata lookup
-- no cover downloading
-- no provider-backed match search
-
 ### Search and downloads
 
 Librarr can search configured sources and send downloads to supported clients.
@@ -276,8 +245,8 @@ flow.
 
 These are planned or in-progress and should not be treated as completed:
 
-- richer metadata editor
-- enhanced book details
+- external metadata provider lookup
+- provider-backed metadata refresh previews
 - reading progress
 - collections
 - author management
@@ -285,11 +254,13 @@ These are planned or in-progress and should not be treated as completed:
 - OPDS 2.0 improvements
 - Kavita synchronization
 - Audiobookshelf synchronization
-- improved covers
-- cover downloading
+- MOBI/AZW/PDF cover extraction improvements
+- provider cover downloading
 - send/download to device
 - Kindle delivery
 - scheduled scanning
+- automatic Wanted grabbing and quality profiles
+- durable Wanted downloaded/imported linkage beyond library reconciliation
 
 ## Project Direction
 
@@ -328,6 +299,11 @@ focused on a practical personal-library experience:
 - ✅ Manual Review Improvements
 - ✅ Metadata Editor
 - ✅ Connection Diagnostics for Prowlarr and qBittorrent
+- ✅ Wanted Books
+- ✅ Wanted Monitor Search History
+- ✅ Wanted Release Inspection
+- ✅ Manual Wanted Release Handoff
+- ✅ Wanted/Library Import Reconciliation
 - ⬜ Metadata Provider Integration
 - ⬜ Cover Improvements
 - ✅ OPDS 1.2 Catalog
@@ -367,6 +343,36 @@ Check API key
 Each step reports status, elapsed time where useful, detail text, and an
 actionable suggestion. Future diagnostics should extend the same engine to
 Audiobookshelf, Kavita, Komga, SABnzbd, and Transmission.
+
+## Wanted Books
+
+Wanted Books are stored as canonical book metadata: title, author, identifiers,
+language, media type, monitored state, and status. When a Wanted item starts
+from a Prowlarr/torrent release, Librarr preserves the raw release title,
+indexer, source, and preferred format separately as origin context instead of
+using the release name as the book title.
+
+The Wanted monitor can search Prowlarr using clean title/author or identifier
+queries, record search history, and persist the latest matched releases for
+inspection. Adding a Prowlarr result from Discover also seeds that exact origin
+release immediately, so **View Releases** and manual download are available
+without another search.
+
+The release viewer is read-first: users can inspect score, indexer, protocol,
+format, language, size, seeders, age, and selected-release state before taking
+action. When the user chooses a stored torrent or magnet release, the browser
+sends only the Wanted id and release id. Prowlarr download URLs stay
+server-side and reuse the same qBittorrent authentication, save path, category,
+and safe `.torrent` upload behavior as Discover downloads.
+
+Manual Wanted downloads move the item to `downloading` after qBittorrent accepts
+the handoff. The Wanted list also reconciles against the normalized Library: if
+a non-final Wanted item now matches an imported book by normalized title,
+author, and media type, it is marked `imported` and moves to Completed. This is
+conservative and does not treat same-author different-title books as imported.
+
+Automatic grabbing, quality profiles, and deeper download-client completion
+linkage are intentionally still future work.
 
 ## Architecture Overview
 
@@ -611,6 +617,21 @@ Prefer Librarr 2.0 endpoints for new integrations.
 | GET | `/api/v1/books/{id}/metadata` | Effective metadata |
 | PATCH | `/api/v1/books/{id}/metadata` | Partial metadata update |
 | GET | `/api/v1/books/{id}/provenance` | Metadata provenance |
+| GET | `/api/v1/downloads` | Active and recent downloads/import jobs |
+
+### Wanted Books
+
+| Method | Path | Description |
+|---|---|---|
+| GET | `/api/v1/wanted` | List Wanted books and counts |
+| POST | `/api/v1/wanted` | Add a Wanted book |
+| PATCH | `/api/v1/wanted/{id}` | Update monitored state or status |
+| DELETE | `/api/v1/wanted/{id}` | Remove a Wanted book |
+| POST | `/api/v1/wanted/search` | Search all monitored Wanted books |
+| POST | `/api/v1/wanted/{id}/search` | Search one Wanted book |
+| GET | `/api/v1/wanted/history` | Recent Wanted search activity |
+| GET | `/api/v1/wanted/{id}/releases` | Stored releases from latest successful search/origin seed |
+| POST | `/api/v1/wanted/{id}/releases/{release_id}/download` | Manually hand off one stored torrent/magnet release |
 
 ### Scanner, review, and import
 
@@ -679,7 +700,7 @@ work. Do not treat them as the preferred long-term domain model.
 | GET | `/api/search/manga` | Search manga |
 | POST | `/api/download` | Direct download |
 | POST | `/api/download/torrent` | Torrent download |
-| GET | `/api/downloads` | Download jobs |
+| GET | `/api/downloads` | Download jobs; `/api/v1/downloads` is preferred for new clients |
 | GET | `/api/settings` | Settings |
 | POST | `/api/settings` | Save settings |
 | GET | `/api/config` | Bootstrap config |
@@ -716,7 +737,11 @@ Avoid generic "Something went wrong" messages.
 - [docs/INDEPENDENCE_READINESS.md](docs/INDEPENDENCE_READINESS.md) — fork-detachment readiness
 - [docs/source-registry.md](docs/source-registry.md) — source-definition dependency and override behavior
 - [docs/library-scanner-phase1.md](docs/library-scanner-phase1.md) — scanner, review, and import workflow
+- [docs/import-executor.md](docs/import-executor.md) — normalized import execution and idempotency
+- [docs/metadata-engine.md](docs/metadata-engine.md) — metadata provenance and override behavior
 - [docs/read-api.md](docs/read-api.md) — normalized read API
+- [docs/normalized-repository.md](docs/normalized-repository.md) — normalized repository behavior
+- [docs/wanted-books.md](docs/wanted-books.md) — Wanted monitoring, release inspection, and manual handoff
 - [docs/v2-dogfood.md](docs/v2-dogfood.md) — local Librarr 2.0 dogfood deployment
 - [docs/backfill-design.md](docs/backfill-design.md) and [docs/backfill-engine.md](docs/backfill-engine.md) — migration/backfill design
 

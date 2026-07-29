@@ -3,6 +3,7 @@ package api
 import (
 	"encoding/json"
 	"errors"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -39,12 +40,19 @@ func (downloadWarningTorrentClient) Name() string { return "test" }
 type recordingTorrentClient struct {
 	savePath string
 	category string
+	url      string
+	title    string
+	hash     string
+	err      error
 }
 
-func (c *recordingTorrentClient) AddTorrent(_, _, savePath, category, _ string) error {
+func (c *recordingTorrentClient) AddTorrent(url, title, savePath, category, hash string) error {
+	c.url = url
+	c.title = title
 	c.savePath = savePath
 	c.category = category
-	return nil
+	c.hash = hash
+	return c.err
 }
 
 func (*recordingTorrentClient) GetTorrents(string) ([]download.TorrentInfo, error) {
@@ -71,6 +79,37 @@ func newDownloadWarningTestServer(t *testing.T, client download.TorrentClient) *
 	cfg := &config.Config{QBUrl: "http://qbit.test"}
 	manager := download.NewManager(cfg, database, client, nil, nil, nil, nil, search.NewHealthTracker(3, 300))
 	return &Server{cfg: cfg, db: database, downloadMgr: manager}
+}
+
+func TestDownloadsV1RouteReturnsDownloadsEnvelope(t *testing.T) {
+	database, err := db.New(filepath.Join(t.TempDir(), "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = database.Close() })
+
+	cfg := &config.Config{}
+	manager := download.NewManager(cfg, database, nil, nil, nil, nil, nil, search.NewHealthTracker(3, 300))
+	server := &Server{cfg: cfg, db: database, downloadMgr: manager, mux: http.NewServeMux()}
+	server.registerDownloadRoutes()
+
+	req := httptest.NewRequest(http.MethodGet, "/api/v1/downloads", nil)
+	rr := httptest.NewRecorder()
+	server.mux.ServeHTTP(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body: %s", rr.Code, http.StatusOK, rr.Body.String())
+	}
+
+	var resp struct {
+		Downloads []models.DownloadStatus `json:"downloads"`
+	}
+	if err := json.NewDecoder(rr.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp.Downloads == nil {
+		t.Fatal("downloads should be an empty array, got null")
+	}
 }
 
 func TestHandleTorrentDownloadUsesConfiguredQBSavePaths(t *testing.T) {

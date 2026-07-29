@@ -245,9 +245,16 @@
     <!-- ==================== WANTED TAB ==================== -->
     <div id="tab-wanted" class="tab-content">
       <div class="mb-6 rounded-[1.75rem] border border-stone-800 bg-[#1b1715]/95 p-5">
-        <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-2">Wanted</p>
-        <h2 class="text-2xl font-semibold tracking-tight text-white" data-i18n="wanted_title">Wanted Books</h2>
-        <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-400">Track books you want next. Download automation will come in a later milestone.</p>
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p class="text-xs uppercase tracking-[0.24em] text-amber-300/80 mb-2">Wanted</p>
+            <h2 class="text-2xl font-semibold tracking-tight text-white" data-i18n="wanted_title">Wanted Books</h2>
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-stone-400">Track books you want next. Librarr can now monitor these titles and search Prowlarr without downloading yet.</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <button id="wanted-search-all-btn" data-action="searchAllWanted" class="rounded-xl bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 transition-colors hover:bg-amber-400">Search All Wanted</button>
+          </div>
+        </div>
       </div>
       <div id="wanted-empty" class="hidden text-center py-16">
         <h2 class="text-2xl font-bold text-white mb-2" data-i18n="wanted_empty">No wanted books yet</h2>
@@ -255,6 +262,7 @@
       </div>
       <div id="wanted-summary" class="grid gap-4 sm:grid-cols-3 mb-6"></div>
       <div id="wanted-list" class="space-y-6"></div>
+      <div id="wanted-history" class="mt-6"></div>
     </div>
 
     <!-- ==================== SETTINGS TAB ==================== -->
@@ -733,6 +741,46 @@
           <label class="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
             <input type="checkbox" id="foreign-lang-filter-toggle" class="sr-only peer" checked data-action-change="toggleForeignLangFilter">
             <div class="w-11 h-6 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-indigo-600"></div>
+          </label>
+        </div>
+      </div>
+
+      <div id="settings-wanted" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="flex flex-wrap items-start justify-between gap-3 mb-4">
+          <div>
+            <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Wanted</h3>
+            <p class="mt-1 text-xs text-slate-500">Control how often Librarr searches Prowlarr for monitored wanted books. This milestone only searches and stores results.</p>
+          </div>
+          <button data-action="saveWantedSettings" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Save</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <label class="block">
+            <span class="block text-xs text-slate-500 mb-1">Enable background monitor</span>
+            <select id="setting-wanted_monitor_enabled" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200">
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="block text-xs text-slate-500 mb-1">Search frequency</span>
+            <select id="setting-wanted_search_interval" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200">
+              <option value="1h">Every hour</option>
+              <option value="6h">Every 6 hours</option>
+              <option value="12h">Every 12 hours</option>
+              <option value="daily">Daily</option>
+              <option value="manual">Manual only</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="block text-xs text-slate-500 mb-1">Retry failures</span>
+            <select id="setting-wanted_retry_failures" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200">
+              <option value="true">Enabled</option>
+              <option value="false">Disabled</option>
+            </select>
+          </label>
+          <label class="block">
+            <span class="block text-xs text-slate-500 mb-1">Maximum results to keep</span>
+            <input type="number" id="setting-wanted_max_results_keep" min="1" max="250" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200" placeholder="20">
           </label>
         </div>
       </div>

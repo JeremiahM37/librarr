@@ -12,8 +12,8 @@ const indexHTML = fs.readFileSync(htmlPath, 'utf8');
 const appCSS = fs.readFileSync(cssPath, 'utf8');
 
 function extractFunctionSource(name) {
-  const asyncStart = appSource.indexOf(`async function ${name}`);
-  const plainStart = appSource.indexOf(`function ${name}`);
+  const asyncStart = appSource.indexOf(`async function ${name}(`);
+  const plainStart = appSource.indexOf(`function ${name}(`);
   const start = asyncStart !== -1 ? asyncStart : plainStart;
   if (start === -1) {
     throw new Error(`function ${name} not found`);
@@ -77,13 +77,36 @@ const functionBundle = [
   extractFunctionSource('makePlaceholderHtml'),
   extractFunctionSource('normalizeWantedKeyPart'),
   extractFunctionSource('wantedIdentityKey'),
+  extractFunctionSource('wantedSourceKey'),
   extractFunctionSource('searchResultMediaType'),
   extractFunctionSource('wantedStateForResult'),
   extractFunctionSource('refreshWantedData'),
+  extractFunctionSource('loadWantedHistory'),
   extractFunctionSource('renderBookCard'),
+  extractFunctionSource('showSearchNoResults'),
   extractFunctionSource('renderLibraryBookCard'),
   extractFunctionSource('renderWantedGroups'),
   extractFunctionSource('renderWantedCard'),
+  extractFunctionSource('renderWantedHistory'),
+  extractFunctionSource('formatWantedTimestamp'),
+  extractFunctionSource('doJsonSearch'),
+  extractFunctionSource('ensureWantedReleaseViewer'),
+  extractFunctionSource('renderWantedReleaseViewer'),
+  extractFunctionSource('renderWantedReleaseSelect'),
+  extractFunctionSource('renderWantedReleaseRow'),
+  extractFunctionSource('wantedReleaseOptions'),
+  extractFunctionSource('filteredWantedReleases'),
+  extractFunctionSource('wantedReleaseTime'),
+  extractFunctionSource('formatWantedReleaseAge'),
+  extractFunctionSource('openWantedReleases'),
+  extractFunctionSource('closeWantedReleases'),
+  extractFunctionSource('renderWantedReleaseModal'),
+  extractFunctionSource('setWantedReleaseFilter'),
+  extractFunctionSource('downloadWantedRelease'),
+  extractFunctionSource('addWantedFromSearchResult'),
+  extractFunctionSource('searchWantedBook'),
+  extractFunctionSource('searchAllWanted'),
+  extractFunctionSource('saveWantedSettings'),
   extractFunctionSource('removeWantedBook'),
   extractFunctionSource('renderBookDeletionPanel'),
   extractFunctionSource('renderBookDeleteConfirmation'),
@@ -95,6 +118,9 @@ const functionBundle = [
   extractFunctionSource('renderMetricCard'),
   extractFunctionSource('loadHomeDashboard'),
   extractFunctionSource('renderCompactDownload'),
+  extractFunctionSource('isActiveDownloadStatus'),
+  extractFunctionSource('renderDownloadList'),
+  extractFunctionSource('renderDownloadJob'),
   extractFunctionSource('renderActivityRow'),
   extractFunctionSource('renderDashboardEmpty'),
   extractFunctionSource('buildFormatCounts'),
@@ -271,17 +297,38 @@ function createContext(overrides = {}) {
       libraryBooks: [],
       wantedBooks: [],
       wantedIndex: new Set(),
+      wantedSourceIndex: new Set(),
+      wantedSearchPending: new Set(),
+      wantedSearchAllRunning: false,
+      wantedReleaseDownloads: new Set(),
+      wantedReleaseViewer: {
+        open: false,
+        loading: false,
+        itemId: 0,
+        title: '',
+        releases: [],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
       libraryMatchIndex: new Set(),
       searchTab: 'ebooks',
       searchResults: [],
       renderedResults: [],
       pendingDownloads: new Set(),
+      pendingRetryDownloads: new Set(),
       trackedDownloadJobs: new Map(),
       downloadOutcomes: new Map(),
       activeDetailBook: null,
       activeDetailContext: null,
       libraryRepair: { nestedEbookPaths: { loading: false, running: false, plan: null, result: null, error: '' } },
       config: { library_repository_mode: 'normalized' },
+    },
+    STATUS_STYLES: {
+      queued: { bg: 'queued-bg', text: 'queued-text', border: 'queued-border' },
+      completed: { bg: 'completed-bg', text: 'completed-text', border: 'completed-border' },
+      error: { bg: 'error-bg', text: 'error-text', border: 'error-border' },
+      dead_letter: { bg: 'dead-bg', text: 'dead-text', border: 'dead-border' },
+      downloading: { bg: 'downloading-bg', text: 'downloading-text', border: 'downloading-border' },
     },
     document: { getElementById: () => null, querySelector: () => null },
     api: async () => ({ ok: true, json: async () => ({ success: true }) }),
@@ -292,7 +339,6 @@ function createContext(overrides = {}) {
     startDownloadPolling: () => {},
     loadHomeDashboard: async () => {},
     loadLibrary: async () => {},
-    loadWanted: async () => {},
     loadSettings: async () => {},
     refreshDownloads: async () => {},
     getDownloadKey: result => result.title,
@@ -402,6 +448,92 @@ test('discover card shows wanted badge for existing wanted result', () => {
   assert.match(html, /wanted_added/);
 });
 
+test('discover card shows wanted badge for normalized release source match', () => {
+  const releaseTitle = 'Rebel Prince, the Power, Passion and Defiance of Prince Charles by Tom Bower [ENG / MOBI]';
+  const context = createContext({
+    state: {
+      wantedIndex: new Set(),
+      wantedSourceIndex: new Set([contextWantedSourceKey('release-guid', releaseTitle)]),
+      libraryMatchIndex: new Set(),
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
+      searchTab: 'ebooks',
+    },
+  });
+
+  const html = context.renderBookCard({ title: releaseTitle, guid: 'release-guid', source: 'prowlarr' }, 0);
+
+  assert.doesNotMatch(html, /data-action="addWantedFromSearch"/);
+  assert.match(html, /wanted_added/);
+});
+
+function contextWantedSourceKey(sourceID, releaseTitle) {
+  return [
+    String(sourceID || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(),
+    String(releaseTitle || '').toLowerCase().replace(/['’]/g, '').replace(/[^a-z0-9]+/g, ' ').trim(),
+  ].join('|');
+}
+
+test('Add to Wanted sends release context for backend normalization', async () => {
+  const calls = [];
+  const releaseTitle = 'Rebel Prince, the Power, Passion and Defiance of Prince Charles by Tom Bower [ENG / MOBI]';
+  const context = createContext({
+    state: {
+      renderedResults: [{
+        title: releaseTitle,
+        source: 'torrent',
+        indexer: 'Books',
+        format: 'mobi',
+        language: 'en',
+        guid: 'release-guid',
+        download_url: 'https://prowlarr.example/api/v1/search?apikey=secret',
+        magnet_url: 'magnet:?xt=urn:btih:abc',
+        download_protocol: 'torrent',
+        size: 1024,
+        size_human: '1 KB',
+        seeders: 32,
+        leechers: 1,
+        grabs: 5,
+        publish_date: '2026-01-02T00:00:00Z',
+        categories: ['7000', '7020'],
+        score: 97,
+        media_type: 'ebook',
+      }],
+      wantedBooks: [],
+      wantedIndex: new Set(),
+      wantedSourceIndex: new Set(),
+      searchResults: [],
+      currentTab: 'search',
+      searchTab: 'ebooks',
+    },
+    apiJson: async (url, options = {}) => {
+      calls.push({ url, method: options.method || 'GET', body: options.body ? JSON.parse(options.body) : null });
+      if (url === '/api/v1/wanted' && options.method === 'POST') {
+        return { item: { id: 9, title: 'Rebel Prince: The Power, Passion and Defiance of Prince Charles', author: 'Tom Bower' } };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+    showToast: (message, kind) => calls.push({ url: `${kind}:${message}` }),
+  });
+  context.refreshWantedData = async () => ({});
+  context.renderSearchResults = () => calls.push({ url: 'renderSearchResults' });
+  context.loadHomeDashboard = async () => {};
+
+  await context.addWantedFromSearchResult(0);
+
+  const createCall = calls.find(call => call.method === 'POST');
+  assert.equal(createCall.url, '/api/v1/wanted');
+  assert.equal(createCall.body.origin_release_title, releaseTitle);
+  assert.equal(createCall.body.preferred_format, 'mobi');
+  assert.equal(createCall.body.origin_indexer, 'Books');
+  assert.equal(createCall.body.source_id, 'release-guid');
+  assert.equal(createCall.body.download_url, 'https://prowlarr.example/api/v1/search?apikey=secret');
+  assert.equal(createCall.body.download_protocol, 'torrent');
+  assert.equal(createCall.body.seeders, 32);
+  assert.deepEqual(createCall.body.categories, ['7000', '7020']);
+});
+
 test('discover card shows in-library badge when result already exists in library', () => {
   const key = 'the martian|andy weir|ebook';
   const context = createContext({
@@ -418,6 +550,115 @@ test('discover card shows in-library badge when result already exists in library
   const html = context.renderBookCard({ title: 'The Martian', author: 'Andy Weir', source: 'prowlarr' }, 0);
 
   assert.match(html, /wanted_in_library/);
+});
+
+test('Discover JSON search passes multiple author-query results to the UI', async () => {
+  const calls = [];
+  const results = [
+    { title: 'Rebel Prince by Tom Bower', author: 'Tom Bower' },
+    { title: 'Sweet Revenge by Tom Bower', author: 'Tom Bower' },
+    { title: 'Oil, Money and Power by Tom Bower', author: 'Tom Bower' },
+    { title: 'The Fall of Sayed by Tom Bower', author: 'Tom Bower' },
+  ];
+  const diagnostics = { upstream_results: 14, filtered_results: 10, returned_results: 4 };
+  const context = createContext({
+    state: { searchDiagnostics: null },
+    searchGeneration: 7,
+    apiJson: async url => {
+      calls.push(url);
+      return { results, diagnostics };
+    },
+    updateSearchResults: async (items, searching) => calls.push({ items, searching }),
+  });
+
+  await context.doJsonSearch('/api/search', 'Tom Bower', 7, undefined);
+
+  assert.equal(calls[0], '/api/search?q=Tom%20Bower');
+  assert.equal(calls[1].items.length, 4);
+  assert.equal(calls[1].items[0].title, 'Rebel Prince by Tom Bower');
+  assert.deepEqual(context.state.searchDiagnostics, diagnostics);
+});
+
+test('Discover renders mixed source cards with Prowlarr indexer labels and Add to Wanted', () => {
+  const context = createContext({
+    state: {
+      wantedIndex: new Set(),
+      libraryMatchIndex: new Set(),
+      pendingDownloads: new Set(),
+      trackedDownloadJobs: new Map(),
+      downloadOutcomes: new Map(),
+      searchTab: 'ebooks',
+    },
+    SOURCE_COLORS: {
+      torrent: { bg: '#2563eb', text: 'white', label: 'Prowlarr' },
+      annas: { bg: '#7c3aed', text: 'white', label: "Anna's Archive" },
+      gutenberg: { bg: '#059669', text: 'white', label: 'Gutenberg' },
+    },
+  });
+
+  const prowlarr = context.renderBookCard({ source: 'torrent', indexer: 'MyAnonamouse', title: 'Sweet Revenge', author: 'Tom Bower', format: 'epub', seeders: 10 }, 0);
+  const annas = context.renderBookCard({ source: 'annas', title: 'Rebel Prince', author: 'Tom Bower', format: 'epub' }, 1);
+  const gutenberg = context.renderBookCard({ source: 'gutenberg', title: 'The Phantom Herd', author: 'B. M. Bower', format: 'epub' }, 2);
+
+  assert.match(prowlarr, /Prowlarr/);
+  assert.match(prowlarr, /MyAnonamouse/);
+  assert.match(prowlarr, /wanted_add/);
+  assert.match(annas, /Anna&#39;s Archive|Anna's Archive/);
+  assert.match(gutenberg, /Gutenberg/);
+});
+
+test('Discover empty state uses normal copy when upstream returned no results', () => {
+  const title = { textContent: '' };
+  const hint = { textContent: '' };
+  const hidden = new Set(['hidden']);
+  const empty = {
+    querySelector: selector => {
+      if (selector === '[data-i18n="no_results"]') return title;
+      if (selector === '[data-i18n="no_results_hint"]') return hint;
+      return null;
+    },
+    classList: {
+      remove: name => hidden.delete(name),
+      contains: name => hidden.has(name),
+    },
+  };
+  const context = createContext({
+    state: { searchDiagnostics: { upstream_results: 0, returned_results: 0, filtered_results: 0 } },
+    document: { getElementById: id => (id === 'search-no-results' ? empty : null) },
+  });
+
+  context.showSearchNoResults();
+
+  assert.equal(title.textContent, 'no_results');
+  assert.equal(hint.textContent, 'no_results_hint');
+  assert.equal(empty.classList.contains('hidden'), false);
+});
+
+test('Discover empty state distinguishes upstream results filtered out', () => {
+  const title = { textContent: '' };
+  const hint = { textContent: '' };
+  const hidden = new Set(['hidden']);
+  const empty = {
+    querySelector: selector => {
+      if (selector === '[data-i18n="no_results"]') return title;
+      if (selector === '[data-i18n="no_results_hint"]') return hint;
+      return null;
+    },
+    classList: {
+      remove: name => hidden.delete(name),
+      contains: name => hidden.has(name),
+    },
+  };
+  const context = createContext({
+    state: { searchDiagnostics: { upstream_results: 14, returned_results: 0, filtered_results: 14 } },
+    document: { getElementById: id => (id === 'search-no-results' ? empty : null) },
+  });
+
+  context.showSearchNoResults();
+
+  assert.equal(title.textContent, 'no_results_filtered');
+  assert.equal(hint.textContent, 'no_results_filtered_hint');
+  assert.equal(empty.classList.contains('hidden'), false);
 });
 
 test('home dashboard renders recent shelf with whole-card details action and covers', () => {
@@ -477,7 +718,8 @@ test('home dashboard hides needs attention when empty and renders actionable ite
 
 test('home dashboard activity summary normalizes downloads response and counts failures', () => {
   const context = createContext();
-  assert.deepEqual(context.normalizeDownloadsResponse({ downloads: [{ status: 'downloading' }] }), [{ status: 'downloading' }]);
+  assert.equal(JSON.stringify(context.normalizeDownloadsResponse({ downloads: [{ status: 'downloading' }] })), JSON.stringify([{ status: 'downloading', title: 'Unknown' }]));
+  assert.equal(JSON.stringify(context.normalizeDownloadsResponse({ downloads: [null, { title: '', status: '' }] })), JSON.stringify([{ title: 'Unknown', status: 'queued' }]));
   const summary = context.buildDashboardActivitySummary(
     [{ status: 'downloading' }, { status: 'retry_wait' }, { status: 'error' }],
     [{ detail: 'Manual review required' }, { detail: 'Ready to import' }]
@@ -487,6 +729,33 @@ test('home dashboard activity summary normalizes downloads response and counts f
   assert.equal(summary.failed, 1);
   assert.equal(summary.manualReview, 1);
   assert.equal(summary.ready, 1);
+});
+
+test('download rows tolerate failed imports and malformed historic entries', () => {
+  const context = createContext();
+  const failed = context.renderDownloadJob({ status: 'dead_letter', title: 'Broken Import', job_id: 'job-1', error: 'permission denied' });
+  const malformed = context.renderDownloadJob(null);
+
+  assert.match(failed, /Broken Import/);
+  assert.match(failed, /permission denied/);
+  assert.match(failed, /data-action="retryDownload"/);
+  assert.match(malformed, /Unknown/);
+  assert.match(malformed, /status_queued/);
+});
+
+test('downloads page renders without the removed navigation badge', () => {
+  const elements = {
+    'downloads-list': { innerHTML: '' },
+    'downloads-empty': { classList: fakeClassList(['hidden']) },
+  };
+  const context = createContext({
+    state: { downloadJobs: [{ status: 'dead_letter', title: 'Broken Import', job_id: 'job-1', error: 'permission denied' }], pendingRetryDownloads: new Set() },
+    document: { getElementById: id => elements[id] || null },
+  });
+
+  assert.doesNotThrow(() => context.renderDownloadList());
+  assert.match(elements['downloads-list'].innerHTML, /Broken Import/);
+  assert.ok(elements['downloads-empty'].classList.contains('hidden'));
 });
 
 test('all-zero dashboard activity renders compact empty state instead of zero boxes', () => {
@@ -1150,9 +1419,11 @@ test('setupLibrarr2Shell preserves Wanted nav in runtime shell', () => {
   assert.match(nav.innerHTML, /data-arg="wanted"/);
 });
 
-test('routeTabFromLocation resolves wanted and settings section hashes', () => {
+test('routeTabFromLocation resolves wanted, hidden downloads, and settings section hashes', () => {
   const context = createContext({ window: { location: { hash: '#wanted' }, addEventListener: () => {}, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {} } });
   assert.equal(context.routeTabFromLocation(), 'wanted');
+  context.window.location.hash = '#downloads';
+  assert.equal(context.routeTabFromLocation(), 'downloads');
   context.window.location.hash = '#settings-library-import';
   assert.equal(context.routeTabFromLocation(), 'settings');
   context.window.location.hash = '';
@@ -1187,32 +1458,96 @@ test('switchTab activates wanted, renders tab, and loads wanted data', () => {
   assert.match(calls.join('|'), /tab-wanted:true/);
 });
 
-test('loadWanted calls wanted API and renders summary counts', async () => {
-  const wantedList = { innerHTML: '' };
-  const wantedEmpty = { classList: { remove: () => {}, add: () => {} } };
-  const wantedSummary = { innerHTML: '' };
+test('wanted data loaders call list and history APIs', async () => {
+  const calls = [];
+  const context = createContext({
+    apiJson: async url => {
+      calls.push(url);
+      if (url === '/api/v1/wanted') {
+        return {
+          items: [{ id: 1, title: 'The Martian', author: 'Andy Weir', status: 'wanted', monitored: true, media_type: 'ebook' }],
+          counts: { total: 1, wanted: 1, monitored: 1, ignored: 0 },
+        };
+      }
+      if (url === '/api/v1/wanted/history') {
+        return { items: [{ id: 3, title: 'The Martian', author: 'Andy Weir', searched_at: '2026-07-28T12:00:00Z', result_count: 1, success: true, best_match_title: 'The Martian EPUB' }] };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+  });
+
+  await context.refreshWantedData();
+  await context.loadWantedHistory(true);
+
+  assert.deepEqual(calls, ['/api/v1/wanted', '/api/v1/wanted/history']);
+});
+
+test('loadWanted keeps found cards visible and renders history separately below cards', async () => {
+  const elements = {
+    'wanted-list': { innerHTML: '' },
+    'wanted-empty': { classList: { add: () => {}, remove: () => {} } },
+    'wanted-summary': { innerHTML: '' },
+    'wanted-history': { innerHTML: '' },
+    'wanted-search-all-btn': { disabled: false, textContent: '' },
+  };
   const context = createContext({
     document: {
-      getElementById: id => {
-        if (id === 'wanted-list') return wantedList;
-        if (id === 'wanted-empty') return wantedEmpty;
-        if (id === 'wanted-summary') return wantedSummary;
-        return null;
-      },
+      getElementById: id => elements[id] || null,
     },
     apiJson: async url => {
-      assert.equal(url, '/api/v1/wanted');
-      return {
-        items: [{ id: 1, title: 'The Martian', author: 'Andy Weir', status: 'wanted', monitored: true, media_type: 'ebook' }],
-        counts: { total: 1, wanted: 1, monitored: 1, ignored: 0 },
-      };
+      if (url === '/api/v1/wanted') {
+        return {
+          items: [{ id: 1, title: 'Found Book', author: 'Writer', status: 'found', monitored: true, media_type: 'ebook', last_match_title: 'Found Book EPUB' }],
+          counts: { total: 1, monitored: 1, ignored: 0 },
+        };
+      }
+      if (url === '/api/v1/wanted/history') {
+        return { items: [{ id: 2, title: 'Found Book', author: 'Writer', searched_at: '2026-07-28T12:00:00Z', result_count: 1, success: true, best_match_title: 'Found Book EPUB' }] };
+      }
+      throw new Error(`unexpected ${url}`);
     },
+    state: { wantedSearchPending: new Set(), wantedSearchAllRunning: false },
   });
 
   await context.loadWanted();
 
-  assert.match(wantedSummary.innerHTML, />1</);
-  assert.match(wantedList.innerHTML, /The Martian/);
+  assert.match(elements['wanted-list'].innerHTML, /Found Book/);
+  assert.match(elements['wanted-list'].innerHTML, /wanted_status_found/);
+  assert.match(elements['wanted-list'].innerHTML, /data-action="searchWantedBook"/);
+  assert.match(elements['wanted-history'].innerHTML, /wanted_history/);
+  assert.match(elements['wanted-history'].innerHTML, /Found Book EPUB/);
+});
+
+test('empty history does not hide wanted cards', async () => {
+  const elements = {
+    'wanted-list': { innerHTML: '' },
+    'wanted-empty': { classList: { add: () => {}, remove: () => {} } },
+    'wanted-summary': { innerHTML: '' },
+    'wanted-history': { innerHTML: '' },
+    'wanted-search-all-btn': { disabled: false, textContent: '' },
+  };
+  const context = createContext({
+    document: {
+      getElementById: id => elements[id] || null,
+    },
+    apiJson: async url => {
+      if (url === '/api/v1/wanted') {
+        return {
+          items: [{ id: 1, title: 'Missing Book', author: 'Writer', status: 'missing', monitored: true, media_type: 'ebook' }],
+          counts: { total: 1, monitored: 1, ignored: 0 },
+        };
+      }
+      if (url === '/api/v1/wanted/history') return { items: [] };
+      throw new Error(`unexpected ${url}`);
+    },
+    state: { wantedSearchPending: new Set(), wantedSearchAllRunning: false },
+  });
+
+  await context.loadWanted();
+
+  assert.match(elements['wanted-list'].innerHTML, /Missing Book/);
+  assert.match(elements['wanted-list'].innerHTML, /wanted_status_missing/);
+  assert.match(elements['wanted-history'].innerHTML, /wanted_history_empty/);
 });
 
 test('home wanted widget is clickable and survives wanted API failure', () => {
@@ -1257,17 +1592,391 @@ test('loadHomeDashboard keeps Home usable when wanted API fails', async () => {
   assert.match(container.innerHTML, /dashboard_wanted/);
 });
 
-test('wanted page groups wanted and ignored books', () => {
+test('wanted page groups active, ignored, and completed books', () => {
   const context = createContext();
   const html = context.renderWantedGroups([
     { id: 1, title: 'The Martian', author: 'Andy Weir', status: 'wanted', monitored: true, media_type: 'ebook' },
     { id: 2, title: 'Ignored Book', author: 'Writer', status: 'ignored', monitored: false, media_type: 'ebook' },
+    { id: 3, title: 'Found Book', author: 'Writer', status: 'found', monitored: true, media_type: 'ebook' },
+    { id: 4, title: 'Missing Book', author: 'Writer', status: 'missing', monitored: true, media_type: 'ebook' },
+    { id: 5, title: 'Searching Book', author: 'Writer', status: 'searching', monitored: true, media_type: 'ebook' },
+    { id: 6, title: 'Imported Book', author: 'Writer', status: 'imported', monitored: true, media_type: 'ebook' },
   ]);
 
-  assert.match(html, /wanted_group_wanted/);
+  assert.match(html, /wanted_group_active/);
   assert.match(html, /wanted_group_ignored/);
+  assert.match(html, /wanted_group_completed/);
   assert.match(html, /The Martian/);
   assert.match(html, /Ignored Book/);
+  assert.match(html, /Found Book/);
+  assert.match(html, /Missing Book/);
+  assert.match(html, /Searching Book/);
+  assert.match(html, /Imported Book/);
+});
+
+test('wanted card renders search metadata and search action', () => {
+  const context = createContext({
+    state: { wantedSearchPending: new Set(), wantedSearchAllRunning: false },
+  });
+  const html = context.renderWantedCard({
+    id: 8,
+    title: 'Project Hail Mary',
+    author: 'Andy Weir',
+    status: 'found',
+    monitored: true,
+    media_type: 'ebook',
+    last_search: '2026-07-28T12:00:00Z',
+    last_result_count: 4,
+    last_match_title: 'Project Hail Mary EPUB',
+  });
+
+  assert.match(html, /wanted_status_found/);
+  assert.match(html, /wanted_search_now/);
+  assert.match(html, /wanted_view_releases/);
+  assert.match(html, /data-action-change="toggleWantedMonitored"/);
+  assert.match(html, /data-action="removeWantedBook"/);
+  assert.match(html, /data-action="ignoreWantedBook"/);
+  assert.match(html, /Project Hail Mary EPUB/);
+  assert.match(html, /flex flex-col gap-3 lg:flex-row/);
+  assert.match(html, /flex flex-wrap items-center gap-2/);
+  assert.doesNotMatch(html, /wanted_status_downloaded_future/);
+});
+
+test('wanted card remains actionable for missing and searching statuses', () => {
+  const context = createContext({
+    state: { wantedSearchPending: new Set(['10']), wantedSearchAllRunning: false },
+  });
+  const missingHTML = context.renderWantedCard({
+    id: 9,
+    title: 'Missing Book',
+    author: 'Writer',
+    status: 'missing',
+    monitored: true,
+    media_type: 'ebook',
+  });
+  const searchingHTML = context.renderWantedCard({
+    id: 10,
+    title: 'Searching Book',
+    author: 'Writer',
+    status: 'wanted',
+    monitored: true,
+    media_type: 'ebook',
+  });
+
+  assert.match(missingHTML, /wanted_status_missing/);
+  assert.match(missingHTML, /data-action="searchWantedBook"/);
+  assert.match(missingHTML, /data-action-change="toggleWantedMonitored"/);
+  assert.match(missingHTML, /data-action="removeWantedBook"/);
+  assert.match(searchingHTML, /wanted_status_searching/);
+  assert.match(searchingHTML, /data-action="searchWantedBook"/);
+  assert.match(searchingHTML, /wanted_searching_now/);
+});
+
+test('wanted release viewer renders sorted releases with top match highlight', () => {
+  const context = createContext({
+    state: {
+      wantedReleaseViewer: {
+        open: true,
+        loading: false,
+        title: 'The Martian',
+        releases: [
+          { title: 'Low Score EPUB', score: 50, format: 'epub', language: 'en', protocol: 'torrent', seeders: 2, size: 1000, indexer: 'Books' },
+          { title: 'High Score MOBI', score: 99, format: 'mobi', language: 'en', protocol: 'torrent', seeders: 20, size: 2000, indexer: 'Books' },
+        ],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
+    },
+  });
+  const html = context.renderWantedReleaseViewer();
+
+  assert.match(html, /wanted_releases_title/);
+  assert.match(html, /wanted_release_top_match/);
+  assert.ok(html.indexOf('High Score MOBI') < html.indexOf('Low Score EPUB'));
+  assert.match(html, /MOBI/);
+  assert.match(html, /Torrent/);
+});
+
+test('wanted release viewer supports filters and sorting', () => {
+  const context = createContext();
+  const releases = [
+    { title: 'Old EPUB', score: 70, format: 'epub', language: 'en', protocol: 'torrent', seeders: 2, size: 100, publish_date: '2026-01-01T00:00:00Z' },
+    { title: 'New MOBI', score: 60, format: 'mobi', language: 'en', protocol: 'torrent', seeders: 20, size: 500, publish_date: '2026-07-01T00:00:00Z' },
+    { title: 'PDF Usenet', score: 95, format: 'pdf', language: 'fr', protocol: 'usenet', seeders: 0, size: 1000, publish_date: '2026-06-01T00:00:00Z' },
+  ];
+
+  const filtered = context.filteredWantedReleases(releases, { format: 'mobi', language: 'en', protocol: 'torrent', minSeeders: 10, sort: 'score' });
+  assert.deepEqual(filtered.map(item => item.title), ['New MOBI']);
+
+  const sorted = context.filteredWantedReleases(releases, { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'largest' });
+  assert.deepEqual(sorted.map(item => item.title), ['PDF Usenet', 'New MOBI', 'Old EPUB']);
+});
+
+test('wanted release viewer renders empty state', () => {
+  const context = createContext({
+    state: {
+      wantedReleaseViewer: {
+        open: true,
+        loading: false,
+        title: 'Empty',
+        releases: [],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
+    },
+  });
+
+  assert.match(context.renderWantedReleaseViewer(), /wanted_releases_empty/);
+});
+
+test('openWantedReleases fetches stored releases and renders modal', async () => {
+  const calls = [];
+  const modal = {
+    innerHTML: '',
+    classList: { add: name => calls.push(`add:${name}`), remove: name => calls.push(`remove:${name}`) },
+  };
+  const context = createContext({
+    document: {
+      getElementById: id => id === 'wanted-release-viewer' ? modal : null,
+    },
+    apiJson: async url => {
+      calls.push(url);
+      if (url === '/api/v1/wanted/8/releases') {
+        return { items: [{ title: 'Release One', score: 88, format: 'epub', language: 'en', protocol: 'torrent', seeders: 9 }] };
+      }
+      throw new Error(`unexpected ${url}`);
+    },
+    state: {
+      wantedReleaseViewer: {
+        open: false,
+        loading: false,
+        itemId: 0,
+        title: '',
+        releases: [],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
+    },
+  });
+
+  await context.openWantedReleases(8, 'The Martian');
+
+  assert.match(calls.join('|'), /\/api\/v1\/wanted\/8\/releases/);
+  assert.match(modal.innerHTML, /Release One/);
+  assert.match(modal.innerHTML, /wanted_release_top_match/);
+  assert.equal(context.state.wantedReleaseViewer.loading, false);
+});
+
+test('wanted release row shows download action only for supported releases', () => {
+  const context = createContext({
+    state: {
+      wantedReleaseDownloads: new Set(),
+      wantedReleaseViewer: { itemId: 8 },
+    },
+  });
+
+  const supported = context.renderWantedReleaseRow({ id: 22, title: 'Release One', protocol: 'torrent', download_available: true, score: 90, seeders: 4 }, 0);
+  assert.match(supported, /downloadWantedRelease/);
+  assert.match(supported, /wanted_release_download/);
+
+  const unsupported = context.renderWantedReleaseRow({ id: 23, title: 'Release Two', protocol: 'usenet', download_available: false, score: 80 }, 1);
+  assert.doesNotMatch(unsupported, /downloadWantedRelease/);
+  assert.match(unsupported, /wanted_release_unsupported/);
+});
+
+test('wanted release row highlights selected release and sending state', () => {
+  const context = createContext({
+    state: {
+      wantedReleaseDownloads: new Set(['8:22']),
+      wantedReleaseViewer: { itemId: 8 },
+    },
+  });
+
+  const html = context.renderWantedReleaseRow({ id: 22, title: 'Release One', protocol: 'torrent', download_available: true, selected: true, score: 90 }, 0);
+  assert.match(html, /wanted_release_selected/);
+  assert.match(html, /wanted_release_sending/);
+  assert.match(html, /disabled/);
+});
+
+test('downloadWantedRelease posts only wanted and release ids', async () => {
+  const calls = [];
+  const modal = {
+    innerHTML: '',
+    classList: { add: () => {}, remove: () => {} },
+  };
+  const context = createContext({
+    document: { getElementById: id => id === 'wanted-release-viewer' ? modal : null },
+    window: { confirm: () => true, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {}, location: { hash: '' }, addEventListener: () => {} },
+    apiJson: async (url, options = {}) => {
+      calls.push({ url, options });
+      if (url === '/api/v1/wanted/8/releases/22/download') {
+        return { success: true, message: 'Release sent', item: { id: 8, status: 'downloading', selected_release_title: 'Release One' } };
+      }
+      if (url === '/api/v1/wanted/8/releases') {
+        return { items: [{ id: 22, title: 'Release One', selected: true, download_available: true }] };
+      }
+      return { items: [], counts: {} };
+    },
+    showToast: (message, kind) => calls.push({ url: `toast:${kind}:${message}` }),
+    state: {
+      wantedBooks: [{ id: 8, status: 'found' }],
+      wantedReleaseDownloads: new Set(),
+      wantedReleaseViewer: {
+        open: true,
+        loading: false,
+        itemId: 8,
+        title: 'The Martian',
+        releases: [{ id: 22, title: 'Release One' }],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
+    },
+  });
+  context.loadWanted = async () => calls.push({ url: 'loadWanted' });
+  context.loadHomeDashboard = async () => calls.push({ url: 'loadHomeDashboard' });
+
+  await context.downloadWantedRelease(22, { title: 'Release One', indexer: 'Books', format: 'EPUB', size: '1 MB', seeders: '7' });
+
+  const post = calls.find(call => call.url === '/api/v1/wanted/8/releases/22/download');
+  assert.ok(post);
+  assert.equal(post.options.method, 'POST');
+  assert.equal(post.options.body, undefined);
+  assert.equal(context.state.wantedBooks[0].status, 'downloading');
+  assert.match(calls.map(call => call.url).join('|'), /toast:success:Release sent/);
+});
+
+test('downloadWantedRelease keeps viewer open on API failure', async () => {
+  const modal = {
+    innerHTML: '',
+    classList: { add: () => {}, remove: () => {} },
+  };
+  const toasts = [];
+  const context = createContext({
+    document: { getElementById: id => id === 'wanted-release-viewer' ? modal : null },
+    window: { confirm: () => true, setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {}, location: { hash: '' }, addEventListener: () => {} },
+    apiJson: async () => { throw new Error('qBittorrent authentication failed'); },
+    showToast: (message, kind) => toasts.push(`${kind}:${message}`),
+    state: {
+      wantedReleaseDownloads: new Set(),
+      wantedReleaseViewer: {
+        open: true,
+        loading: false,
+        itemId: 8,
+        title: 'The Martian',
+        releases: [{ id: 22, title: 'Release One', download_available: true }],
+        error: '',
+        filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+      },
+    },
+  });
+
+  await context.downloadWantedRelease(22, { title: 'Release One' });
+
+  assert.equal(context.state.wantedReleaseViewer.open, true);
+  assert.equal(context.state.wantedReleaseViewer.error, 'qBittorrent authentication failed');
+  assert.deepEqual([...context.state.wantedReleaseDownloads], []);
+  assert.match(toasts.join('|'), /error:qBittorrent authentication failed/);
+});
+
+test('wanted card shows clean metadata with separate preferred format badge', () => {
+  const context = createContext({
+    state: { wantedSearchPending: new Set(), wantedSearchAllRunning: false },
+  });
+  const html = context.renderWantedCard({
+    id: 12,
+    title: 'Rebel Prince: The Power, Passion and Defiance of Prince Charles',
+    author: 'Tom Bower',
+    origin_release_title: 'Rebel Prince, the Power, Passion and Defiance of Prince Charles by Tom Bower [ENG / MOBI]',
+    preferred_format: 'mobi',
+    status: 'wanted',
+    monitored: true,
+    media_type: 'ebook',
+  });
+
+  assert.match(html, /Rebel Prince: The Power/);
+  assert.match(html, /Tom Bower/);
+  assert.match(html, /MOBI/);
+  assert.doesNotMatch(html, /\[ENG \/ MOBI\]/);
+});
+
+test('malformed wanted card no longer exposes temporary normalize action', () => {
+  const context = createContext({
+    state: {
+      wantedSearchPending: new Set(),
+      wantedSearchAllRunning: false,
+    },
+  });
+  const html = context.renderWantedCard({
+    id: 13,
+    title: 'Rebel Prince, the Power, Passion and Defiance of Prince Charles by Tom Bower [ENG / MOBI]',
+    author: '',
+    source: 'torrent',
+    origin_source: 'prowlarr',
+    origin_release_title: 'Rebel Prince, the Power, Passion and Defiance of Prince Charles by Tom Bower [ENG / MOBI]',
+    status: 'wanted',
+    monitored: true,
+    media_type: 'ebook',
+  });
+
+  assert.doesNotMatch(html, /data-action="normalizeWantedBook"/);
+  assert.doesNotMatch(html, /wanted_normalization_result/);
+});
+
+test('searchAllWanted posts API and reloads wanted view', async () => {
+  const calls = [];
+  const context = createContext({
+    apiJson: async (url, options = {}) => {
+      calls.push(`${options.method || 'GET'}:${url}`);
+      if (url === '/api/v1/wanted/search') return { success: true };
+      if (url === '/api/v1/wanted') return { items: [], counts: {} };
+      if (url === '/api/v1/wanted/history') return { items: [] };
+      throw new Error(`unexpected ${url}`);
+    },
+    showToast: (message, kind) => calls.push(`${kind}:${message}`),
+    document: {
+      getElementById: () => ({ innerHTML: '', classList: { remove: () => {}, add: () => {} }, disabled: false, textContent: '' }),
+    },
+    state: { currentTab: 'wanted', wantedSearchPending: new Set(), wantedSearchAllRunning: false },
+  });
+  context.loadHomeDashboard = async () => calls.push('loadHomeDashboard');
+
+  await context.searchAllWanted();
+
+  assert.match(calls.join('|'), /POST:\/api\/v1\/wanted\/search/);
+  assert.ok(calls.filter(call => call === 'GET:/api/v1/wanted').length >= 2);
+  assert.ok(calls.filter(call => call === 'GET:/api/v1/wanted/history').length >= 2);
+  assert.match(calls.join('|'), /success:wanted_search_success/);
+});
+
+test('saveWantedSettings uses existing settings API', async () => {
+  const calls = [];
+  const fields = {
+    'setting-wanted_monitor_enabled': { value: 'true' },
+    'setting-wanted_search_interval': { value: '12h' },
+    'setting-wanted_retry_failures': { value: 'false' },
+    'setting-wanted_max_results_keep': { value: '25' },
+  };
+  const context = createContext({
+    document: {
+      getElementById: id => fields[id] || null,
+    },
+    apiJson: async (url, options = {}) => {
+      calls.push({ url, method: options.method, body: JSON.parse(options.body) });
+      return { success: true };
+    },
+    showToast: (message, kind) => calls.push({ toast: message, kind }),
+  });
+
+  await context.saveWantedSettings();
+
+  assert.equal(calls[0].url, '/api/settings');
+  assert.equal(calls[0].method, 'POST');
+  assert.deepEqual(calls[0].body, {
+    wanted_monitor_enabled: true,
+    wanted_search_interval: '12h',
+    wanted_retry_failures: false,
+    wanted_max_results_keep: 25,
+  });
 });
 
 test('remove wanted book confirms before deleting', async () => {

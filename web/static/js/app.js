@@ -70,17 +70,53 @@ const I18N = {
     wanted_title: 'Wanted Books',
     wanted_empty: 'No wanted books yet',
     wanted_empty_hint: 'Add books from Discover to keep track of what you want next.',
+    wanted_group_active: 'Active',
     wanted_group_wanted: 'Wanted',
     wanted_group_ignored: 'Ignored',
+    wanted_group_completed: 'Completed',
     wanted_status_wanted: 'Wanted',
+    wanted_status_found: 'Found',
     wanted_status_downloaded: 'Downloaded',
     wanted_status_ignored: 'Ignored',
     wanted_status_missing: 'Missing',
-    wanted_status_searching: 'Searching (future)',
+    wanted_status_searching: 'Searching',
+    wanted_status_downloading: 'Downloading',
+    wanted_status_imported: 'Imported',
     wanted_status_downloaded_future: 'Downloaded (future)',
     wanted_toggle_monitored: 'Monitored',
     wanted_toggle_unmonitored: 'Unmonitored',
     wanted_remove: 'Remove',
+    wanted_search_now: 'Search Now',
+    wanted_searching_now: 'Searching...',
+    wanted_search_all: 'Search All Wanted',
+    wanted_view_releases: 'View Releases',
+    wanted_releases_title: 'Releases',
+    wanted_releases_empty: 'No releases stored for the latest search.',
+    wanted_releases_failed: 'Could not load wanted releases',
+    wanted_release_filters: 'Release filters',
+    wanted_release_min_seeders: 'Minimum seeders',
+    wanted_release_sort: 'Sort',
+    wanted_release_top_match: 'Top match',
+    wanted_release_selected: 'Selected',
+    wanted_release_download: 'Download with qBittorrent',
+    wanted_release_sending: 'Sending...',
+    wanted_release_unsupported: 'Download unavailable',
+    wanted_release_download_confirm: 'Send "{title}" from {indexer} ({format}, {size}, {seeders} seeders) to qBittorrent?',
+    wanted_release_download_success: 'Release sent to qBittorrent',
+    wanted_release_download_failed: 'Could not send release to qBittorrent',
+    wanted_selected_release: 'Selected release',
+    wanted_download_started: 'Download started',
+    wanted_last_searched: 'Last searched',
+    wanted_results: 'Results',
+    wanted_best_match: 'Best match',
+    wanted_error: 'Last error',
+    wanted_history: 'Recent Search Activity',
+    wanted_history_empty: 'No search activity yet.',
+    wanted_search_success: 'Wanted search complete',
+    wanted_search_failed: 'Wanted search failed',
+    wanted_search_running: 'Wanted search already running',
+    wanted_preferred_format: 'Preferred format',
+    wanted_settings_saved: 'Wanted monitor settings saved',
     wanted_added_success: 'Added to Wanted',
     wanted_add_failed: 'Could not add wanted book',
     wanted_removed_success: 'Removed from Wanted',
@@ -162,6 +198,8 @@ const I18N = {
     search_empty_hint: 'Try searching by title, author, or ISBN',
     no_results: 'No results found',
     no_results_hint: 'Try different keywords or check your spelling',
+    no_results_filtered: 'No results match the current filters',
+    no_results_filtered_hint: 'Prowlarr returned results, but Librarr filtered them out based on the active search filters.',
     download: 'Download',
     download_added: 'Added',
     download_failed_state: 'Failed',
@@ -409,6 +447,8 @@ const I18N = {
     search_empty_hint: 'Попробуйте искать по названию, автору или ISBN',
     no_results: 'Ничего не найдено',
     no_results_hint: 'Попробуйте другие ключевые слова или проверьте написание',
+    no_results_filtered: 'Нет результатов, соответствующих текущим фильтрам',
+    no_results_filtered_hint: 'Prowlarr вернул результаты, но Librarr отфильтровал их по активным фильтрам поиска.',
     download: 'Скачать',
     download_added: 'Добавлено',
     download_failed_state: 'Ошибка',
@@ -612,10 +652,25 @@ const state = {
   searchTab: 'ebooks',
   libraryTab: 'ebooks',
   searchResults: [],
+  searchDiagnostics: null,
   libraryBooks: [],
   homeBooks: [],
   wantedBooks: [],
   wantedIndex: new Set(),
+  wantedSourceIndex: new Set(),
+  wantedHistory: [],
+  wantedSearchPending: new Set(),
+  wantedSearchAllRunning: false,
+  wantedReleaseDownloads: new Set(),
+  wantedReleaseViewer: {
+    open: false,
+    loading: false,
+    itemId: 0,
+    title: '',
+    releases: [],
+    error: '',
+    filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+  },
   libraryMatchIndex: new Set(),
   homeData: null,
   pendingDownloads: new Set(),
@@ -1158,6 +1213,7 @@ function switchSearchTab(tab) {
   document.getElementById('search-no-results').classList.add('hidden');
   document.getElementById('search-empty').classList.remove('hidden');
   state.searchResults = [];
+  state.searchDiagnostics = null;
 
   // Update placeholder
   const placeholders = { ebooks: t('search_placeholder'), audiobooks: t('search_placeholder_ab'), manga: t('search_placeholder_manga') };
@@ -1261,7 +1317,7 @@ function setupLibrarr2Shell() {
 function routeTabFromLocation() {
   const hash = String(window.location?.hash || '').replace(/^#/, '').trim().toLowerCase();
   if (!hash) return 'home';
-  if (['home', 'library', 'search', 'wanted', 'settings'].includes(hash)) return hash;
+  if (['home', 'library', 'search', 'wanted', 'settings', 'downloads'].includes(hash)) return hash;
   if (hash.startsWith('settings-')) return 'settings';
   return 'home';
 }
@@ -1314,6 +1370,7 @@ async function doSearch(query) {
   // Show skeleton
   showSearchSkeleton();
   state.searchResults = [];
+  state.searchDiagnostics = null;
   document.getElementById('search-results').innerHTML = '';
   document.getElementById('search-empty').classList.add('hidden');
   document.getElementById('search-no-results').classList.add('hidden');
@@ -1341,6 +1398,7 @@ async function doSearch(query) {
 async function doJsonSearch(endpoint, query, gen, signal) {
   const data = await apiJson(`${endpoint}?q=${encodeURIComponent(query)}`, { signal });
   if (gen !== searchGeneration) return;
+  state.searchDiagnostics = data.diagnostics || null;
   await updateSearchResults(data.results || [], false);
 }
 
@@ -1366,6 +1424,7 @@ async function doStreamingSearch(endpoint, query, gen, signal) {
       const evt = parseSSEFrame(frame);
       if (!evt || gen !== searchGeneration) continue;
       if (evt.event === 'results' || evt.event === 'complete') {
+        state.searchDiagnostics = evt.data.diagnostics || state.searchDiagnostics;
         await updateSearchResults(evt.data.results || [], evt.event !== 'complete');
         completed = evt.event === 'complete';
       }
@@ -1376,7 +1435,7 @@ async function doStreamingSearch(endpoint, query, gen, signal) {
     document.getElementById('search-spinner').classList.add('hidden');
     if (state.searchResults.length === 0) {
       hideSearchSkeleton();
-      document.getElementById('search-no-results').classList.remove('hidden');
+      showSearchNoResults();
     }
   }
 }
@@ -1407,7 +1466,7 @@ async function updateSearchResults(results, searching) {
       return;
     }
     hideSearchSkeleton();
-    document.getElementById('search-no-results').classList.toggle('hidden', searching);
+    if (!searching) showSearchNoResults();
     return;
   }
 
@@ -1417,6 +1476,21 @@ async function updateSearchResults(results, searching) {
   document.getElementById('search-result-count').textContent = t('n_results', {n: state.searchResults.length});
   await refreshDiscoverIndexes();
   renderSearchResults();
+}
+
+function showSearchNoResults() {
+  const el = document.getElementById('search-no-results');
+  if (!el) return;
+  const title = el.querySelector('[data-i18n="no_results"]');
+  const hint = el.querySelector('[data-i18n="no_results_hint"]');
+  const diagnostics = state.searchDiagnostics || {};
+  const upstream = Number(diagnostics.upstream_results || 0);
+  const returned = Number(diagnostics.returned_results || 0);
+  const filtered = Number(diagnostics.filtered_results || 0);
+  const wasFilteredEmpty = upstream > 0 && returned === 0 && filtered > 0;
+  if (title) title.textContent = wasFilteredEmpty ? t('no_results_filtered') : t('no_results');
+  if (hint) hint.textContent = wasFilteredEmpty ? t('no_results_filtered_hint') : t('no_results_hint');
+  el.classList.remove('hidden');
 }
 
 function normalizeWantedKeyPart(value) {
@@ -1431,6 +1505,10 @@ function wantedIdentityKey(title, author, mediaType) {
   return [normalizeWantedKeyPart(title), normalizeWantedKeyPart(author), normalizeWantedKeyPart(mediaType || 'ebook')].join('|');
 }
 
+function wantedSourceKey(sourceID, releaseTitle) {
+  return [normalizeWantedKeyPart(sourceID), normalizeWantedKeyPart(releaseTitle)].join('|');
+}
+
 async function refreshDiscoverIndexes() {
   await Promise.all([refreshWantedData(true), refreshLibraryMatchIndex()]);
 }
@@ -1440,14 +1518,30 @@ async function refreshWantedData(silent = false) {
     const data = await apiJson('/api/v1/wanted');
     state.wantedBooks = data.items || [];
     state.wantedIndex = new Set(state.wantedBooks.map(item => wantedIdentityKey(item.title, item.author, item.media_type)));
+    state.wantedSourceIndex = new Set(state.wantedBooks.map(item => wantedSourceKey(item.source_id, item.origin_release_title)).filter(key => key !== '|'));
     return data;
   } catch (err) {
     state.wantedBooks = [];
     state.wantedIndex = new Set();
+    state.wantedSourceIndex = new Set();
     if (!silent && err.message !== 'Unauthorized') {
       showToast('Failed to load wanted books', 'error');
     }
     return { items: [], counts: {} };
+  }
+}
+
+async function loadWantedHistory(silent = false) {
+  try {
+    const data = await apiJson('/api/v1/wanted/history');
+    state.wantedHistory = data.items || [];
+    return data;
+  } catch (err) {
+    state.wantedHistory = [];
+    if (!silent && err.message !== 'Unauthorized') {
+      showToast('Failed to load wanted search history', 'error');
+    }
+    return { items: [] };
   }
 }
 
@@ -1485,8 +1579,9 @@ function searchResultMediaType(result) {
 
 function wantedStateForResult(result) {
   const key = wantedIdentityKey(result.title, result.author, searchResultMediaType(result));
+  const sourceKey = wantedSourceKey(result.source_id || result.guid || result.info_hash || result.download_url || result.magnet_url || '', result.title || '');
   if (state.libraryMatchIndex.has(key)) return 'library';
-  if (state.wantedIndex.has(key)) return 'wanted';
+  if (state.wantedIndex.has(key) || state.wantedSourceIndex?.has?.(sourceKey)) return 'wanted';
   return 'none';
 }
 
@@ -1807,7 +1902,7 @@ async function refreshDownloads(manual = false) {
 
   try {
     const data = await apiJson('/api/downloads');
-    state.downloadJobs = data.downloads || data.jobs || [];
+    state.downloadJobs = normalizeDownloadsResponse(data);
     syncTrackedDownloadJobs(state.downloadJobs);
     renderDownloadList();
   } catch (err) {
@@ -1827,10 +1922,10 @@ function renderDownloadList() {
   // Update badge
   const activeCount = jobs.filter(j => isActiveDownloadStatus(j.status)).length;
   const badge = document.getElementById('dl-badge');
-  if (activeCount > 0) {
+  if (badge && activeCount > 0) {
     badge.textContent = activeCount;
     badge.classList.remove('hidden');
-  } else {
+  } else if (badge) {
     badge.classList.add('hidden');
   }
 
@@ -1845,14 +1940,16 @@ function renderDownloadList() {
 }
 
 function renderDownloadJob(job) {
-  const st = STATUS_STYLES[job.status] || STATUS_STYLES.queued;
+  job = (job && typeof job === 'object') ? job : {};
+  const status = String(job.status || 'queued');
+  const st = STATUS_STYLES[status] || STATUS_STYLES.queued;
   const progress = job.progress || 0;
-  const showProgress = job.status === 'downloading' && progress > 0;
+  const showProgress = status === 'downloading' && progress > 0;
   const retryKey = String(job.job_id);
   const retryPending = state.pendingRetryDownloads.has(retryKey);
 
   let actions = '';
-  if (job.status === 'error' || job.status === 'dead_letter') {
+  if (status === 'error' || status === 'dead_letter') {
     actions = `
       <button
         data-action="retryDownload" data-job-id="${escapeHtml(job.job_id)}"
@@ -1868,7 +1965,7 @@ function renderDownloadJob(job) {
     <div class="bg-slate-900 border ${st.border} rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3">
       <div class="flex-1 min-w-0">
         <div class="flex items-center gap-2 mb-1">
-          <span class="px-2 py-0.5 rounded text-xs font-medium ${st.bg} ${st.text}">${t('status_' + job.status)}</span>
+          <span class="px-2 py-0.5 rounded text-xs font-medium ${st.bg} ${st.text}">${t('status_' + status)}</span>
           ${job.source ? `<span class="text-xs text-slate-500">${escapeHtml(job.source)}</span>` : ''}
         </div>
         <h4 class="text-sm font-medium text-white truncate" title="${escapeHtml(job.title || '')}">${escapeHtml(job.title || 'Unknown')}</h4>
@@ -2517,9 +2614,14 @@ function currentLibraryCount(useNormalized, stats) {
 }
 
 function normalizeDownloadsResponse(value) {
-	if (Array.isArray(value)) return value;
-	if (value && Array.isArray(value.downloads)) return value.downloads;
-	return [];
+	const raw = Array.isArray(value) ? value : (value && Array.isArray(value.downloads) ? value.downloads : []);
+	return raw
+		.filter(item => item && typeof item === 'object')
+		.map(item => ({
+			...item,
+			status: String(item.status || 'queued'),
+			title: item.title || 'Unknown',
+		}));
 }
 
 function isAdminUser() {
@@ -3301,17 +3403,27 @@ async function loadWanted() {
   const container = document.getElementById('wanted-list');
   const emptyEl = document.getElementById('wanted-empty');
   const summaryEl = document.getElementById('wanted-summary');
+  const historyEl = document.getElementById('wanted-history');
+  const searchAllBtn = document.getElementById('wanted-search-all-btn');
   if (!container || !emptyEl || !summaryEl) return;
 
-  const data = await refreshWantedData();
+  const [data, history] = await Promise.all([refreshWantedData(), loadWantedHistory(true)]);
   const items = data.items || [];
   const counts = data.counts || {};
+  if (searchAllBtn) {
+    searchAllBtn.disabled = state.wantedSearchAllRunning;
+    searchAllBtn.textContent = state.wantedSearchAllRunning ? t('wanted_status_searching') : t('wanted_search_all');
+  }
 
   summaryEl.innerHTML = [
     renderMetricCard(t('wanted_total'), counts.total ?? 0),
     renderMetricCard(t('wanted_monitored'), counts.monitored ?? 0),
     renderMetricCard(t('wanted_ignored'), counts.ignored ?? 0),
   ].join('');
+
+  if (historyEl) {
+    historyEl.innerHTML = renderWantedHistory(history.items || []);
+  }
 
   if (items.length === 0) {
     emptyEl.classList.remove('hidden');
@@ -3325,12 +3437,13 @@ async function loadWanted() {
 
 function renderWantedGroups(items) {
   const groups = [
-    ['wanted', t('wanted_group_wanted')],
-    ['ignored', t('wanted_group_ignored')],
+    ['active', t('wanted_group_active'), item => ['wanted', 'searching', 'found', 'missing', 'downloading'].includes(item.status || 'wanted')],
+    ['ignored', t('wanted_group_ignored'), item => (item.status || 'wanted') === 'ignored'],
+    ['completed', t('wanted_group_completed'), item => ['downloaded', 'imported'].includes(item.status || '')],
   ];
   return groups
-    .map(([status, label]) => {
-      const groupItems = items.filter(item => (item.status || 'wanted') === status);
+    .map(([status, label, matcher]) => {
+      const groupItems = items.filter(item => matcher(item));
       if (groupItems.length === 0) return '';
       return `
         <section class="rounded-[1.5rem] border border-stone-800 bg-[#1b1715]/95 overflow-hidden">
@@ -3349,39 +3462,353 @@ function renderWantedGroups(items) {
 
 function renderWantedCard(item) {
   const status = item.status || 'wanted';
+  const completed = ['downloaded', 'imported'].includes(status);
+  const downloading = status === 'downloading';
   const monitoredLabel = item.monitored ? t('wanted_toggle_monitored') : t('wanted_toggle_unmonitored');
   const mediaLabel = (item.media_type || 'ebook').toUpperCase();
+  const preferredFormat = String(item.preferred_format || '').trim().toUpperCase();
+  const searching = !!state.wantedSearchPending?.has?.(String(item.id));
   const coverHtml = item.cover_url
     ? `<img src="${escapeHtml(item.cover_url)}" alt="" class="h-48 w-full object-cover" loading="lazy">`
     : makePlaceholderHtml(item.title || '?', item.id || 0);
+  const statusKey = searching ? 'searching' : status;
+  const lastSearched = formatWantedTimestamp(item.last_search);
+  const bestMatch = item.last_match_title || '—';
+  const resultCount = Number.isFinite(item.last_result_count) ? item.last_result_count : 0;
+  const lastError = item.last_error || '';
+  const selectedRelease = item.selected_release_title || '';
+  const downloadStarted = formatWantedTimestamp(item.download_started_at);
+  const searchButtonLabel = searching ? t('wanted_searching_now') : t('wanted_search_now');
 
   return `
     <article class="overflow-hidden rounded-[1.35rem] border border-stone-800 bg-stone-900/70">
       <div class="relative">${coverHtml}</div>
       <div class="p-4">
         <div class="mb-3 flex flex-wrap items-center gap-2">
-          <span class="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">${t(`wanted_status_${status}`)}</span>
+          <span class="rounded-full bg-amber-500/10 px-3 py-1 text-xs font-medium text-amber-200">${t(`wanted_status_${statusKey}`)}</span>
           <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-300">${mediaLabel}</span>
+          ${preferredFormat ? `<span class="rounded-full bg-indigo-500/10 px-3 py-1 text-xs font-medium text-indigo-200" title="${t('wanted_preferred_format')}">${escapeHtml(preferredFormat)}</span>` : ''}
           <span class="rounded-full ${item.monitored ? 'bg-emerald-500/10 text-emerald-200' : 'bg-stone-800 text-stone-400'} px-3 py-1 text-xs font-medium">${monitoredLabel}</span>
-          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_missing')}</span>
-          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_searching')}</span>
-          <span class="rounded-full bg-stone-800 px-3 py-1 text-xs font-medium text-stone-500">${t('wanted_status_downloaded_future')}</span>
         </div>
         <h4 class="text-lg font-semibold text-white line-clamp-2">${escapeHtml(item.title || '')}</h4>
         <p class="mt-1 text-sm text-stone-300 line-clamp-1">${escapeHtml(item.author || '')}</p>
-        <div class="mt-4 flex items-center justify-between gap-2">
+        <dl class="mt-3 space-y-1 text-xs text-stone-400">
+          <div class="flex items-center justify-between gap-3"><dt>${t('wanted_last_searched')}</dt><dd class="text-stone-200">${escapeHtml(lastSearched)}</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt>${t('wanted_results')}</dt><dd class="text-stone-200">${escapeHtml(String(resultCount))}</dd></div>
+          <div class="flex items-center justify-between gap-3"><dt>${t('wanted_best_match')}</dt><dd class="max-w-[60%] truncate text-stone-200" title="${escapeHtml(bestMatch)}">${escapeHtml(bestMatch)}</dd></div>
+          ${selectedRelease ? `<div class="flex items-center justify-between gap-3"><dt>${t('wanted_selected_release')}</dt><dd class="max-w-[60%] truncate text-stone-200" title="${escapeHtml(selectedRelease)}">${escapeHtml(selectedRelease)}</dd></div>` : ''}
+          ${downloading ? `<div class="flex items-center justify-between gap-3"><dt>${t('wanted_download_started')}</dt><dd class="text-stone-200">${escapeHtml(downloadStarted)}</dd></div>` : ''}
+        </dl>
+        ${lastError ? `<p class="mt-2 rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-100">${t('wanted_error')}: ${escapeHtml(lastError)}</p>` : ''}
+        <div class="mt-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          ${completed ? '<span class="text-sm text-stone-500"></span>' : `
           <label class="inline-flex items-center gap-2 text-sm text-stone-300">
             <input data-action-change="toggleWantedMonitored" data-id="${item.id}" type="checkbox" ${item.monitored ? 'checked' : ''} class="rounded border-stone-600 bg-stone-950 text-amber-500">
             <span>${t('wanted_toggle_monitored')}</span>
-          </label>
-          <div class="flex items-center gap-2">
-            ${status === 'wanted' ? `<button data-action="ignoreWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_ignored')}</button>` : `<button data-action="markWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_wanted')}</button>`}
+          </label>`}
+          <div class="flex flex-wrap items-center gap-2">
+            ${completed ? '' : `
+            <button data-action="searchWantedBook" data-id="${item.id}" ${searching || downloading || state.wantedSearchAllRunning ? 'disabled' : ''} class="rounded-xl bg-amber-500/10 px-3 py-2 text-xs font-medium text-amber-100 hover:bg-amber-500/20 disabled:cursor-not-allowed disabled:opacity-60">${searching ? '<span class="inline-block animate-spin">⟳</span> ' : ''}${searchButtonLabel}</button>
+            ${resultCount > 0 ? `<button data-action="openWantedReleases" data-id="${item.id}" data-title="${escapeHtml(item.title || '')}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_view_releases')}</button>` : ''}
+            ${status === 'ignored' ? `<button data-action="markWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_wanted')}</button>` : `<button data-action="ignoreWantedBook" data-id="${item.id}" class="rounded-xl bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">${t('wanted_group_ignored')}</button>`}
+            `}
             <button data-action="removeWantedBook" data-id="${item.id}" data-title="${escapeHtml(item.title || '')}" class="rounded-xl bg-red-500/10 px-3 py-2 text-xs font-medium text-red-100 hover:bg-red-500/20">${t('wanted_remove')}</button>
           </div>
         </div>
       </div>
     </article>
   `;
+}
+
+function ensureWantedReleaseViewer() {
+  let modal = document.getElementById('wanted-release-viewer');
+  if (modal || !document.createElement || !document.body) return modal;
+  modal = document.createElement('div');
+  modal.id = 'wanted-release-viewer';
+  modal.className = 'fixed inset-0 z-50 hidden items-stretch justify-end bg-black/70 backdrop-blur-sm';
+  document.body.appendChild(modal);
+  return modal;
+}
+
+function renderWantedReleaseViewer() {
+  const viewer = state.wantedReleaseViewer || {};
+  const releases = filteredWantedReleases(viewer.releases || [], viewer.filters || {});
+  const loading = !!viewer.loading;
+  const error = viewer.error || '';
+  const title = viewer.title || t('wanted_releases_title');
+  const allReleases = viewer.releases || [];
+  const formatOptions = wantedReleaseOptions(allReleases, 'format');
+  const languageOptions = wantedReleaseOptions(allReleases, 'language');
+  const protocolOptions = wantedReleaseOptions(allReleases, 'protocol');
+  return `
+    <div class="h-full w-full max-w-5xl overflow-y-auto bg-[#171412] text-stone-100 shadow-2xl">
+      <div class="sticky top-0 z-10 flex items-center justify-between border-b border-stone-800 bg-[#171412]/95 px-5 py-4 backdrop-blur">
+        <div>
+          <p class="text-xs uppercase tracking-[0.35em] text-amber-300">${t('wanted_releases_title')}</p>
+          <h2 class="mt-1 text-2xl font-semibold text-white">${escapeHtml(title)}</h2>
+        </div>
+        <button data-action="closeWantedReleases" class="rounded-2xl p-2 text-stone-400 hover:bg-stone-800 hover:text-white" aria-label="Close">✕</button>
+      </div>
+      <div class="space-y-5 p-5">
+        <section class="rounded-[1.25rem] border border-stone-800 bg-stone-950/40 p-4">
+          <div class="mb-3 flex items-center justify-between gap-3">
+            <h3 class="text-sm font-semibold text-white">${t('wanted_release_filters')}</h3>
+            <span class="text-xs text-stone-500">${releases.length} / ${allReleases.length}</span>
+          </div>
+          <div class="grid gap-3 md:grid-cols-5">
+            ${renderWantedReleaseSelect('format', viewer.filters?.format || 'all', formatOptions, 'Format')}
+            ${renderWantedReleaseSelect('language', viewer.filters?.language || 'all', languageOptions, 'Language')}
+            ${renderWantedReleaseSelect('protocol', viewer.filters?.protocol || 'all', protocolOptions, 'Protocol')}
+            <label class="text-xs text-stone-400">${t('wanted_release_min_seeders')}
+              <input data-action-change="setWantedReleaseFilter" data-field="minSeeders" type="number" min="0" value="${escapeHtml(String(viewer.filters?.minSeeders || 0))}" class="mt-1 w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-white">
+            </label>
+            <label class="text-xs text-stone-400">${t('wanted_release_sort')}
+              <select data-action-change="setWantedReleaseFilter" data-field="sort" class="mt-1 w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-white">
+                ${['score', 'newest', 'oldest', 'largest', 'smallest', 'seeders'].map(value => `<option value="${value}" ${(viewer.filters?.sort || 'score') === value ? 'selected' : ''}>${escapeHtml(value)}</option>`).join('')}
+              </select>
+            </label>
+          </div>
+        </section>
+        ${loading ? `<div class="rounded-[1.25rem] border border-stone-800 bg-stone-950/40 p-6 text-sm text-stone-300"><span class="inline-block animate-spin">⟳</span> ${t('loading')}</div>` : ''}
+        ${error ? `<div class="rounded-[1.25rem] border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-100">${escapeHtml(error)}</div>` : ''}
+        ${!loading && !error && releases.length === 0 ? `<div class="rounded-[1.25rem] border border-dashed border-stone-800 bg-stone-950/40 p-6 text-sm text-stone-400">${t('wanted_releases_empty')}</div>` : ''}
+        ${!loading && !error && releases.length > 0 ? `<div class="space-y-3">${releases.map((release, index) => renderWantedReleaseRow(release, index)).join('')}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function renderWantedReleaseSelect(field, value, options, label) {
+  return `
+    <label class="text-xs text-stone-400">${escapeHtml(label)}
+      <select data-action-change="setWantedReleaseFilter" data-field="${escapeHtml(field)}" class="mt-1 w-full rounded-xl border border-stone-700 bg-stone-900 px-3 py-2 text-sm text-white">
+        <option value="all">All</option>
+        ${options.map(option => `<option value="${escapeHtml(option)}" ${value === option ? 'selected' : ''}>${escapeHtml(option.toUpperCase())}</option>`).join('')}
+      </select>
+    </label>
+  `;
+}
+
+function renderWantedReleaseRow(release, index) {
+  const format = String(release.format || '').toUpperCase();
+  const language = String(release.language || '').toUpperCase();
+  const protocol = String(release.protocol || '').toLowerCase();
+  const key = `${state.wantedReleaseViewer?.itemId || release.wanted_book_id || 0}:${release.id}`;
+  const sending = !!state.wantedReleaseDownloads?.has?.(key);
+  const selected = !!release.selected;
+  const downloadAvailable = !!release.download_available;
+  const badges = [
+    format,
+    language,
+    protocol === 'nzb' || protocol === 'usenet' ? 'Usenet' : protocol ? 'Torrent' : '',
+  ].filter(Boolean);
+  return `
+    <article class="rounded-[1.25rem] border ${selected ? 'border-emerald-500/60 bg-emerald-500/10' : index === 0 ? 'border-amber-500/50 bg-amber-500/10' : 'border-stone-800 bg-stone-950/40'} p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2">
+            ${index === 0 ? `<span class="rounded-full bg-amber-500/20 px-2.5 py-1 text-xs font-semibold text-amber-100">${t('wanted_release_top_match')}</span>` : ''}
+            ${selected ? `<span class="rounded-full bg-emerald-500/20 px-2.5 py-1 text-xs font-semibold text-emerald-100">${t('wanted_release_selected')}</span>` : ''}
+            ${badges.map(badge => `<span class="rounded-full bg-stone-800 px-2.5 py-1 text-xs font-medium text-stone-200">${escapeHtml(badge)}</span>`).join('')}
+          </div>
+          <h4 class="mt-2 text-base font-semibold text-white">${escapeHtml(release.title || '')}</h4>
+          <p class="mt-1 text-xs text-stone-400">${escapeHtml(release.indexer || '—')} · ${escapeHtml(formatWantedReleaseAge(release.publish_date))}</p>
+        </div>
+        <div class="text-right">
+          <p class="text-lg font-semibold text-amber-200">${escapeHtml(String(Math.round(Number(release.score || 0))))}</p>
+          <p class="text-xs text-stone-500">score</p>
+          <div class="mt-3">
+            ${downloadAvailable ? `<button data-action="downloadWantedRelease" data-release-id="${release.id}" data-title="${escapeHtml(release.title || '')}" data-indexer="${escapeHtml(release.indexer || '')}" data-format="${escapeHtml(format || 'Unknown format')}" data-size="${escapeHtml(release.size_human || formatSize(release.size || 0))}" data-seeders="${escapeHtml(String(release.seeders ?? 0))}" ${sending || selected ? 'disabled' : ''} class="rounded-xl bg-amber-500 px-3 py-2 text-xs font-semibold text-stone-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-60">${sending ? `<span class="inline-block animate-spin">⟳</span> ${t('wanted_release_sending')}` : t('wanted_release_download')}</button>` : `<span class="text-xs text-stone-500">${t('wanted_release_unsupported')}</span>`}
+          </div>
+        </div>
+      </div>
+      <dl class="mt-4 grid gap-2 text-xs text-stone-400 sm:grid-cols-5">
+        <div><dt>Size</dt><dd class="text-stone-200">${escapeHtml(release.size_human || formatSize(release.size || 0))}</dd></div>
+        <div><dt>Seeders</dt><dd class="text-stone-200">${escapeHtml(String(release.seeders ?? 0))}</dd></div>
+        <div><dt>Leechers</dt><dd class="text-stone-200">${escapeHtml(String(release.leechers ?? 0))}</dd></div>
+        <div><dt>Grabs</dt><dd class="text-stone-200">${escapeHtml(String(release.grabs ?? 0))}</dd></div>
+        <div><dt>Protocol</dt><dd class="text-stone-200">${escapeHtml(protocol || '—')}</dd></div>
+      </dl>
+    </article>
+  `;
+}
+
+function wantedReleaseOptions(releases, field) {
+  return [...new Set((releases || []).map(release => String(release[field] || '').toLowerCase()).filter(Boolean))].sort();
+}
+
+function filteredWantedReleases(releases, filters = {}) {
+  const minSeeders = Number(filters.minSeeders || 0);
+  const filtered = (releases || []).filter(release => {
+    if (filters.format && filters.format !== 'all' && String(release.format || '').toLowerCase() !== filters.format) return false;
+    if (filters.language && filters.language !== 'all' && String(release.language || '').toLowerCase() !== filters.language) return false;
+    if (filters.protocol && filters.protocol !== 'all' && String(release.protocol || '').toLowerCase() !== filters.protocol) return false;
+    if (Number(release.seeders || 0) < minSeeders) return false;
+    return true;
+  });
+  const sortMode = filters.sort || 'score';
+  filtered.sort((a, b) => {
+    if (sortMode === 'newest') return wantedReleaseTime(b) - wantedReleaseTime(a);
+    if (sortMode === 'oldest') return wantedReleaseTime(a) - wantedReleaseTime(b);
+    if (sortMode === 'largest') return Number(b.size || 0) - Number(a.size || 0);
+    if (sortMode === 'smallest') return Number(a.size || 0) - Number(b.size || 0);
+    if (sortMode === 'seeders') return Number(b.seeders || 0) - Number(a.seeders || 0);
+    return Number(b.score || 0) - Number(a.score || 0);
+  });
+  return filtered;
+}
+
+function wantedReleaseTime(release) {
+  const date = new Date(release.publish_date || release.search_time || 0);
+  const ms = date.getTime();
+  return Number.isNaN(ms) ? 0 : ms;
+}
+
+function formatWantedReleaseAge(value) {
+  if (!value) return 'Unknown age';
+  const published = new Date(value);
+  if (Number.isNaN(published.getTime())) return 'Unknown age';
+  const days = Math.max(0, Math.floor((Date.now() - published.getTime()) / 86400000));
+  if (days === 0) return 'Today';
+  if (days === 1) return '1 day ago';
+  return `${days} days ago`;
+}
+
+async function openWantedReleases(id, title) {
+  state.wantedReleaseViewer = {
+    open: true,
+    loading: true,
+    itemId: id,
+    title: title || '',
+    releases: [],
+    error: '',
+    filters: { format: 'all', language: 'all', protocol: 'all', minSeeders: 0, sort: 'score' },
+  };
+  renderWantedReleaseModal();
+  try {
+    const data = await apiJson(`/api/v1/wanted/${id}/releases`);
+    state.wantedReleaseViewer.releases = data.items || [];
+    state.wantedReleaseViewer.error = '';
+  } catch (err) {
+    state.wantedReleaseViewer.error = err.message || t('wanted_releases_failed');
+  } finally {
+    state.wantedReleaseViewer.loading = false;
+    renderWantedReleaseModal();
+  }
+}
+
+function closeWantedReleases() {
+  state.wantedReleaseViewer.open = false;
+  const modal = document.getElementById('wanted-release-viewer');
+  if (!modal) return;
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+function renderWantedReleaseModal() {
+  const modal = ensureWantedReleaseViewer();
+  if (!modal) return;
+  if (!state.wantedReleaseViewer?.open) {
+    modal.classList.add('hidden');
+    modal.classList.remove('flex');
+    return;
+  }
+  modal.innerHTML = renderWantedReleaseViewer();
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+}
+
+function setWantedReleaseFilter(field, value) {
+  if (!state.wantedReleaseViewer) return;
+  if (field === 'minSeeders') {
+    state.wantedReleaseViewer.filters.minSeeders = Math.max(0, Number(value || 0));
+  } else {
+    state.wantedReleaseViewer.filters[field] = value || 'all';
+  }
+  renderWantedReleaseModal();
+}
+
+async function downloadWantedRelease(releaseId, details = {}) {
+  const viewer = state.wantedReleaseViewer || {};
+  const wantedId = Number(viewer.itemId || 0);
+  const id = Number(releaseId || 0);
+  if (!wantedId || !id) return;
+  const title = details.title || '';
+  const confirmed = window.confirm(t('wanted_release_download_confirm', {
+    title,
+    indexer: details.indexer || 'Unknown indexer',
+    format: details.format || 'Unknown format',
+    size: details.size || 'Unknown size',
+    seeders: details.seeders || '0',
+  }));
+  if (!confirmed) return;
+
+  const key = `${wantedId}:${id}`;
+  state.wantedReleaseDownloads.add(key);
+  renderWantedReleaseModal();
+  try {
+    const data = await apiJson(`/api/v1/wanted/${wantedId}/releases/${id}/download`, { method: 'POST' });
+    if (data.item) {
+      const index = state.wantedBooks.findIndex(item => Number(item.id) === Number(wantedId));
+      if (index >= 0) state.wantedBooks[index] = data.item;
+    }
+    await loadWanted();
+    await loadHomeDashboard();
+    await openWantedReleases(wantedId, viewer.title || title);
+    showToast(data.warning || data.message || t('wanted_release_download_success'), data.warning ? 'warning' : 'success');
+  } catch (err) {
+    state.wantedReleaseViewer.error = err.message || t('wanted_release_download_failed');
+    if (err.message !== 'Unauthorized') showToast(state.wantedReleaseViewer.error, 'error');
+    renderWantedReleaseModal();
+  } finally {
+    state.wantedReleaseDownloads.delete(key);
+    renderWantedReleaseModal();
+  }
+}
+
+function renderWantedHistory(items) {
+  if (!items.length) {
+    return `
+      <section class="rounded-[1.5rem] border border-stone-800 bg-[#1b1715]/95 p-5">
+        <div class="flex items-center justify-between">
+          <h3 class="text-lg font-semibold text-white">${t('wanted_history')}</h3>
+        </div>
+        <p class="mt-3 text-sm text-stone-500">${t('wanted_history_empty')}</p>
+      </section>
+    `;
+  }
+  return `
+    <section class="rounded-[1.5rem] border border-stone-800 bg-[#1b1715]/95 overflow-hidden">
+      <div class="flex items-center justify-between px-5 py-4 border-b border-stone-800">
+        <h3 class="text-lg font-semibold text-white">${t('wanted_history')}</h3>
+        <span class="text-sm text-stone-500">${items.length}</span>
+      </div>
+      <div class="divide-y divide-stone-800">
+        ${items.slice(0, 12).map(item => `
+          <div class="px-5 py-3 text-sm">
+            <div class="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <p class="font-medium text-white">${escapeHtml(item.title || item.best_match_title || 'Wanted search')}</p>
+                <p class="text-stone-400">${escapeHtml(item.author || item.query || '')}</p>
+              </div>
+              <div class="text-right">
+                <p class="text-stone-200">${escapeHtml(formatWantedTimestamp(item.searched_at))}</p>
+                <p class="text-xs text-stone-500">${escapeHtml(String(item.result_count || 0))} result(s)</p>
+              </div>
+            </div>
+            <p class="mt-1 text-xs ${item.success ? 'text-emerald-300' : 'text-red-300'}">${escapeHtml(item.success ? (item.best_match_title || 'No match') : (item.error || 'Search failed'))}</p>
+          </div>
+        `).join('')}
+      </div>
+    </section>
+  `;
+}
+
+function formatWantedTimestamp(value) {
+  if (!value) return 'Never';
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return 'Never';
+  return date.toLocaleString();
 }
 
 async function addWantedFromSearchResult(index) {
@@ -3397,6 +3824,26 @@ async function addWantedFromSearchResult(index) {
         description: result.description || '',
         source: result.source || '',
         media_type: searchResultMediaType(result),
+        preferred_format: result.format || '',
+        origin_source: result.source || '',
+        origin_release_title: result.title || '',
+        origin_indexer: result.indexer || '',
+        source_id: result.source_id || result.guid || result.info_hash || '',
+        indexer: result.indexer || '',
+        guid: result.guid || '',
+        download_url: result.download_url || '',
+        magnet_url: result.magnet_url || '',
+        url: result.url || '',
+        info_hash: result.info_hash || '',
+        download_protocol: result.download_protocol || result.source || '',
+        size: result.size || 0,
+        size_human: result.size_human || '',
+        seeders: result.seeders || 0,
+        leechers: result.leechers || 0,
+        grabs: result.grabs || 0,
+        publish_date: result.publish_date || '',
+        categories: result.categories || [],
+        score: result.score || 100,
         monitored: true,
         status: 'wanted',
       }),
@@ -3448,6 +3895,68 @@ async function removeWantedBook(id, title) {
     showToast(t('wanted_removed_success'), 'success');
   } catch (err) {
     if (err.message !== 'Unauthorized') showToast(t('wanted_remove_failed'), 'error');
+  }
+}
+
+async function searchWantedBook(id) {
+  const key = String(id);
+  state.wantedSearchPending.add(key);
+  await loadWanted();
+  try {
+    await apiJson(`/api/v1/wanted/${id}/search`, { method: 'POST' });
+    await loadWanted();
+    if (state.currentTab === 'home') await loadHomeDashboard();
+    showToast(t('wanted_search_success'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      showToast(err.message.includes('already running') ? t('wanted_search_running') : t('wanted_search_failed'), 'error');
+    }
+  } finally {
+    state.wantedSearchPending.delete(key);
+    if (state.currentTab === 'wanted') {
+      await loadWanted();
+    }
+  }
+}
+
+async function searchAllWanted() {
+  state.wantedSearchAllRunning = true;
+  if (state.currentTab === 'wanted') await loadWanted();
+  try {
+    await apiJson('/api/v1/wanted/search', { method: 'POST' });
+    await Promise.all([loadWanted(), state.currentTab === 'home' ? loadHomeDashboard() : Promise.resolve()]);
+    showToast(t('wanted_search_success'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      showToast(err.message.includes('already running') ? t('wanted_search_running') : t('wanted_search_failed'), 'error');
+    }
+  } finally {
+    state.wantedSearchAllRunning = false;
+    state.wantedSearchPending.clear();
+    if (state.currentTab === 'wanted') {
+      await loadWanted();
+    }
+  }
+}
+
+async function saveWantedSettings() {
+  const payload = {
+    wanted_monitor_enabled: document.getElementById('setting-wanted_monitor_enabled')?.value === 'true',
+    wanted_search_interval: document.getElementById('setting-wanted_search_interval')?.value || '6h',
+    wanted_retry_failures: document.getElementById('setting-wanted_retry_failures')?.value === 'true',
+    wanted_max_results_keep: Number(document.getElementById('setting-wanted_max_results_keep')?.value || 20),
+  };
+  try {
+    await apiJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    showToast(t('wanted_settings_saved'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      showToast('Failed to save wanted settings', 'error');
+    }
   }
 }
 
@@ -3710,6 +4219,22 @@ async function loadSettingToggles() {
     const fileOrgEnabled = document.getElementById('setting-file_org_enabled');
     if (fileOrgEnabled && data.file_org_enabled !== undefined) {
       fileOrgEnabled.checked = !!data.file_org_enabled;
+    }
+    const wantedMonitorEnabled = document.getElementById('setting-wanted_monitor_enabled');
+    if (wantedMonitorEnabled && data.wanted_monitor_enabled !== undefined) {
+      wantedMonitorEnabled.value = data.wanted_monitor_enabled ? 'true' : 'false';
+    }
+    const wantedSearchInterval = document.getElementById('setting-wanted_search_interval');
+    if (wantedSearchInterval && data.wanted_search_interval !== undefined) {
+      wantedSearchInterval.value = data.wanted_search_interval;
+    }
+    const wantedRetryFailures = document.getElementById('setting-wanted_retry_failures');
+    if (wantedRetryFailures && data.wanted_retry_failures !== undefined) {
+      wantedRetryFailures.value = data.wanted_retry_failures ? 'true' : 'false';
+    }
+    const wantedMaxResultsKeep = document.getElementById('setting-wanted_max_results_keep');
+    if (wantedMaxResultsKeep && data.wanted_max_results_keep !== undefined) {
+      wantedMaxResultsKeep.value = data.wanted_max_results_keep;
     }
     for (const key of LIBRARY_IMPORT_FIELDS) {
       const el = document.getElementById(`setting-${key}`);
@@ -5609,6 +6134,7 @@ document.addEventListener('keydown', (e) => {
 
   // Escape → close modals, clear search
   if (e.key === 'Escape') {
+    closeWantedReleases();
     closeBookDetails();
   }
 });
@@ -5736,11 +6262,23 @@ const CLICK_ACTIONS = {
   setSortMode: el => setSortMode(el.dataset.arg),
   testConnection: el => testConnection(el.dataset.arg),
   saveIntegration: el => saveIntegration(el.dataset.arg),
+  saveWantedSettings: () => saveWantedSettings(),
   toggleMobileNav: () => toggleMobileNav(),
   showLoginForm: () => showLoginForm(),
   showRegisterForm: () => showRegisterForm(),
   addWantedFromSearch: el => addWantedFromSearchResult(+el.dataset.idx),
   removeWantedBook: el => removeWantedBook(+el.dataset.id, el.dataset.title),
+  searchWantedBook: el => searchWantedBook(+el.dataset.id),
+  openWantedReleases: el => openWantedReleases(+el.dataset.id, el.dataset.title),
+  closeWantedReleases: () => closeWantedReleases(),
+  downloadWantedRelease: el => downloadWantedRelease(+el.dataset.releaseId, {
+    title: el.dataset.title,
+    indexer: el.dataset.indexer,
+    format: el.dataset.format,
+    size: el.dataset.size,
+    seeders: el.dataset.seeders,
+  }),
+  searchAllWanted: () => searchAllWanted(),
   ignoreWantedBook: el => updateWantedBook(+el.dataset.id, { status: 'ignored' }),
   markWantedBook: el => updateWantedBook(+el.dataset.id, { status: 'wanted' }),
   generateInviteCode: () => generateInviteCode(),
@@ -5815,6 +6353,7 @@ const CHANGE_ACTIONS = {
     renderLibraryScanWorkspace();
   },
   toggleWantedMonitored: el => toggleWantedMonitored(+el.dataset.id, el.checked),
+  setWantedReleaseFilter: el => setWantedReleaseFilter(el.dataset.field, el.value),
 };
 
 document.addEventListener('change', e => {

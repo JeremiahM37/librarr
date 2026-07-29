@@ -178,6 +178,30 @@ It performs:
 12. container restart
 13. post-restart persistence verification
 
+## Wanted manual release download smoke test
+
+Wanted downloads are manual in this milestone. After a Wanted search finds
+stored releases:
+
+1. Open Wanted.
+2. Click **View Releases** on a found Wanted item.
+3. Pick a torrent or magnet result and click **Download with qBittorrent**.
+4. Confirm the release title, indexer, format, size, and seeders.
+5. Verify qBittorrent receives exactly one torrent using the configured remote
+   save path and category.
+6. Verify the Wanted card changes to **Downloading** and shows the selected
+   release title.
+7. Clicks while already downloading should be rejected instead of adding a
+   duplicate torrent.
+8. After the completed download imports into the normalized Library, refresh
+   Wanted and verify the matching card moves to **Imported** / Completed instead
+   of remaining in Active.
+
+The current handoff does not fake completion. The existing torrent watcher and
+import pipeline still handle completed downloads. Wanted currently reconciles
+against the normalized Library by conservative title/author/media-type matching;
+deeper torrent-identity completion linkage remains a later milestone.
+
 Run it with:
 
 ```bash
@@ -209,8 +233,12 @@ If you want to walk the flow manually in the UI:
     unsafe paths, and unknown non-cataloged files are skipped.
 12. If Prowlarr or qBittorrent are configured, run Connection Diagnostics and
     verify staged results render in Settings.
-13. Restart the container.
-14. Verify onboarding remains complete and imported books remain present.
+13. Add a Wanted book from Discover, inspect stored releases, manually hand off
+    one torrent/magnet release, and verify the Downloads details page renders
+    active and failed import rows.
+14. Restart the container.
+15. Verify onboarding remains complete, imported books remain present, and
+    imported Wanted matches remain Completed.
 
 ## Health check
 

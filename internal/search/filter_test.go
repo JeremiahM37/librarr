@@ -145,6 +145,18 @@ func TestFilterAndSortResults(t *testing.T) {
 		}
 	})
 
+	t.Run("does not collapse prowlarr releases with empty optional identifiers", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "torrent", Indexer: "MyAnonamouse", Title: "Sweet Revenge", Format: "epub", Seeders: 10, Size: 6_000_000},
+			{Source: "torrent", Indexer: "MyAnonamouse", Title: "Oil: Money, Politics, and Power in the 21st Century", Format: "mobi", Seeders: 6, Size: 15_000_000},
+			{Source: "torrent", Indexer: "MyAnonamouse", Title: "Rebel Prince", Format: "epub", Seeders: 12, Size: 38_300_000},
+		}
+		filtered := FilterAndSortResults(results, "Tom Bower", 10000, 2000000000)
+		if len(filtered) != 3 {
+			t.Fatalf("expected 3 distinct prowlarr releases, got %d: %#v", len(filtered), filtered)
+		}
+	})
+
 	t.Run("sorts by relevance then source priority", func(t *testing.T) {
 		results := []models.SearchResult{
 			{Source: "gutenberg", Title: "Other Book"},
@@ -222,6 +234,7 @@ func TestParseSizeBytes(t *testing.T) {
 		{"500 MB", 500e6},
 		{"10 KB", 10e3},
 		{"100 B", 100},
+		{"6.0 MiB", 6 * 1024 * 1024},
 		{"", 0},
 		{"unknown", 0},
 		{"1.5GB", 1.5e9},

@@ -22,7 +22,9 @@ The design is intentionally book-centric, API-first, Docker-friendly, and compat
 Librarr 2.0 now has the normalized schema, repository switch,
 `LibraryService`, backfill engine, import planner/executor, feature-flagged v2
 import engine, first-run setup, empty-library onboarding, library scanner,
-review UI, explicit scan-result import, and manual-review resolution.
+review UI, explicit scan-result import, manual-review resolution, metadata
+editing, OPDS 1.2, Wanted monitoring, stored release inspection, and manual
+Wanted-to-download-client handoff.
 
 Legacy compatibility remains intentionally available. Unfinished features such
 as Devices, Activity, send-to-device, richer metadata providers, OPDS v2, and

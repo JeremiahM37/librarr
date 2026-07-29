@@ -234,6 +234,179 @@ func TestSchemaFoundation_MigrationVersionsRecordedAndIdempotent(t *testing.T) {
 	}
 }
 
+func TestWantedReleaseContextMigrationPreservesExistingRows(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "wanted-old.db")
+	raw, err := sql.Open("sqlite", dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`CREATE TABLE schema_migrations (version INTEGER PRIMARY KEY, name TEXT NOT NULL, applied_at DATETIME NOT NULL)`); err != nil {
+		t.Fatal(err)
+	}
+	for _, migration := range versionedMigrations {
+		if migration.version >= 7 {
+			continue
+		}
+		if _, err := raw.Exec(`INSERT INTO schema_migrations (version, name, applied_at) VALUES (?, ?, datetime('now'))`, migration.version, migration.name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tx, err := raw.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateLibrarr2WantedBooks(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := migrateLibrarr2WantedMonitoring(tx); err != nil {
+		t.Fatal(err)
+	}
+	if err := tx.Commit(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := raw.Exec(`INSERT INTO wanted_books (title, author, media_type, monitored, status) VALUES ('Existing Wanted', '', 'ebook', 1, 'wanted')`); err != nil {
+		t.Fatal(err)
+	}
+	if err := raw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	d, err := New(dbPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.Close()
+	if !columnExists(t, d, "wanted_books", "origin_release_title") || !columnExists(t, d, "wanted_books", "preferred_format") {
+		t.Fatalf("release context columns were not added")
+	}
+	items, err := d.ListWantedBooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].Title != "Existing Wanted" {
+		t.Fatalf("items after migration = %+v", items)
+	}
+}
+
+func TestWantedReleasesStoreRetrieveAndReplace(t *testing.T) {
+	d := newTestDB(t)
+	book, err := d.CreateWantedBook(models.WantedBook{
+		Title:     "The Martian",
+		Author:    "Andy Weir",
+		MediaType: "ebook",
+		Monitored: true,
+		Status:    "wanted",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	empty, err := d.ListWantedReleases(book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(empty) != 0 {
+		t.Fatalf("empty release list = %+v", empty)
+	}
+	if err := d.ReplaceWantedReleases(book.ID, []models.WantedRelease{
+		{Title: "Lower Score", Score: 70, Format: "epub", Language: "en", Protocol: "torrent", Seeders: 3, SearchQuery: "martian", SearchTime: time.Unix(10, 0).UTC()},
+		{Title: "Higher Score", Score: 95, Format: "mobi", Language: "en", Protocol: "torrent", Seeders: 12, SearchQuery: "martian", SearchTime: time.Unix(10, 0).UTC()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	releases, err := d.ListWantedReleases(book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(releases) != 2 || releases[0].Title != "Higher Score" || releases[1].Title != "Lower Score" {
+		t.Fatalf("releases = %+v", releases)
+	}
+	if releases[0].Format != "mobi" || releases[0].Language != "en" || releases[0].Seeders != 12 {
+		t.Fatalf("release fields = %+v", releases[0])
+	}
+	if err := d.ReplaceWantedReleases(book.ID, []models.WantedRelease{
+		{Title: "Replacement", Score: 88, Format: "pdf", Protocol: "usenet", SearchQuery: "martian pdf", SearchTime: time.Unix(20, 0).UTC()},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	releases, err = d.ListWantedReleases(book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(releases) != 1 || releases[0].Title != "Replacement" || releases[0].Protocol != "usenet" {
+		t.Fatalf("replaced releases = %+v", releases)
+	}
+}
+
+func TestWantedManualDownloadMigrationAndState(t *testing.T) {
+	d := newTestDB(t)
+	if !columnExists(t, d, "wanted_books", "selected_release_id") ||
+		!columnExists(t, d, "wanted_books", "download_started_at") ||
+		!columnExists(t, d, "wanted_books", "download_error") {
+		t.Fatalf("wanted manual download columns were not created")
+	}
+
+	book, err := d.CreateWantedBook(models.WantedBook{
+		Title:     "The Martian",
+		Author:    "Andy Weir",
+		MediaType: "ebook",
+		Monitored: true,
+		Status:    "found",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := d.ReplaceWantedReleases(book.ID, []models.WantedRelease{
+		{Title: "The Martian release", Score: 95, Format: "epub", Protocol: "torrent", DownloadURL: "magnet:?xt=urn:btih:abc"},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	releases, err := d.ListWantedReleases(book.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := d.MarkWantedDownloading(book.ID, releases[0].ID, releases[0].Title, "qbittorrent", "", time.Unix(100, 0).UTC())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Status != "downloading" || updated.SelectedReleaseID != releases[0].ID || updated.SelectedReleaseTitle != releases[0].Title || updated.DownloadClient != "qbittorrent" || updated.DownloadStartedAt == nil {
+		t.Fatalf("updated wanted download state = %+v", updated)
+	}
+}
+
+func TestListMonitoredWantedBooksSkipsTerminalAndDownloadingStatuses(t *testing.T) {
+	d := newTestDB(t)
+	statuses := []string{"wanted", "found", "missing", "downloading", "downloaded", "imported", "ignored"}
+	for _, status := range statuses {
+		if _, err := d.CreateWantedBook(models.WantedBook{
+			Title:     "Book " + status,
+			Author:    "Author " + status,
+			MediaType: "ebook",
+			Monitored: true,
+			Status:    status,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	items, err := d.ListMonitoredWantedBooks()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, item := range items {
+		got[item.Status] = true
+	}
+	for _, status := range []string{"wanted", "found", "missing"} {
+		if !got[status] {
+			t.Fatalf("expected searchable status %q in %+v", status, got)
+		}
+	}
+	for _, status := range []string{"downloading", "downloaded", "imported", "ignored"} {
+		if got[status] {
+			t.Fatalf("status %q should not be monitored for search: %+v", status, got)
+		}
+	}
+}
+
 func TestSchemaFoundation_FailedMigrationIsNotRecorded(t *testing.T) {
 	d := newTestDB(t)
 	err := d.applySchemaMigration(schemaMigration{

@@ -19,6 +19,10 @@ var versionedMigrations = []schemaMigration{
 	{version: 3, name: "librarr_2_backfill_state", run: migrateLibrarr2BackfillState},
 	{version: 4, name: "librarr_2_metadata_provenance", run: migrateLibrarr2MetadataProvenance},
 	{version: 5, name: "librarr_2_wanted_books", run: migrateLibrarr2WantedBooks},
+	{version: 6, name: "librarr_2_wanted_monitoring", run: migrateLibrarr2WantedMonitoring},
+	{version: 7, name: "librarr_2_wanted_release_context", run: migrateLibrarr2WantedReleaseContext},
+	{version: 8, name: "librarr_2_wanted_search_releases", run: migrateLibrarr2WantedSearchReleases},
+	{version: 9, name: "librarr_2_wanted_manual_download", run: migrateLibrarr2WantedManualDownload},
 }
 
 func (d *DB) runVersionedMigrations() error {
@@ -362,6 +366,149 @@ func migrateLibrarr2WantedBooks(tx *sql.Tx) error {
 		if _, err := tx.Exec(statement); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+func migrateLibrarr2WantedMonitoring(tx *sql.Tx) error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "last_search", definition: `ALTER TABLE wanted_books ADD COLUMN last_search DATETIME`},
+		{name: "last_result_count", definition: `ALTER TABLE wanted_books ADD COLUMN last_result_count INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_success", definition: `ALTER TABLE wanted_books ADD COLUMN last_success INTEGER NOT NULL DEFAULT 0`},
+		{name: "last_error", definition: `ALTER TABLE wanted_books ADD COLUMN last_error TEXT NOT NULL DEFAULT ''`},
+		{name: "best_match_score", definition: `ALTER TABLE wanted_books ADD COLUMN best_match_score REAL NOT NULL DEFAULT 0`},
+		{name: "last_match_title", definition: `ALTER TABLE wanted_books ADD COLUMN last_match_title TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		exists, err := columnExistsInTx(tx, "wanted_books", column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(column.definition); err != nil {
+			return err
+		}
+	}
+
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS wanted_search_history (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			wanted_book_id INTEGER NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			author TEXT NOT NULL DEFAULT '',
+			query TEXT NOT NULL DEFAULT '',
+			status TEXT NOT NULL DEFAULT 'wanted',
+			result_count INTEGER NOT NULL DEFAULT 0,
+			success INTEGER NOT NULL DEFAULT 0,
+			error TEXT NOT NULL DEFAULT '',
+			best_match_score REAL NOT NULL DEFAULT 0,
+			best_match_title TEXT NOT NULL DEFAULT '',
+			searched_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (wanted_book_id) REFERENCES wanted_books(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_search_history_book_id ON wanted_search_history(wanted_book_id, searched_at DESC)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_search_history_searched_at ON wanted_search_history(searched_at DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateLibrarr2WantedReleaseContext(tx *sql.Tx) error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "preferred_format", definition: `ALTER TABLE wanted_books ADD COLUMN preferred_format TEXT NOT NULL DEFAULT ''`},
+		{name: "origin_source", definition: `ALTER TABLE wanted_books ADD COLUMN origin_source TEXT NOT NULL DEFAULT ''`},
+		{name: "origin_release_title", definition: `ALTER TABLE wanted_books ADD COLUMN origin_release_title TEXT NOT NULL DEFAULT ''`},
+		{name: "origin_indexer", definition: `ALTER TABLE wanted_books ADD COLUMN origin_indexer TEXT NOT NULL DEFAULT ''`},
+		{name: "source_id", definition: `ALTER TABLE wanted_books ADD COLUMN source_id TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		exists, err := columnExistsInTx(tx, "wanted_books", column.name)
+		if err != nil {
+			return err
+		}
+		if exists {
+			continue
+		}
+		if _, err := tx.Exec(column.definition); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateLibrarr2WantedSearchReleases(tx *sql.Tx) error {
+	statements := []string{
+		`CREATE TABLE IF NOT EXISTS wanted_search_releases (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			wanted_book_id INTEGER NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			guid TEXT NOT NULL DEFAULT '',
+			indexer TEXT NOT NULL DEFAULT '',
+			protocol TEXT NOT NULL DEFAULT '',
+			publish_date TEXT NOT NULL DEFAULT '',
+			size INTEGER NOT NULL DEFAULT 0,
+			size_human TEXT NOT NULL DEFAULT '',
+			seeders INTEGER NOT NULL DEFAULT 0,
+			leechers INTEGER NOT NULL DEFAULT 0,
+			grabs INTEGER NOT NULL DEFAULT 0,
+			language TEXT NOT NULL DEFAULT '',
+			format TEXT NOT NULL DEFAULT '',
+			download_url TEXT NOT NULL DEFAULT '',
+			categories TEXT NOT NULL DEFAULT '[]',
+			score REAL NOT NULL DEFAULT 0,
+			search_query TEXT NOT NULL DEFAULT '',
+			search_time DATETIME NOT NULL DEFAULT (datetime('now')),
+			FOREIGN KEY (wanted_book_id) REFERENCES wanted_books(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_search_releases_book_score ON wanted_search_releases(wanted_book_id, score DESC, id ASC)`,
+		`CREATE INDEX IF NOT EXISTS idx_wanted_search_releases_search_time ON wanted_search_releases(search_time DESC)`,
+	}
+	for _, statement := range statements {
+		if _, err := tx.Exec(statement); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func migrateLibrarr2WantedManualDownload(tx *sql.Tx) error {
+	columns := []struct {
+		name       string
+		definition string
+	}{
+		{name: "selected_release_id", definition: `ALTER TABLE wanted_books ADD COLUMN selected_release_id INTEGER NOT NULL DEFAULT 0`},
+		{name: "selected_release_title", definition: `ALTER TABLE wanted_books ADD COLUMN selected_release_title TEXT NOT NULL DEFAULT ''`},
+		{name: "download_job_id", definition: `ALTER TABLE wanted_books ADD COLUMN download_job_id TEXT NOT NULL DEFAULT ''`},
+		{name: "download_client", definition: `ALTER TABLE wanted_books ADD COLUMN download_client TEXT NOT NULL DEFAULT ''`},
+		{name: "download_hash", definition: `ALTER TABLE wanted_books ADD COLUMN download_hash TEXT NOT NULL DEFAULT ''`},
+		{name: "download_started_at", definition: `ALTER TABLE wanted_books ADD COLUMN download_started_at DATETIME`},
+		{name: "download_error", definition: `ALTER TABLE wanted_books ADD COLUMN download_error TEXT NOT NULL DEFAULT ''`},
+	}
+	for _, column := range columns {
+		exists, err := columnExistsInTx(tx, "wanted_books", column.name)
+		if err != nil {
+			return err
+		}
+		if !exists {
+			if _, err := tx.Exec(column.definition); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`CREATE INDEX IF NOT EXISTS idx_wanted_books_selected_release ON wanted_books(selected_release_id)`); err != nil {
+		return err
 	}
 	return nil
 }

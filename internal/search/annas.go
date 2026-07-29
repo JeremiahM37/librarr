@@ -176,7 +176,7 @@ func parseSizeBytes(s string) float64 {
 	if s == "" {
 		return 0
 	}
-	re := regexp.MustCompile(`([\d.]+)\s*(GB|MB|KB|B)`)
+	re := regexp.MustCompile(`([\d.]+)\s*(GIB|MIB|KIB|GB|MB|KB|B)`)
 	m := re.FindStringSubmatch(strings.ToUpper(s))
 	if len(m) < 3 {
 		return 0
@@ -186,6 +186,12 @@ func parseSizeBytes(s string) float64 {
 		return 0
 	}
 	switch m[2] {
+	case "GIB":
+		return val * 1024 * 1024 * 1024
+	case "MIB":
+		return val * 1024 * 1024
+	case "KIB":
+		return val * 1024
 	case "GB":
 		return val * 1e9
 	case "MB":

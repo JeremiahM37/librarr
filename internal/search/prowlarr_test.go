@@ -133,6 +133,68 @@ func TestProwlarr_Search(t *testing.T) {
 	}
 }
 
+func TestProwlarr_SearchParsesCategoryObjectsAndMAMFields(t *testing.T) {
+	body := `[
+		{
+			"title": "Sweet Revenge: The Intimate Life of Simon Cowell",
+			"size": "6.0 MiB",
+			"seeders": 10,
+			"leechers": 0,
+			"indexer": "MyAnonamouse",
+			"downloadUrl": "http://prowlarr/download/160121",
+			"guid": "mam-160121",
+			"protocol": "torrent",
+			"author_info": "{\"42647\":\"Tom Bower\"}",
+			"filetype": "epub mobi",
+			"categories": [{"id":7000,"name":"Books"},{"id":7020,"name":"EBook"}]
+		},
+		{
+			"title": "Oil: Money, Politics, and Power in the 21st Century",
+			"size": "15.0 MiB",
+			"seeders": 6,
+			"indexer": "MyAnonamouse",
+			"downloadUrl": "http://prowlarr/download/296882",
+			"guid": "mam-296882",
+			"protocol": "torrent",
+			"author_info": "{\"42647\":\"Tom Bower\"}",
+			"filetype": "mobi",
+			"categories": "[7000,7020]"
+		}
+	]`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query()["categories"]; len(got) != 2 || got[0] != "7000" || got[1] != "7020" {
+			t.Fatalf("categories query = %#v, want 7000 and 7020", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(body))
+	}))
+	defer server.Close()
+
+	cfg := &config.Config{ProwlarrURL: server.URL, ProwlarrAPIKey: "key"}
+	results, err := NewProwlarr(cfg, server.Client(), "main").Search(context.Background(), "Tom Bower")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(results))
+	}
+	if results[0].Indexer != "MyAnonamouse" || results[0].Author != "Tom Bower" {
+		t.Fatalf("first result indexer/author = %q/%q", results[0].Indexer, results[0].Author)
+	}
+	if results[0].Format != "epub" {
+		t.Fatalf("first result format = %q, want epub", results[0].Format)
+	}
+	if results[0].Size != 6*1024*1024 {
+		t.Fatalf("first result size = %d, want 6291456", results[0].Size)
+	}
+	if strings.Join(results[0].Categories, ",") != "7000,7020" {
+		t.Fatalf("first result categories = %#v", results[0].Categories)
+	}
+	if results[1].Format != "mobi" {
+		t.Fatalf("second result format = %q, want mobi", results[1].Format)
+	}
+}
+
 func TestProwlarr_SearchAudiobook(t *testing.T) {
 	items := []prowlarrItem{
 		{Title: "Audiobook Test", Size: 5000000, Seeders: 3, Protocol: "torrent"},

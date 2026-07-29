@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jamie75/librarr/internal/sources"
 )
@@ -211,6 +212,12 @@ type Config struct {
 	// Author Monitoring
 	AuthorMonitorEnabled    bool
 	AuthorCheckIntervalDays int
+
+	// Wanted monitoring
+	WantedMonitorEnabled bool
+	WantedSearchInterval string
+	WantedRetryFailures  bool
+	WantedMaxResultsKeep int
 }
 
 // Load reads configuration from environment variables with sensible defaults,
@@ -433,6 +440,11 @@ func buildFromEnv() *Config {
 
 		AuthorMonitorEnabled:    getEnvBool("AUTHOR_MONITOR_ENABLED", false),
 		AuthorCheckIntervalDays: getEnvInt("AUTHOR_CHECK_INTERVAL_DAYS", 7),
+
+		WantedMonitorEnabled: getEnvBool("WANTED_MONITOR_ENABLED", true),
+		WantedSearchInterval: getEnv("WANTED_SEARCH_INTERVAL", "6h"),
+		WantedRetryFailures:  getEnvBool("WANTED_RETRY_FAILURES", true),
+		WantedMaxResultsKeep: getEnvInt("WANTED_MAX_RESULTS_TO_KEEP", 20),
 	}
 }
 
@@ -611,6 +623,7 @@ func (c *Config) applySettingsFileOverrides() {
 		"flibusta_url":              &c.FlibustaURL,
 		"library_repository_mode":   &c.LibraryRepositoryMode,
 		"import_engine":             &c.ImportEngine,
+		"wanted_search_interval":    &c.WantedSearchInterval,
 	}
 	for key, fieldPtr := range strPtrs {
 		v, ok := raw[key]
@@ -642,6 +655,8 @@ func (c *Config) applySettingsFileOverrides() {
 		"foreign_lang_filter":         &c.ForeignLangFilter,
 		"wishlist_cleanup_enabled":    &c.WishlistCleanupEnabled,
 		"wishlist_cleanup_dry_run":    &c.WishlistCleanupDryRun,
+		"wanted_monitor_enabled":      &c.WantedMonitorEnabled,
+		"wanted_retry_failures":       &c.WantedRetryFailures,
 	}
 	for key, fieldPtr := range boolPtrs {
 		v, ok := raw[key]
@@ -657,6 +672,7 @@ func (c *Config) applySettingsFileOverrides() {
 
 	intPtrs := map[string]*int{
 		"wishlist_cleanup_interval_hours": &c.WishlistCleanupIntervalHours,
+		"wanted_max_results_keep":         &c.WantedMaxResultsKeep,
 	}
 	for key, fieldPtr := range intPtrs {
 		v, ok := raw[key]
@@ -699,6 +715,31 @@ func (c *Config) ImportEngineMode() (string, error) {
 		return mode, nil
 	default:
 		return "", fmt.Errorf("invalid LIBRARR_IMPORT_ENGINE %q: expected \"legacy\" or \"v2\"", c.ImportEngine)
+	}
+}
+
+func (c *Config) WantedSearchIntervalMode() string {
+	mode := strings.ToLower(strings.TrimSpace(c.WantedSearchInterval))
+	switch mode {
+	case "1h", "6h", "12h", "24h", "daily", "manual":
+		return mode
+	default:
+		return "6h"
+	}
+}
+
+func (c *Config) WantedSearchIntervalDuration() (time.Duration, bool) {
+	switch c.WantedSearchIntervalMode() {
+	case "manual":
+		return 0, false
+	case "1h":
+		return time.Hour, true
+	case "12h":
+		return 12 * time.Hour, true
+	case "24h", "daily":
+		return 24 * time.Hour, true
+	default:
+		return 6 * time.Hour, true
 	}
 }
 

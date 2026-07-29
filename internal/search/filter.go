@@ -1,6 +1,7 @@
 package search
 
 import (
+	"fmt"
 	"regexp"
 	"sort"
 	"strings"
@@ -100,9 +101,10 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 			}
 		}
 
-		// Deduplication by first 60 chars of normalized title, keeping highest seeders.
+		// Deduplicate exact-looking torrent/feed duplicates while preserving
+		// distinct releases with the same title from the same indexer.
 		if isTorrent || isABB {
-			norm := normalizeForDedup(r.Title)
+			norm := dedupKey(r)
 			if idx, exists := seenTitles[norm]; exists {
 				if r.Seeders > filtered[idx].Seeders {
 					filtered[idx] = r
@@ -146,6 +148,32 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 	})
 
 	return filtered
+}
+
+func dedupKey(r models.SearchResult) string {
+	source := strings.ToLower(strings.TrimSpace(r.Source))
+	indexer := strings.ToLower(strings.TrimSpace(r.Indexer))
+	for _, candidate := range []string{r.InfoHash, r.GUID, r.SourceID, r.MagnetURL, r.DownloadURL, r.URL, r.MD5} {
+		if value := strings.ToLower(strings.TrimSpace(candidate)); value != "" {
+			return strings.Join([]string{source, indexer, value}, "\x00")
+		}
+	}
+
+	format := strings.ToLower(strings.TrimSpace(r.Format))
+	if format == "" {
+		format = extractFormatFromTitle(r.Title)
+	}
+	size := r.Size
+	if size == 0 {
+		size = int64(parseSizeBytes(r.SizeHuman))
+	}
+	return strings.Join([]string{
+		source,
+		indexer,
+		normalizeForDedup(r.Title),
+		format,
+		fmt.Sprintf("%d", size),
+	}, "\x00")
 }
 
 func sourcePriority(r models.SearchResult) int {

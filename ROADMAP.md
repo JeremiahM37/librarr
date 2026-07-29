@@ -31,6 +31,7 @@ The current codebase already provides a useful foundation, including:
 - scan review with filters, search, duplicate details, and manual review
 - explicit import from scan review results
 - metadata editor with live import-location preview
+- Wanted Books with canonical release normalization, monitored Prowlarr searches, stored release inspection, manual qBittorrent handoff, and library reconciliation
 - staged connection diagnostics for Prowlarr and qBittorrent
 
 The immediate architectural limitation is that `library_items` represents both a logical book and a physical file.
@@ -137,6 +138,19 @@ Replace the file-centric library core with a normalized domain model while prese
 - [x] Keep secrets, headers, cookies, and sensitive URLs out of logs and responses.
 - [x] Present diagnostics in Settings with clear success/failure rows.
 - [ ] Extend diagnostics to Audiobookshelf, Kavita, Komga, SABnzbd, and Transmission.
+
+### 2.0.9 Wanted Books monitor
+
+- [x] Add local Wanted records with monitored/unmonitored state.
+- [x] Add manual and scheduled Prowlarr searches for monitored Wanted books.
+- [x] Store search history, result counts, best match, and errors.
+- [x] Store canonical Wanted title/author/language/media type separately from
+  release context such as raw torrent title, indexer, source, and preferred
+  format.
+- [x] Seed Discover-origin Prowlarr releases as immediately viewable Wanted releases.
+- [x] Add manual selected-release handoff to the existing torrent client path.
+- [x] Reconcile Wanted records against normalized Library records so imported matches move to Completed.
+- [ ] Add automatic grabbing, quality profiles, and deeper download-client completion linkage.
 
 ### 2.0 exit criteria
 
@@ -417,12 +431,13 @@ The following apply across all milestones.
 
 The next implementation sequence should be:
 
-1. Extend rich diagnostics to Audiobookshelf, Kavita, Komga, SABnzbd, and Transmission.
-2. Continue dogfooding the scanner/review/import path with real libraries.
-3. Add focused fixes for manual-review edge cases found during dogfooding.
-4. Refine logical book cards and details using the normalized read API.
-5. Begin metadata provider and cover improvements.
-6. Begin the download-client adapter framework after diagnostics are reliable.
+1. Continue dogfooding Wanted manual handoff through completed-download import.
+2. Add durable Wanted download/import linkage using torrent identity and import outcomes.
+3. Continue dogfooding the scanner/review/import path with real libraries.
+4. Add focused fixes for manual-review, path, and permission edge cases found during dogfooding.
+5. Extend rich diagnostics to Audiobookshelf, Kavita, Komga, SABnzbd, Transmission, and filesystem mappings.
+6. Begin metadata provider and cover improvements.
+7. Begin the download-client adapter framework after diagnostics are reliable.
 
 ## Import Repair Follow-up
 
