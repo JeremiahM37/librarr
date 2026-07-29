@@ -102,6 +102,7 @@ Replace the file-centric library core with a normalized domain model while prese
 - [x] Coordinate filesystem and database failure recovery.
 - [x] Add rollback-by-configuration through `LIBRARR_IMPORT_ENGINE=legacy`.
 - [x] Add explicit scan-review import using the configured import engine.
+- [x] Disable legacy background folder adoption when normalized mode is active.
 - [ ] Make normalized import the default after more dogfooding.
 
 ### 2.0.6 Compatibility API
@@ -207,25 +208,32 @@ Make metadata dependable, explainable, editable, and reusable across file format
 
 ### Metadata providers
 
-- [ ] Define metadata provider interface.
-- [ ] Evaluate initial providers such as Open Library and Google Books.
-- [ ] Store provider identifiers and provenance.
-- [ ] Score candidate matches.
-- [ ] Avoid destructive refresh of user overrides.
+- [x] Add review-first Book Details metadata enrichment tools.
+- [x] Support Open Library as the first online matching provider.
+- [x] Store provider identifiers and provenance when selected by the user.
+- [x] Score candidate matches.
+- [x] Avoid destructive refresh of user overrides.
+- [ ] Define broader metadata provider interface.
+- [ ] Evaluate Google Books as an additional optional provider.
 - [ ] Add rate limiting, caching, and provider health reporting.
 
 ### Embedded metadata
 
-- [ ] Preserve current EPUB extraction behavior.
+- [x] Preserve current EPUB extraction behavior.
+- [x] Extract EPUB title, author, language, publisher, publication date,
+  description, ISBN, subjects, Calibre-style series metadata, and cover
+  declarations into a review proposal.
 - [ ] Preserve MOBI filename fallback as a last-resort source.
-- [ ] Store embedded metadata at the file level.
-- [ ] Resolve display metadata through explicit precedence rules.
-- [ ] Add format-specific extractor tests.
+- [x] Resolve display metadata through explicit precedence rules during
+  proposal application.
+- [x] Add format-specific extractor tests.
+- [ ] Store full embedded metadata snapshots at the file level for refresh
+  history.
 
 ### Covers
 
 - [x] Extract embedded EPUB covers from local files.
-- [ ] Download covers from selected metadata providers.
+- [x] Download covers from selected Open Library metadata proposals.
 - [x] Cache extracted covers locally.
 - [x] Store cover provenance and dimensions.
 - [x] Serve local covers from Librarr-owned API URLs.

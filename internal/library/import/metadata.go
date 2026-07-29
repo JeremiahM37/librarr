@@ -24,6 +24,8 @@ func (r *MetadataResolver) Resolve(ctx context.Context, candidate *ImportCandida
 	switch {
 	case candidate.IsDirectory && candidate.MediaType == library.MediaTypeAudiobook:
 		r.resolveAudiobookDirectory(candidate)
+	case candidate.MediaType == library.MediaTypeAudiobook:
+		r.resolveAudiobookFile(candidate)
 	case isEbookFormat(candidate.Format):
 		r.resolveEbook(candidate)
 	default:
@@ -80,6 +82,33 @@ func (r *MetadataResolver) resolveFilenameOnly(candidate *ImportCandidate) {
 	candidate.Evidence = append(candidate.Evidence,
 		metadataEvidence("filename_title", candidate.Metadata.FilenameTitle, "filename_fallback"),
 		metadataEvidence("selected_title", candidate.Metadata.SelectedTitle, "filename_fallback", "selected filename-derived title for planning"),
+	)
+}
+
+func (r *MetadataResolver) resolveAudiobookFile(candidate *ImportCandidate) {
+	meta := organize.ExtractAudiobookPathMetadata(candidate.Path)
+	selectedTitle := ""
+	selectedAuthor := ""
+	if meta != nil {
+		selectedTitle = strings.TrimSpace(meta.Title)
+		selectedAuthor = strings.TrimSpace(meta.Artist)
+	}
+	if selectedTitle == "" {
+		selectedTitle = strings.TrimSpace(strings.TrimSuffix(filepath.Base(candidate.Path), filepath.Ext(candidate.Path)))
+	}
+	candidate.Metadata = CandidateMetadata{
+		FilenameTitle:  selectedTitle,
+		FilenameAuthor: selectedAuthor,
+		SelectedTitle:  selectedTitle,
+		SelectedAuthor: selectedAuthor,
+	}
+	r.applyHints(candidate)
+	r.applyOverrides(candidate)
+	candidate.Evidence = append(candidate.Evidence,
+		metadataEvidence("filename_title", candidate.Metadata.FilenameTitle, "audiobook_path_fallback"),
+		metadataEvidence("filename_author", candidate.Metadata.FilenameAuthor, "audiobook_path_fallback"),
+		metadataEvidence("selected_title", candidate.Metadata.SelectedTitle, "audiobook_path_fallback", "selected audiobook title from path for planning"),
+		metadataEvidence("selected_author", candidate.Metadata.SelectedAuthor, "audiobook_path_fallback", "selected audiobook author from path for planning"),
 	)
 }
 

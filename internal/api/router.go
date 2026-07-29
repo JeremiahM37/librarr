@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jamie75/librarr/internal/config"
@@ -57,6 +58,8 @@ type Server struct {
 	seriesDetector      *scheduler.SeriesDetector
 	authorMonitor       *scheduler.AuthorMonitor
 	wantedMonitor       *scheduler.WantedMonitor
+	metadataProposalMu  sync.Mutex
+	metadataProposals   map[string]metadataProposal
 }
 
 // NewServer creates the HTTP API server.
@@ -129,29 +132,30 @@ func NewServerWithServices(cfg *config.Config, database *db.DB, searchMgr *searc
 
 	coverCache := library.NewCoverCache(defaultCoverCacheDir(cfg))
 	s := &Server{
-		cfg:            cfg,
-		db:             database,
-		libraryService: librarySvc,
-		coverCache:     coverCache,
-		importEngine:   importEngine,
-		libraryScanner: libraryscanner.NewManager(librarySvc, libraryscanner.WithCoverCache(coverCache)),
-		searchMgr:      searchMgr,
-		downloadMgr:    downloadMgr,
-		qb:             qb,
-		transmission:   transmission,
-		sab:            sab,
-		mux:            http.NewServeMux(),
-		sessions:       sessions,
-		metrics:        NewMetricsCollector(),
-		metadataClient: metadata.NewClient(&http.Client{Timeout: 15 * time.Second}),
-		organizer:      organizer,
-		targets:        targets,
-		webhookSender:  ws,
-		scheduler:      sched,
-		wishlistClean:  wishlistClean,
-		seriesDetector: seriesDet,
-		authorMonitor:  authorMon,
-		wantedMonitor:  wantedMon,
+		cfg:               cfg,
+		db:                database,
+		libraryService:    librarySvc,
+		coverCache:        coverCache,
+		importEngine:      importEngine,
+		libraryScanner:    libraryscanner.NewManager(librarySvc, libraryscanner.WithCoverCache(coverCache)),
+		searchMgr:         searchMgr,
+		downloadMgr:       downloadMgr,
+		qb:                qb,
+		transmission:      transmission,
+		sab:               sab,
+		mux:               http.NewServeMux(),
+		sessions:          sessions,
+		metrics:           NewMetricsCollector(),
+		metadataClient:    metadata.NewClient(&http.Client{Timeout: 15 * time.Second}),
+		organizer:         organizer,
+		targets:           targets,
+		webhookSender:     ws,
+		scheduler:         sched,
+		wishlistClean:     wishlistClean,
+		seriesDetector:    seriesDet,
+		authorMonitor:     authorMon,
+		wantedMonitor:     wantedMon,
+		metadataProposals: map[string]metadataProposal{},
 	}
 
 	// Initialize OIDC handler if configured.
@@ -397,6 +401,9 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("POST /api/v1/books/{id}/merge-matching", requireAdmin(s.handleV1BookMergeMatching))
 	s.mux.HandleFunc("GET /api/v1/books/{id}/metadata", s.handleV1BookMetadata)
 	s.mux.HandleFunc("PATCH /api/v1/books/{id}/metadata", s.handleV1BookMetadataPatch)
+	s.mux.HandleFunc("POST /api/v1/books/{id}/metadata/extract", s.handleV1BookMetadataExtract)
+	s.mux.HandleFunc("POST /api/v1/books/{id}/metadata/matches", s.handleV1BookMetadataMatches)
+	s.mux.HandleFunc("POST /api/v1/books/{id}/metadata/apply", s.handleV1BookMetadataApply)
 	s.mux.HandleFunc("GET /api/v1/books/{id}/provenance", s.handleV1BookProvenance)
 	s.mux.HandleFunc("GET /api/v1/books/{id}/files", s.handleV1BookFiles)
 	s.mux.HandleFunc("GET /api/v1/books/{id}/editions", s.handleV1BookEditions)

@@ -19,14 +19,19 @@ type AudioMeta struct {
 // Falls back to filename parsing if no tags found.
 func ExtractAudioMeta(path string) *AudioMeta {
 	// Try to read ID3v2 tags from the file header.
-	if strings.HasSuffix(strings.ToLower(path), ".mp3") {
-		if id3Meta := readID3v2Tags(path); id3Meta != nil {
-			return id3Meta
-		}
+	if embedded := extractEmbeddedAudioMeta(path); embedded != nil {
+		return embedded
 	}
 
 	// Fallback: parse from filename.
 	return parseAudioFilename(path)
+}
+
+func extractEmbeddedAudioMeta(path string) *AudioMeta {
+	if strings.HasSuffix(strings.ToLower(path), ".mp3") {
+		return readID3v2Tags(path)
+	}
+	return nil
 }
 
 // readID3v2Tags reads basic ID3v2.3/2.4 tags from an MP3 file.
@@ -144,6 +149,44 @@ func parseAudioFilename(path string) *AudioMeta {
 
 	meta.Title = name
 	return meta
+}
+
+// ExtractAudiobookPathMetadata derives conservative audiobook metadata from a
+// library path when embedded tags are unavailable. It assumes the immediate
+// parent folder is the author and the filename stem is the title, which matches
+// the mounted-library layout used by Librarr's explicit library scanner.
+func ExtractAudiobookPathMetadata(path string) *AudioMeta {
+	author := strings.TrimSpace(filepath.Base(filepath.Dir(path)))
+	title := audiobookTitleFromFile(path, author)
+	return &AudioMeta{Artist: author, Title: title}
+}
+
+func audiobookTitleFromFile(path, author string) string {
+	name := strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return ""
+	}
+	if author != "" {
+		prefix := strings.TrimSpace(author) + " - "
+		if strings.HasPrefix(strings.ToLower(name), strings.ToLower(prefix)) {
+			name = strings.TrimSpace(name[len(prefix):])
+		}
+	}
+	name = stripAudiobookPartSuffix(name)
+	return strings.TrimSpace(name)
+}
+
+func stripAudiobookPartSuffix(title string) string {
+	parts := strings.Split(title, " - ")
+	if len(parts) <= 1 {
+		return title
+	}
+	last := strings.TrimSpace(parts[len(parts)-1])
+	if strings.EqualFold(last, "part") || strings.HasPrefix(strings.ToLower(last), "part ") {
+		return strings.TrimSpace(strings.Join(parts[:len(parts)-1], " - "))
+	}
+	return title
 }
 
 // ExtractAudioMetaFromDir scans a directory for audio files and extracts

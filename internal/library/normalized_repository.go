@@ -30,6 +30,9 @@ func NewNormalizedRepository(db *sql.DB) (*NormalizedRepository, error) {
 }
 
 func (r *NormalizedRepository) WithinTransaction(ctx context.Context, fn func(context.Context) error) error {
+	if tx, ok := ctx.Value(normalizedTxKey{}).(*sql.Tx); ok && tx != nil {
+		return fn(ctx)
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return err

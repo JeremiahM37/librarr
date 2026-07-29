@@ -692,6 +692,15 @@ const state = {
     draft: null,
     errors: [],
   },
+  metadataTools: {
+    loading: false,
+    error: '',
+    mode: '',
+    proposal: null,
+    candidates: [],
+    selectedToken: '',
+    selectedFields: new Set(),
+  },
   bookDeleteDialog: {
     open: false,
     deleteFiles: false,
@@ -2888,6 +2897,7 @@ async function openBookDetails(index, collection = 'libraryBooks') {
   detailBook.provenance = detailProvenance;
   state.activeDetailBook = detailBook;
   state.activeDetailContext = { index, collection, bookId: detailBook.id || book.id || 0 };
+  resetMetadataToolsForBook(detailBook.id || book.id || 0);
   const preferredTitle = detailMetadata?.fields?.title?.value || detailBook.title || book.title;
   const preferredDescription = detailMetadata?.fields?.description?.value || detailBook.description || '';
   heading.textContent = preferredTitle;
@@ -2906,9 +2916,15 @@ async function openBookDetails(index, collection = 'libraryBooks') {
         <section class="mb-8">
           <div class="flex items-center justify-between gap-3 mb-4">
             <h3 class="text-lg font-semibold text-white">${t('details_metadata')}</h3>
-            ${detailBook.id && normalizedLibraryMode() ? `<button data-action="openLibraryMetadataEditor" class="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200 transition-colors">${t('metadata_edit')}</button>` : ''}
+            ${detailBook.id && normalizedLibraryMode() ? `
+              <div class="flex flex-wrap gap-2">
+                <button data-action="openLibraryMetadataEditor" class="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200 transition-colors">${t('metadata_edit')}</button>
+                <button data-action="extractBookMetadataFromFile" class="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200 transition-colors">Extract from File</button>
+                <button data-action="matchBookMetadataOnline" class="rounded-full border border-stone-700 px-3 py-1.5 text-xs font-medium text-stone-200 hover:border-amber-300 hover:text-amber-200 transition-colors">Match Online</button>
+              </div>` : ''}
           </div>
           ${state.libraryMetadataEditor.open ? renderLibraryMetadataEditor(detailBook) : ''}
+          ${renderMetadataToolsPanel(detailBook)}
           <div class="grid gap-4 sm:grid-cols-2">
             ${renderMetadataFieldCards(detailMetadata)}
             ${renderDetailMetaCard(t('metadata_series'), detailBook.series || t('details_placeholder_value'))}
@@ -3342,6 +3358,251 @@ async function saveLibraryMetadataEditor() {
   } catch (err) {
     showToast(err.message || 'Failed to update metadata', 'error');
   }
+}
+
+function resetMetadataToolsForBook(bookId) {
+  if (state.metadataTools?.bookId === bookId) return;
+  state.metadataTools = {
+    bookId,
+    loading: false,
+    error: '',
+    mode: '',
+    proposal: null,
+    candidates: [],
+    selectedToken: '',
+    selectedFields: new Set(),
+  };
+}
+
+function renderMetadataToolsPanel(book) {
+  const tools = state.metadataTools || {};
+  if (!tools.mode && !tools.loading && !tools.error) return '';
+  if (tools.loading) {
+    return `
+      <div id="metadata-tools-panel" class="mb-5 rounded-[1.5rem] border border-amber-500/25 bg-stone-950/75 p-4 text-sm text-stone-200">
+        <span class="inline-block animate-spin text-amber-300">⟳</span>
+        <span class="ml-2">${tools.mode === 'match' ? 'Searching metadata providers…' : 'Reading metadata from the attached file…'}</span>
+      </div>
+    `;
+  }
+  if (tools.error) {
+    return `
+      <div id="metadata-tools-panel" class="mb-5 rounded-[1.5rem] border border-red-500/30 bg-red-500/10 p-4">
+        <p class="text-sm font-semibold text-red-100">${escapeHtml(tools.error)}</p>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <button data-action="${tools.mode === 'match' ? 'matchBookMetadataOnline' : 'extractBookMetadataFromFile'}" class="rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">Retry</button>
+          <button data-action="cancelMetadataTools" class="rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">Cancel</button>
+        </div>
+      </div>
+    `;
+  }
+  if (tools.mode === 'match' && Array.isArray(tools.candidates) && tools.candidates.length && !tools.proposal) {
+    return renderMetadataMatchCandidates(tools.candidates);
+  }
+  if (tools.mode === 'match' && Array.isArray(tools.candidates) && tools.candidates.length === 0) {
+    return `
+      <div id="metadata-tools-panel" class="mb-5 rounded-[1.5rem] border border-stone-800 bg-stone-950/75 p-4">
+        <p class="text-sm font-semibold text-white">No online matches found</p>
+        <p class="mt-1 text-xs text-stone-400">Try editing the title or author first, then run Match Online again.</p>
+        <button data-action="cancelMetadataTools" class="mt-3 rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-200 hover:bg-stone-700">Close</button>
+      </div>
+    `;
+  }
+  if (tools.proposal) {
+    return renderMetadataProposalReview(book, tools.proposal);
+  }
+  return '';
+}
+
+function renderMetadataMatchCandidates(candidates) {
+  return `
+    <div id="metadata-tools-panel" class="mb-5 rounded-[1.5rem] border border-amber-500/25 bg-stone-950/75 p-4">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-white">Choose an online metadata match</p>
+          <p class="mt-1 text-xs text-stone-400">Candidates are review-only until you select fields to apply.</p>
+        </div>
+        <button data-action="cancelMetadataTools" class="rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-300 hover:bg-stone-700">Cancel</button>
+      </div>
+      <div class="mt-4 space-y-2">
+        ${candidates.map(candidate => `
+          <button data-action="selectMetadataMatchCandidate" data-token="${escapeHtml(candidate.token || '')}" class="w-full rounded-xl border border-stone-800 bg-stone-900/70 p-3 text-left hover:border-amber-500/40">
+            <div class="flex flex-wrap items-start justify-between gap-3">
+              <div>
+                <p class="font-semibold text-white">${escapeHtml(candidate.fields?.title || 'Untitled candidate')}</p>
+                <p class="mt-1 text-sm text-stone-400">${escapeHtml(candidate.author || 'Unknown author')}</p>
+                <p class="mt-2 text-xs text-stone-500">${escapeHtml(candidate.reason || 'Provider candidate')}</p>
+              </div>
+              <div class="flex flex-wrap gap-2 text-[11px]">
+                <span class="rounded-full bg-blue-500/10 px-2 py-1 text-blue-200">${escapeHtml(formatMetadataSource(candidate.provider || candidate.source || 'provider'))}</span>
+                <span class="rounded-full bg-amber-500/10 px-2 py-1 text-amber-200">${escapeHtml(String(candidate.score || 0))}%</span>
+              </div>
+            </div>
+          </button>
+        `).join('')}
+      </div>
+    </div>
+  `;
+}
+
+function renderMetadataProposalReview(book, proposal) {
+  const selected = state.metadataTools.selectedFields || new Set();
+  const rows = metadataProposalRows(book, proposal);
+  const checkbox = (field, checked) => `<input data-action-change="toggleMetadataProposalField" data-field="${escapeHtml(field)}" type="checkbox" ${checked ? 'checked' : ''} class="mt-1 h-4 w-4 rounded border-stone-700 bg-stone-950 text-amber-500 focus:ring-amber-400">`;
+  return `
+    <div id="metadata-tools-panel" class="mb-5 rounded-[1.5rem] border border-amber-500/25 bg-stone-950/75 p-4">
+      <div class="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <p class="text-sm font-semibold text-white">${proposal.source === 'epub' ? 'Review metadata extracted from file' : 'Review online metadata proposal'}</p>
+          <p class="mt-1 text-xs text-stone-400">${escapeHtml(proposal.reason || '')} · ${escapeHtml(formatMetadataSource(proposal.provider || proposal.source || 'metadata'))} · ${escapeHtml(String(proposal.score || 0))}%</p>
+          ${proposal.file_label ? `<p class="mt-1 text-xs text-stone-500">Source file: ${escapeHtml(proposal.file_label)}</p>` : ''}
+        </div>
+        <button data-action="cancelMetadataTools" class="rounded-md bg-stone-800 px-3 py-2 text-xs font-medium text-stone-300 hover:bg-stone-700">Cancel</button>
+      </div>
+      ${proposal.cover?.available ? `
+        <div class="mt-4 rounded-xl border border-stone-800 bg-stone-900/60 p-3">
+          <div class="flex items-center gap-3">
+            ${checkbox('cover', selected.has('cover'))}
+            <div>
+              <p class="text-sm font-medium text-white">Cover artwork available</p>
+              <p class="text-xs text-stone-400">${escapeHtml(formatMetadataSource(proposal.cover.source || proposal.source))}${proposal.cover.mime_type ? ` · ${escapeHtml(proposal.cover.mime_type)}` : ''}</p>
+            </div>
+          </div>
+        </div>` : ''}
+      <div class="mt-4 overflow-hidden rounded-xl border border-stone-800">
+        <div class="grid grid-cols-[2rem_1fr_1fr_1fr] gap-0 bg-stone-900/80 px-3 py-2 text-[11px] uppercase tracking-wider text-stone-500">
+          <span></span><span>Field</span><span>Current</span><span>Proposed</span>
+        </div>
+        ${rows.map(row => `
+          <div class="grid grid-cols-[2rem_1fr_1fr_1fr] gap-0 border-t border-stone-800 px-3 py-3 text-sm">
+            <div>${checkbox(row.field, selected.has(row.field))}</div>
+            <div class="font-medium text-stone-200">${escapeHtml(row.label)}</div>
+            <div class="break-words pr-3 text-stone-400">${escapeHtml(row.current || '—')}</div>
+            <div class="break-words text-stone-100">${escapeHtml(row.proposed || '—')}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="mt-4 flex flex-wrap gap-2">
+        <button data-action="applySelectedMetadataProposal" ${selected.size ? '' : 'disabled'} class="rounded-md bg-amber-500 px-4 py-2 text-sm font-medium text-stone-950 hover:bg-amber-400 disabled:cursor-not-allowed disabled:bg-stone-700 disabled:text-stone-400">Apply Selected Fields</button>
+        <button data-action="selectAllSafeMetadataProposalFields" class="rounded-md bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 hover:bg-stone-700">Select All Safe Fields</button>
+        <button data-action="cancelMetadataTools" class="rounded-md bg-stone-800 px-4 py-2 text-sm font-medium text-stone-200 hover:bg-stone-700">Cancel</button>
+      </div>
+    </div>
+  `;
+}
+
+function metadataProposalRows(book, proposal) {
+  const fields = book?.metadata?.fields || {};
+  const rows = [];
+  const add = (field, label, current, proposed) => {
+    if (String(proposed || '').trim() === '') return;
+    rows.push({ field, label, current: current || '', proposed });
+  };
+  add('title', 'Title', fields.title?.value || book?.title, proposal.fields?.title);
+  add('edition_title', 'Edition Title', fields.edition_title?.value || book?.editions?.[0]?.title, proposal.fields?.edition_title);
+  add('subtitle', 'Subtitle', fields.subtitle?.value || book?.editions?.[0]?.subtitle, proposal.fields?.subtitle);
+  add('author', 'Author', book?.author || book?.primary_author?.name, proposal.author);
+  add('publisher', 'Publisher', fields.publisher?.value || book?.editions?.[0]?.publisher, proposal.fields?.publisher);
+  add('publication_date', 'Publication Date', fields.publication_date?.value || book?.editions?.[0]?.publication_date, proposal.fields?.publication_date);
+  add('language', 'Language', fields.language?.value || book?.language || book?.editions?.[0]?.language, proposal.fields?.language);
+  add('description', 'Description', fields.description?.value || book?.description, proposal.fields?.description);
+  add('genres', 'Genres / Subjects', fields.genres?.value, proposal.fields?.genres || (proposal.subjects || []).join(', '));
+  add('identifiers', 'Identifiers', formatIdentifierList(book?.identifiers || []), (proposal.identifiers || []).map(i => `${i.type}: ${i.value}`).join(', '));
+  add('series', 'Series', book?.series, proposal.series?.name ? `${proposal.series.name}${proposal.series.position ? ` #${proposal.series.position}` : ''}` : '');
+  return rows;
+}
+
+async function extractBookMetadataFromFile() {
+  const book = state.activeDetailBook;
+  if (!book?.id) return;
+  state.metadataTools = { bookId: book.id, loading: true, error: '', mode: 'extract', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+  rerenderActiveBookDetails();
+  try {
+    const response = await apiJson(`/api/v1/books/${book.id}/metadata/extract`, { method: 'POST', body: JSON.stringify({}) });
+    const proposal = response.proposal;
+    state.metadataTools = { bookId: book.id, loading: false, error: '', mode: 'extract', proposal, candidates: [], selectedToken: proposal?.token || '', selectedFields: safeMetadataProposalFields(proposal, book) };
+  } catch (err) {
+    state.metadataTools = { bookId: book.id, loading: false, error: err.message || 'Failed to extract metadata from file', mode: 'extract', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+  }
+  rerenderActiveBookDetails();
+}
+
+async function matchBookMetadataOnline() {
+  const book = state.activeDetailBook;
+  if (!book?.id) return;
+  state.metadataTools = { bookId: book.id, loading: true, error: '', mode: 'match', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+  rerenderActiveBookDetails();
+  try {
+    const response = await apiJson(`/api/v1/books/${book.id}/metadata/matches`, { method: 'POST', body: JSON.stringify({}) });
+    state.metadataTools = { bookId: book.id, loading: false, error: '', mode: 'match', proposal: null, candidates: response.candidates || [], selectedToken: '', selectedFields: new Set() };
+  } catch (err) {
+    state.metadataTools = { bookId: book.id, loading: false, error: err.message || 'Failed to match online metadata', mode: 'match', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+  }
+  rerenderActiveBookDetails();
+}
+
+function selectMetadataMatchCandidate(token) {
+  const tools = state.metadataTools || {};
+  const proposal = (tools.candidates || []).find(candidate => candidate.token === token);
+  if (!proposal) return;
+  state.metadataTools = { ...tools, proposal, selectedToken: proposal.token, selectedFields: safeMetadataProposalFields(proposal, state.activeDetailBook) };
+  rerenderActiveBookDetails();
+}
+
+function safeMetadataProposalFields(proposal, book) {
+  const selected = new Set();
+  const fields = book?.metadata?.fields || {};
+  for (const row of metadataProposalRows(book, proposal || {})) {
+    const currentField = fields[row.field];
+    if (currentField?.manual_override) continue;
+    if (row.proposed && row.proposed !== row.current) selected.add(row.field);
+  }
+  if (proposal?.cover?.available && !book?.cover?.available) selected.add('cover');
+  return selected;
+}
+
+function toggleMetadataProposalField(field, checked) {
+  state.metadataTools.selectedFields = state.metadataTools.selectedFields || new Set();
+  if (checked) state.metadataTools.selectedFields.add(field);
+  else state.metadataTools.selectedFields.delete(field);
+  rerenderActiveBookDetails();
+}
+
+function selectAllSafeMetadataProposalFields() {
+  state.metadataTools.selectedFields = safeMetadataProposalFields(state.metadataTools.proposal, state.activeDetailBook);
+  rerenderActiveBookDetails();
+}
+
+function cancelMetadataTools() {
+  const bookId = state.activeDetailBook?.id || 0;
+  state.metadataTools = { bookId, loading: false, error: '', mode: '', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+  rerenderActiveBookDetails();
+}
+
+async function applySelectedMetadataProposal() {
+  const book = state.activeDetailBook;
+  const proposal = state.metadataTools?.proposal;
+  const selectedFields = Array.from(state.metadataTools?.selectedFields || []);
+  if (!book?.id || !proposal?.token || selectedFields.length === 0) return;
+  try {
+    await apiJson(`/api/v1/books/${book.id}/metadata/apply`, {
+      method: 'POST',
+      body: JSON.stringify({ token: proposal.token, selected_fields: selectedFields }),
+    });
+    state.metadataTools = { bookId: book.id, loading: false, error: '', mode: '', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() };
+    await loadLibrary();
+    const context = state.activeDetailContext || {};
+    const refreshedIndex = state.libraryBooks.findIndex(item => item.id === book.id);
+    await openBookDetails(refreshedIndex >= 0 ? refreshedIndex : (context.index || 0), 'libraryBooks');
+    showToast('Metadata proposal applied', 'success');
+  } catch (err) {
+    showToast(err.message || 'Failed to apply metadata proposal', 'error');
+  }
+}
+
+function rerenderActiveBookDetails() {
+  const context = state.activeDetailContext || {};
+  openBookDetails(context.index || 0, context.collection || 'libraryBooks');
 }
 
 function libraryMetadataCandidate(book) {
@@ -3965,6 +4226,7 @@ async function saveWantedSettings() {
 // ============================================================
 async function loadSettings() {
   bindLibraryImportChangeHandlers();
+  bindLibraryImportActionHandlers();
   loadConfig();
   loadSources();
   loadTOTPStatus();
@@ -5363,6 +5625,23 @@ function bindLibraryImportChangeHandlers() {
   }
 }
 
+function bindLibraryImportActionHandlers() {
+  const bindings = [
+    ['settings-library-import-save-standard', false],
+    ['settings-library-import-save-continue', true],
+  ];
+  for (const [id, continueAfterSave] of bindings) {
+    const button = document.getElementById(id);
+    if (!button || button.dataset.libraryImportActionBound === 'true') continue;
+    button.addEventListener('click', event => {
+      event.preventDefault();
+      event.stopPropagation();
+      saveLibraryImportSettings(continueAfterSave);
+    });
+    button.dataset.libraryImportActionBound = 'true';
+  }
+}
+
 async function saveLibraryImportSettings(continueAfterSave = false) {
   const values = getLibraryImportFormValues();
   const validation = validateLibraryImportSettings(values);
@@ -6297,6 +6576,12 @@ const CLICK_ACTIONS = {
   cancelLibraryMetadataEditor: () => closeLibraryMetadataEditor(),
   resetLibraryMetadataEditor: () => resetLibraryMetadataEditor(),
   saveLibraryMetadataEditor: () => saveLibraryMetadataEditor(),
+  extractBookMetadataFromFile: () => extractBookMetadataFromFile(),
+  matchBookMetadataOnline: () => matchBookMetadataOnline(),
+  selectMetadataMatchCandidate: el => selectMetadataMatchCandidate(el.dataset.token),
+  cancelMetadataTools: () => cancelMetadataTools(),
+  applySelectedMetadataProposal: () => applySelectedMetadataProposal(),
+  selectAllSafeMetadataProposalFields: () => selectAllSafeMetadataProposalFields(),
   mergeMatchingBookDuplicates: () => mergeMatchingBookDuplicates(),
   openBookDeleteDialog: el => openBookDeleteDialog(el.dataset.deleteFiles),
   cancelBookDeleteDialog: () => cancelBookDeleteDialog(),
@@ -6321,7 +6606,7 @@ document.addEventListener('click', e => {
   const fn = CLICK_ACTIONS[el.dataset.action];
   if (!fn) return;
   // Anchors previously used inline `return false` — keep them from navigating.
-  if (el.tagName === 'A') e.preventDefault();
+  if (el.tagName === 'A' || el.tagName === 'BUTTON') e.preventDefault();
   fn(el, e);
 });
 
@@ -6354,6 +6639,7 @@ const CHANGE_ACTIONS = {
   },
   toggleWantedMonitored: el => toggleWantedMonitored(+el.dataset.id, el.checked),
   setWantedReleaseFilter: el => setWantedReleaseFilter(el.dataset.field, el.value),
+  toggleMetadataProposalField: el => toggleMetadataProposalField(el.dataset.field, el.checked),
 };
 
 document.addEventListener('change', e => {
@@ -6372,6 +6658,8 @@ document.addEventListener('input', e => {
     document.getElementById('settings-library-scan-search')?.focus();
   } else if (el.dataset.actionInput === 'metadataEditorField') {
     updateMetadataEditorDraft(el.dataset.field, el.value || '');
+  } else if (el.dataset.actionInput === 'libraryMetadataEditorField') {
+    updateLibraryMetadataEditorDraft(el.dataset.field, el.value || '');
   }
 });
 

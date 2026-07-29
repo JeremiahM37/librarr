@@ -204,6 +204,8 @@ const functionBundle = [
   extractFunctionSource('loadConfig'),
   extractFunctionSource('loadStats'),
   extractFunctionSource('updateLibraryImportSaveState'),
+  extractFunctionSource('bindLibraryImportActionHandlers'),
+  extractFunctionSource('loadSettingToggles'),
   extractFunctionSource('saveLibraryImportSettings'),
   extractFunctionSource('libraryMetadataDraftFromBook'),
   extractFunctionSource('renderLibraryMetadataEditor'),
@@ -215,6 +217,19 @@ const functionBundle = [
   extractFunctionSource('validateLibraryMetadataDraft'),
   extractFunctionSource('libraryMetadataPatchFromDraft'),
   extractFunctionSource('saveLibraryMetadataEditor'),
+  extractFunctionSource('resetMetadataToolsForBook'),
+  extractFunctionSource('renderMetadataToolsPanel'),
+  extractFunctionSource('renderMetadataMatchCandidates'),
+  extractFunctionSource('renderMetadataProposalReview'),
+  extractFunctionSource('metadataProposalRows'),
+  extractFunctionSource('extractBookMetadataFromFile'),
+  extractFunctionSource('matchBookMetadataOnline'),
+  extractFunctionSource('selectMetadataMatchCandidate'),
+  extractFunctionSource('safeMetadataProposalFields'),
+  extractFunctionSource('toggleMetadataProposalField'),
+  extractFunctionSource('selectAllSafeMetadataProposalFields'),
+  extractFunctionSource('cancelMetadataTools'),
+  extractFunctionSource('applySelectedMetadataProposal'),
   extractFunctionSource('libraryMetadataCandidate'),
   extractFunctionSource('publicationYearFromMetadata'),
   extractFunctionSource('loadUsers'),
@@ -293,6 +308,7 @@ function createContext(overrides = {}) {
       currentTab: 'home',
       libraryImport: libraryImportState(),
       libraryMetadataEditor: { open: false, draft: null, errors: [] },
+      metadataTools: { bookId: 0, loading: false, error: '', mode: '', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() },
       bookDeleteDialog: { open: false, deleteFiles: false, loading: false, error: '' },
       libraryBooks: [],
       wantedBooks: [],
@@ -339,6 +355,7 @@ function createContext(overrides = {}) {
     startDownloadPolling: () => {},
     loadHomeDashboard: async () => {},
     loadLibrary: async () => {},
+    openBookDetails: async () => {},
     loadSettings: async () => {},
     refreshDownloads: async () => {},
     getDownloadKey: result => result.title,
@@ -346,6 +363,7 @@ function createContext(overrides = {}) {
     hasTrackedDirectDownload: () => false,
     getTrackedDownloadJob: () => null,
     SOURCE_COLORS: { prowlarr: { bg: '#000', text: '#fff', label: 'Prowlarr' } },
+    INTEGRATION_FIELDS: {},
     scrollToSettingsSection: () => {},
     window: { setTimeout: fn => { fn(); return 1; }, clearTimeout: () => {}, prompt: () => null, location: { hash: '' }, addEventListener: () => {} },
     normalizedLibraryMode: () => false,
@@ -845,6 +863,13 @@ test('index.html uses renamed import folder label and helper text', () => {
   assert.doesNotMatch(indexHTML, /Incoming Directory/);
 });
 
+test('index.html Library & Import placeholders match application fallback defaults', () => {
+  assert.match(indexHTML, /id="setting-incoming_dir"[^>]+placeholder="\/data\/incoming"/);
+  assert.match(indexHTML, /id="setting-ebook_dir"[^>]+placeholder="\/books\/ebooks"/);
+  assert.match(indexHTML, /id="setting-audiobook_dir"[^>]+placeholder="\/books\/audiobooks"/);
+  assert.match(indexHTML, /id="setting-manga_dir"[^>]+placeholder="\/books\/manga"/);
+});
+
 test('index.html uses requested field ordering', () => {
   const labels = [
     'Import Folder (Downloads)',
@@ -944,6 +969,118 @@ test('saveLibraryImportSettings uses existing settings save path', async () => {
     manga_dir: '/manga',
     file_org_enabled: true,
   });
+});
+
+test('loadSettingToggles populates fresh-install Library & Import defaults from settings API', async () => {
+  const elements = {
+    'setting-incoming_dir': { value: '' },
+    'setting-ebook_dir': { value: '' },
+    'setting-audiobook_dir': { value: '' },
+    'setting-manga_dir': { value: '' },
+    'setting-file_org_enabled': { checked: false },
+    'settings-library-import-save-standard': { disabled: false, classList: fakeClassList() },
+    'settings-library-import-step2': { dataset: {}, classList: fakeClassList() },
+    'settings-library-import-step2-icon': { textContent: '', className: '' },
+    'settings-library-import-step2-copy': { textContent: '' },
+    'settings-library-import-summary': { innerHTML: '', classList: fakeClassList(['hidden']) },
+    'settings-library-import-save-continue': { classList: fakeClassList(['hidden']), textContent: '' },
+    'settings-library-import-complete': { classList: fakeClassList(['hidden']) },
+    'settings-library-import-complete-title': { textContent: '' },
+    'settings-library-import-complete-copy': { textContent: '' },
+    'settings-library-import-unsaved': { classList: fakeClassList(['hidden']) },
+    'settings-library-import-validation': { classList: fakeClassList(['hidden']), innerHTML: '' },
+  };
+  const context = createContext({
+    document: { getElementById: id => elements[id] || null },
+    apiJson: async url => {
+      assert.equal(url, '/api/settings');
+      return {
+        incoming_dir: '/data/incoming',
+        ebook_dir: '/books/ebooks',
+        audiobook_dir: '/books/audiobooks',
+        manga_dir: '/books/manga',
+        file_org_enabled: true,
+      };
+    },
+  });
+
+  await context.loadSettingToggles();
+
+  assert.equal(elements['setting-incoming_dir'].value, '/data/incoming');
+  assert.equal(elements['setting-ebook_dir'].value, '/books/ebooks');
+  assert.equal(elements['setting-audiobook_dir'].value, '/books/audiobooks');
+  assert.equal(elements['setting-manga_dir'].value, '/books/manga');
+  assert.equal(elements['setting-file_org_enabled'].checked, true);
+  assert.equal(context.state.libraryImport.completed, true);
+  assert.equal(elements['settings-library-import-save-continue'].classList.contains('hidden'), true);
+  assert.match(elements['settings-library-import-summary'].innerHTML, /\/books\/ebooks/);
+});
+
+test('Save & Continue button binding posts current Library & Import values', async () => {
+  const events = [];
+  function button(id) {
+    return {
+      dataset: {},
+      disabled: false,
+      classList: fakeClassList(id.includes('continue') ? [] : []),
+      addEventListener(type, fn) {
+        events.push(`bound:${id}:${type}`);
+        this.listener = fn;
+      },
+    };
+  }
+  const saveStandard = button('settings-library-import-save-standard');
+  const saveContinue = button('settings-library-import-save-continue');
+  const elements = {
+    'setting-incoming_dir': { value: '/data/incoming' },
+    'setting-ebook_dir': { value: '/books/ebooks' },
+    'setting-audiobook_dir': { value: '/books/audiobooks' },
+    'setting-manga_dir': { value: '/books/manga' },
+    'setting-file_org_enabled': { checked: true },
+    'settings-library-import-save-standard': saveStandard,
+    'settings-library-import-step2': { dataset: {}, classList: fakeClassList(), focus: () => events.push('focus') },
+    'settings-library-import-step2-icon': { textContent: '', className: '' },
+    'settings-library-import-step2-copy': { textContent: '' },
+    'settings-library-import-summary': { innerHTML: '', classList: fakeClassList(['hidden']) },
+    'settings-library-import-save-continue': saveContinue,
+    'settings-library-import-complete': { classList: fakeClassList(['hidden']) },
+    'settings-library-import-complete-title': { textContent: '' },
+    'settings-library-import-complete-copy': { textContent: '' },
+    'settings-library-import-unsaved': { classList: fakeClassList(['hidden']) },
+    'settings-library-import-validation': { classList: fakeClassList(['hidden']), innerHTML: '' },
+  };
+  let request = null;
+  const context = createContext({
+    document: { getElementById: id => elements[id] || null },
+    apiJson: async (url, options) => {
+      request = { url, options };
+      return { success: true };
+    },
+    showToast: (msg, kind) => events.push(`toast:${kind}:${msg}`),
+    scrollToSettingsSection: id => events.push(`scroll:${id}`),
+  });
+
+  context.bindLibraryImportActionHandlers();
+  assert.equal(saveContinue.dataset.libraryImportActionBound, 'true');
+  assert.equal(typeof saveContinue.listener, 'function');
+
+  saveContinue.listener({
+    preventDefault: () => events.push('preventDefault'),
+    stopPropagation: () => events.push('stopPropagation'),
+  });
+  await new Promise(resolve => setImmediate(resolve));
+
+  assert.equal(request.url, '/api/settings');
+  assert.deepEqual(JSON.parse(request.options.body), {
+    incoming_dir: '/data/incoming',
+    ebook_dir: '/books/ebooks',
+    audiobook_dir: '/books/audiobooks',
+    manga_dir: '/books/manga',
+    file_org_enabled: true,
+  });
+  assert.match(events.join('\n'), /preventDefault/);
+  assert.match(events.join('\n'), /stopPropagation/);
+  assert.match(events.join('\n'), /scroll:settings-library-import-step2/);
 });
 
 test('successful Save & Continue advances focus to Step 2 panel', async () => {
@@ -2867,6 +3004,138 @@ test('library metadata editor API errors are displayed and editor remains open',
 
   assert.equal(context.state.libraryMetadataEditor.open, true);
   assert.deepEqual(toasts, [{ msg: 'metadata service unavailable', type: 'error' }]);
+});
+
+test('metadata tools buttons and proposal review render side-by-side fields', () => {
+  assert.match(appSource, /data-action="extractBookMetadataFromFile"/);
+  assert.match(appSource, /data-action="matchBookMetadataOnline"/);
+  assert.match(appSource, /extractBookMetadataFromFile:\s*\(\)\s*=>\s*extractBookMetadataFromFile\(\)/);
+  assert.match(appSource, /matchBookMetadataOnline:\s*\(\)\s*=>\s*matchBookMetadataOnline\(\)/);
+
+  const book = sampleDetailBook();
+  const proposal = {
+    token: 'proposal-1',
+    source: 'epub',
+    provider: 'epub',
+    score: 90,
+    reason: 'Embedded EPUB metadata',
+    fields: {
+      title: 'New Title',
+      publisher: 'Threshold Editions',
+      language: 'en',
+      genres: 'Politics, Conservatism',
+    },
+    author: 'Mark R. Levin',
+    identifiers: [{ type: 'isbn', value: '9781501135972' }],
+    series: { name: 'Political Books', position: '2' },
+    cover: { available: true, source: 'embedded_epub', mime_type: 'image/jpeg' },
+  };
+  const context = createContext({
+    state: {
+      config: { library_repository_mode: 'normalized' },
+      libraryImport: libraryImportState(),
+      libraryMetadataEditor: { open: false, draft: null, errors: [] },
+      metadataTools: { bookId: 42, loading: false, error: '', mode: 'extract', proposal, candidates: [], selectedToken: 'proposal-1', selectedFields: new Set(['publisher', 'cover']) },
+      activeDetailBook: book,
+      libraryBooks: [book],
+    },
+  });
+
+  const html = context.renderMetadataToolsPanel(book);
+
+  assert.match(html, /Review metadata extracted from file/);
+  assert.match(html, /Current/);
+  assert.match(html, /Proposed/);
+  assert.match(html, /Threshold Editions/);
+  assert.match(html, /9781501135972/);
+  assert.match(html, /Cover artwork available/);
+  assert.match(html, /Apply Selected Fields/);
+});
+
+test('metadata tools extraction loads proposal and apply posts selected token fields', async () => {
+  const book = sampleDetailBook();
+  const calls = [];
+  const context = createContext({
+    state: {
+      config: { library_repository_mode: 'normalized' },
+      libraryImport: libraryImportState(),
+      libraryMetadataEditor: { open: false, draft: null, errors: [] },
+      metadataTools: { bookId: 42, loading: false, error: '', mode: '', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() },
+      activeDetailBook: book,
+      activeDetailContext: { index: 0, collection: 'libraryBooks', bookId: 42 },
+      libraryBooks: [book],
+    },
+    rerenderActiveBookDetails: () => calls.push({ type: 'rerender' }),
+    loadLibrary: async () => {
+      calls.push({ type: 'loadLibrary' });
+      context.state.libraryBooks = [{ ...book, id: 42, title: 'American Marxism' }];
+    },
+    openBookDetails: async (index, collection) => calls.push({ type: 'openBookDetails', index, collection }),
+    apiJson: async (url, options = {}) => {
+      calls.push({ type: 'api', url, method: options.method, body: options.body });
+      if (url.endsWith('/extract')) {
+        return {
+          success: true,
+          proposal: {
+            token: 'extract-token',
+            source: 'epub',
+            fields: { publisher: 'Threshold Editions' },
+            cover: { available: true, source: 'embedded_epub' },
+          },
+        };
+      }
+      return { success: true };
+    },
+  });
+
+  await context.extractBookMetadataFromFile();
+  assert.equal(context.state.metadataTools.proposal.token, 'extract-token');
+  assert.ok(calls.some(call => call.url === '/api/v1/books/42/metadata/extract'));
+
+  context.state.metadataTools.selectedFields = new Set(['publisher', 'cover']);
+  await context.applySelectedMetadataProposal();
+  const apply = calls.find(call => call.url === '/api/v1/books/42/metadata/apply');
+  assert.ok(apply);
+  assert.deepEqual(JSON.parse(apply.body), { token: 'extract-token', selected_fields: ['publisher', 'cover'] });
+  assert.equal(context.state.metadataTools.mode, '');
+});
+
+test('metadata tools online candidates select into proposal and cancel is local only', async () => {
+  const book = sampleDetailBook();
+  const calls = [];
+  const context = createContext({
+    state: {
+      config: { library_repository_mode: 'normalized' },
+      libraryImport: libraryImportState(),
+      libraryMetadataEditor: { open: false, draft: null, errors: [] },
+      metadataTools: { bookId: 42, loading: false, error: '', mode: '', proposal: null, candidates: [], selectedToken: '', selectedFields: new Set() },
+      activeDetailBook: book,
+      activeDetailContext: { index: 0, collection: 'libraryBooks', bookId: 42 },
+      libraryBooks: [book],
+    },
+    rerenderActiveBookDetails: () => calls.push({ type: 'rerender' }),
+    apiJson: async (url, options = {}) => {
+      calls.push({ type: 'api', url, method: options.method });
+      return {
+        success: true,
+        candidates: [
+          { token: 'candidate-1', provider: 'openlibrary', score: 98, reason: 'ISBN exact match', fields: { title: 'American Marxism' }, author: 'Mark R. Levin' },
+        ],
+      };
+    },
+  });
+
+  await context.matchBookMetadataOnline();
+  assert.equal(context.state.metadataTools.candidates.length, 1);
+  const html = context.renderMetadataToolsPanel(book);
+  assert.match(html, /Choose an online metadata match/);
+  assert.match(html, /ISBN exact match/);
+
+  context.selectMetadataMatchCandidate('candidate-1');
+  assert.equal(context.state.metadataTools.proposal.token, 'candidate-1');
+  context.cancelMetadataTools();
+  assert.equal(context.state.metadataTools.mode, '');
+  assert.equal(calls.filter(call => call.type === 'api').length, 1);
 });
 
 function contextSafeDraft() {

@@ -95,6 +95,13 @@ func (m *Manager) Start(ctx context.Context, roots Roots) (*Job, error) {
 	m.pruneLocked()
 	m.mu.Unlock()
 
+	slog.Info("explicit library scan started",
+		"job_id", job.ID,
+		"ebook_configured", strings.TrimSpace(roots.EbookDir) != "",
+		"audiobook_configured", strings.TrimSpace(roots.AudiobookDir) != "",
+		"manga_configured", strings.TrimSpace(roots.MangaDir) != "",
+	)
+
 	started := cloneJob(job)
 	go m.run(context.Background(), job.ID, roots)
 	return started, nil
@@ -419,10 +426,12 @@ func (m *Manager) run(ctx context.Context, jobID string, roots Roots) {
 		if errors.Is(err, context.Canceled) {
 			job.Status = StatusCancelled
 			job.Progress.Status = StatusCancelled
+			slog.Info("explicit library scan cancelled", "job_id", jobID)
 		} else {
 			job.Status = StatusFailed
 			job.Progress.Status = StatusFailed
 			job.Error = err.Error()
+			slog.Warn("explicit library scan failed", "job_id", jobID, "error", err)
 		}
 		return
 	}
@@ -432,6 +441,17 @@ func (m *Manager) run(ctx context.Context, jobID string, roots Roots) {
 	result.Status = StatusCompleted
 	result.CompletedAt = &completed
 	job.Result = result
+	slog.Info("explicit library scan completed",
+		"job_id", jobID,
+		"found", result.Totals.Found,
+		"ready_to_import", result.Totals.ReadyToImport,
+		"already_imported", result.Totals.AlreadyImported,
+		"duplicates", result.Totals.Duplicates,
+		"manual_review", result.Totals.ManualReview,
+		"unsupported", result.Totals.Unsupported,
+		"unreadable", result.Totals.Unreadable,
+		"warnings", len(result.Warnings),
+	)
 }
 
 func (m *Manager) scan(ctx context.Context, jobID string, roots Roots) (*Result, error) {

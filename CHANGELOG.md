@@ -17,6 +17,10 @@ public Librarr 2.0 release. Librarr 2.0 is not yet stable.
 - Library scanner with scan jobs, progress, review results, duplicate detection,
   manual review, and explicit import actions.
 - Metadata editor for scan-review candidates and imported library books.
+- Review-first Book Details metadata tools for extracting EPUB metadata from
+  managed files, matching Open Library candidates, applying selected fields,
+  storing identifiers/provenance, and attaching managed covers without
+  modifying ebook files.
 - Normalized Library cards group multiple formats under one logical book.
 - Admin book details actions for removing catalog records or deleting managed
   files with explicit confirmation.
@@ -52,6 +56,11 @@ public Librarr 2.0 release. Librarr 2.0 is not yet stable.
   and move to Completed instead of remaining active.
 - Downloads has a hidden details route for Home attention cards while primary
   navigation remains focused on Home, Library, Discover, Wanted, and Settings.
+- Normalized startup now disables the legacy audiobook folder scanner so
+  populated mounts do not create `library_items` rows before explicit scan and
+  import.
+- Audiobook path fallback parsing now treats the parent folder as author and
+  the filename stem as title for single-file audiobook layouts.
 
 ### Known limitations
 

@@ -14,18 +14,22 @@ import (
 
 // BookMetadata holds enriched book information from Open Library.
 type BookMetadata struct {
-	Title       string `json:"title"`
-	Author      string `json:"author"`
-	CoverURL    string `json:"cover_url"`
-	Description string `json:"description"`
-	Year        string `json:"year"`
-	Series      string `json:"series"`
-	SeriesPos   string `json:"series_position"`
-	ISBN        string `json:"isbn"`
-	PageCount   int    `json:"page_count"`
-	Publisher   string `json:"publisher"`
-	Language    string `json:"language"`
-	OLID        string `json:"olid"`
+	Title       string   `json:"title"`
+	Author      string   `json:"author"`
+	CoverURL    string   `json:"cover_url"`
+	Description string   `json:"description"`
+	Year        string   `json:"year"`
+	Series      string   `json:"series"`
+	SeriesPos   string   `json:"series_position"`
+	ISBN        string   `json:"isbn"`
+	PageCount   int      `json:"page_count"`
+	Publisher   string   `json:"publisher"`
+	Language    string   `json:"language"`
+	OLID        string   `json:"olid"`
+	Subjects    []string `json:"subjects,omitempty"`
+	Provider    string   `json:"provider,omitempty"`
+	Confidence  int      `json:"confidence,omitempty"`
+	MatchReason string   `json:"match_reason,omitempty"`
 }
 
 const (
@@ -42,6 +46,9 @@ type cacheEntry struct {
 // Client fetches metadata from Open Library with in-memory caching.
 type Client struct {
 	httpClient *http.Client
+	searchURL  string
+	workBase   string
+	coverBase  string
 	mu         sync.RWMutex
 	cache      map[string]cacheEntry
 }
@@ -53,8 +60,27 @@ func NewClient(httpClient *http.Client) *Client {
 	}
 	return &Client{
 		httpClient: httpClient,
+		searchURL:  olSearchAPI,
+		workBase:   "https://openlibrary.org",
+		coverBase:  "https://covers.openlibrary.org",
 		cache:      make(map[string]cacheEntry),
 	}
+}
+
+// NewClientForTest creates an Open Library client pointed at local test
+// servers. Production callers should use NewClient.
+func NewClientForTest(httpClient *http.Client, searchURL, workBase, coverBase string) *Client {
+	c := NewClient(httpClient)
+	if strings.TrimSpace(searchURL) != "" {
+		c.searchURL = searchURL
+	}
+	if strings.TrimSpace(workBase) != "" {
+		c.workBase = strings.TrimRight(workBase, "/")
+	}
+	if strings.TrimSpace(coverBase) != "" {
+		c.coverBase = strings.TrimRight(coverBase, "/")
+	}
+	return c
 }
 
 // FetchMetadata looks up a book by title and author, returning enriched metadata.
@@ -125,9 +151,95 @@ func (c *Client) FetchMetadataCtx(ctx context.Context, title, author string) (*B
 	return meta, nil
 }
 
+type MatchQuery struct {
+	Title  string
+	Author string
+	ISBN   string
+	Limit  int
+}
+
+func (c *Client) SearchMatches(ctx context.Context, query MatchQuery) ([]BookMetadata, error) {
+	limit := query.Limit
+	if limit <= 0 || limit > 10 {
+		limit = 5
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", c.searchURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	q := req.URL.Query()
+	if strings.TrimSpace(query.ISBN) != "" {
+		q.Set("isbn", strings.TrimSpace(query.ISBN))
+	} else {
+		q.Set("title", strings.TrimSpace(query.Title))
+		if strings.TrimSpace(query.Author) != "" {
+			q.Set("author", strings.TrimSpace(query.Author))
+		}
+	}
+	q.Set("fields", "key,title,subtitle,author_name,first_publish_year,cover_i,isbn,publisher,language,number_of_pages_median,subject")
+	q.Set("limit", fmt.Sprint(limit))
+	req.URL.RawQuery = q.Encode()
+	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/jamie75/librarr)")
+
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("HTTP %d", resp.StatusCode)
+	}
+	var data olSearchResponse
+	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
+		return nil, err
+	}
+	matches := make([]BookMetadata, 0, len(data.Docs))
+	for _, doc := range data.Docs {
+		meta := c.metadataFromDoc(ctx, doc)
+		meta.Provider = "openlibrary"
+		meta.Confidence, meta.MatchReason = scoreOpenLibraryMatch(query, doc)
+		matches = append(matches, meta)
+	}
+	return matches, nil
+}
+
+func (c *Client) metadataFromDoc(ctx context.Context, doc olSearchDoc) BookMetadata {
+	meta := BookMetadata{
+		Title: doc.Title,
+		OLID:  doc.Key,
+		Year:  fmt.Sprintf("%d", doc.FirstPublishYear),
+	}
+	if doc.FirstPublishYear == 0 {
+		meta.Year = ""
+	}
+	if len(doc.AuthorName) > 0 {
+		meta.Author = doc.AuthorName[0]
+	}
+	if doc.CoverI > 0 {
+		meta.CoverURL = fmt.Sprintf("%s/b/id/%d-M.jpg", strings.TrimRight(c.coverBase, "/"), doc.CoverI)
+	}
+	if len(doc.ISBN) > 0 {
+		meta.ISBN = doc.ISBN[0]
+	}
+	if len(doc.Publisher) > 0 {
+		meta.Publisher = doc.Publisher[0]
+	}
+	if len(doc.Language) > 0 {
+		meta.Language = doc.Language[0]
+	}
+	if doc.NumberOfPagesMedian > 0 {
+		meta.PageCount = doc.NumberOfPagesMedian
+	}
+	meta.Subjects = append(meta.Subjects, doc.Subject...)
+	if doc.Key != "" {
+		c.enrichFromWork(ctx, doc.Key, &meta)
+	}
+	return meta
+}
+
 // searchOL searches the Open Library search API and returns the best matching doc.
 func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchDoc, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", olSearchAPI, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", c.searchURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -166,7 +278,7 @@ func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchD
 // enrichFromWork fetches the Works API for description and series info.
 func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookMetadata) {
 	// workKey is like "/works/OL12345W"
-	url := "https://openlibrary.org" + workKey + ".json"
+	url := strings.TrimRight(c.workBase, "/") + workKey + ".json"
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return
@@ -191,6 +303,7 @@ func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookM
 
 	// Description can be a string or an object with "value" key.
 	meta.Description = work.descriptionText()
+	meta.Subjects = append(meta.Subjects, work.Subjects...)
 
 	// Extract series from subjects or links.
 	for _, link := range work.Links {
@@ -218,7 +331,7 @@ func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookM
 		parts := strings.Split(meta.OLID, "/")
 		if len(parts) > 0 {
 			olid := parts[len(parts)-1]
-			meta.CoverURL = fmt.Sprintf("https://covers.openlibrary.org/b/olid/%s-M.jpg", olid)
+			meta.CoverURL = fmt.Sprintf("%s/b/olid/%s-M.jpg", strings.TrimRight(c.coverBase, "/"), olid)
 		}
 	}
 }
@@ -239,6 +352,7 @@ type olSearchDoc struct {
 	Publisher           []string `json:"publisher"`
 	Language            []string `json:"language"`
 	NumberOfPagesMedian int      `json:"number_of_pages_median"`
+	Subject             []string `json:"subject"`
 }
 
 type olWork struct {
@@ -272,4 +386,60 @@ func truncate(s string, maxLen int) string {
 		return s
 	}
 	return s[:maxLen] + "..."
+}
+
+func scoreOpenLibraryMatch(query MatchQuery, doc olSearchDoc) (int, string) {
+	if strings.TrimSpace(query.ISBN) != "" {
+		want := cleanID(query.ISBN)
+		for _, isbn := range doc.ISBN {
+			if cleanID(isbn) == want && want != "" {
+				return 98, "ISBN exact match"
+			}
+		}
+	}
+	titleMatch := normalizeText(doc.Title) == normalizeText(query.Title)
+	authorMatch := false
+	if strings.TrimSpace(query.Author) == "" {
+		authorMatch = true
+	} else {
+		wantAuthor := normalizeText(query.Author)
+		for _, author := range doc.AuthorName {
+			if normalizeText(author) == wantAuthor {
+				authorMatch = true
+				break
+			}
+		}
+	}
+	switch {
+	case titleMatch && authorMatch:
+		return 92, "Exact title and author match"
+	case titleMatch:
+		return 74, "Exact title match"
+	case authorMatch && containsNormalized(doc.Title, query.Title):
+		return 62, "Conservative fuzzy title and author match"
+	default:
+		return 35, "Provider candidate"
+	}
+}
+
+func cleanID(value string) string {
+	value = strings.ToUpper(strings.TrimSpace(value))
+	var b strings.Builder
+	for _, r := range value {
+		if (r >= '0' && r <= '9') || r == 'X' {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func normalizeText(value string) string {
+	replacer := strings.NewReplacer("-", " ", ":", " ", "_", " ")
+	return strings.Join(strings.Fields(strings.ToLower(replacer.Replace(value))), " ")
+}
+
+func containsNormalized(haystack, needle string) bool {
+	haystack = normalizeText(haystack)
+	needle = normalizeText(needle)
+	return needle != "" && strings.Contains(haystack, needle)
 }

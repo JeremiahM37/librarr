@@ -74,9 +74,41 @@ Normalized mode adds:
 
 - `GET /api/v1/books/{id}/metadata`
 - `PATCH /api/v1/books/{id}/metadata`
+- `POST /api/v1/books/{id}/metadata/extract`
+- `POST /api/v1/books/{id}/metadata/matches`
+- `POST /api/v1/books/{id}/metadata/apply`
 - `GET /api/v1/books/{id}/provenance`
 
 `PATCH` accepts a partial `fields` object and only writes changed fields.
+
+## Review-first enrichment tools
+
+Book Details includes two metadata tools:
+
+- **Extract from File** reads the backend-managed file already attached to the
+  book. EPUB is currently supported. Librarr reads the OPF package metadata,
+  Dublin Core fields, common Calibre series metadata, identifiers, subjects,
+  and EPUB 2/3 cover declarations. MOBI, AZW3, and PDF extraction remain
+  unsupported unless existing lightweight metadata is already available.
+- **Match Online** searches Open Library. ISBN matches rank highest, followed
+  by exact title/author matches and conservative fuzzy title/author matches.
+
+Both endpoints return proposals only. Applying a proposal requires
+`POST /api/v1/books/{id}/metadata/apply` with a server-issued proposal token and
+an explicit list of selected fields. This prevents the browser from selecting
+arbitrary local file paths or server-side cover URLs.
+
+Applied proposals can update:
+
+- book metadata fields: title, description, language, genres
+- edition metadata fields: edition title, subtitle, publisher, publication date
+- primary author contributor
+- series link and position
+- ISBN/Open Library identifiers
+- primary managed cover, when no valid local cover already exists
+
+Ebook files are never modified. Cover images are copied into Librarr's managed
+cover cache before the catalog points at them.
 
 ## Effective-field synchronization
 
@@ -97,12 +129,9 @@ remains additive.
 
 ## Current limitations
 
-This milestone does not yet introduce:
-
-- external provider adapters
-- contributor edit overrides
-- identifier edit overrides
+- Google Books or other provider adapters
+- internet metadata lookup outside Book Details review flow
 - background refresh scheduling
-- cover-provider integration
+- MOBI/AZW/PDF embedded cover extraction
 
 Those remain follow-on metadata-engine milestones.

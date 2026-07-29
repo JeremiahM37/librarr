@@ -93,6 +93,29 @@ func TestExtractAudioMeta_NonexistentMP3(t *testing.T) {
 	}
 }
 
+func TestExtractAudiobookPathMetadataUsesParentAuthorAndStripsPartSuffix(t *testing.T) {
+	meta := ExtractAudiobookPathMetadata(filepath.Join("/books", "audiobooks", "Stephen King", "11.22.63 - Part.m4b"))
+	if meta == nil {
+		t.Fatal("expected metadata")
+	}
+	if meta.Artist != "Stephen King" {
+		t.Fatalf("artist = %q, want Stephen King", meta.Artist)
+	}
+	if meta.Title != "11.22.63" {
+		t.Fatalf("title = %q, want 11.22.63", meta.Title)
+	}
+}
+
+func TestExtractAudiobookPathMetadataStripsAuthorPrefix(t *testing.T) {
+	meta := ExtractAudiobookPathMetadata(filepath.Join("/books", "audiobooks", "Stephen King", "Stephen King - The Stand - Part 01.m4b"))
+	if meta.Artist != "Stephen King" {
+		t.Fatalf("artist = %q, want Stephen King", meta.Artist)
+	}
+	if meta.Title != "The Stand" {
+		t.Fatalf("title = %q, want The Stand", meta.Title)
+	}
+}
+
 func TestExtractAudioMetaFromDir_NonexistentDir(t *testing.T) {
 	meta := ExtractAudioMetaFromDir("/nonexistent/path")
 	if meta != nil {

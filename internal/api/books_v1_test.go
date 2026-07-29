@@ -1,22 +1,29 @@
 package api
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image"
+	"image/color"
+	"image/png"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jamie75/librarr/internal/config"
 	"github.com/jamie75/librarr/internal/db"
 	"github.com/jamie75/librarr/internal/library"
+	"github.com/jamie75/librarr/internal/metadata"
 )
 
 func TestV1BooksListSupportsPaginationSortSearchAndFormat(t *testing.T) {
@@ -773,6 +780,190 @@ func TestV1BookMetadataRejectsInvalidPatchBody(t *testing.T) {
 	}
 }
 
+func TestV1BookMetadataExtractReturnsReviewProposalFromManagedEPUB(t *testing.T) {
+	s, bookID, epubPath, cleanup := newMetadataToolsAPIServer(t)
+	defer cleanup()
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/books/%d/metadata/extract", bookID), nil)
+	req.SetPathValue("id", fmt.Sprint(bookID))
+	rr := httptest.NewRecorder()
+	s.handleV1BookMetadataExtract(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var body struct {
+		Success  bool             `json:"success"`
+		Proposal metadataProposal `json:"proposal"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if !body.Success || body.Proposal.Token == "" {
+		t.Fatalf("proposal = %+v", body.Proposal)
+	}
+	if body.Proposal.Fields["title"] != "American Marxism" || body.Proposal.Author != "Mark R. Levin" {
+		t.Fatalf("proposal metadata = %+v", body.Proposal)
+	}
+	if body.Proposal.Fields["publisher"] != "Threshold Editions" || body.Proposal.Fields["language"] != "en" {
+		t.Fatalf("proposal fields = %+v", body.Proposal.Fields)
+	}
+	if len(body.Proposal.Identifiers) == 0 || body.Proposal.Identifiers[0].Value != "9781501135972" {
+		t.Fatalf("identifiers = %+v", body.Proposal.Identifiers)
+	}
+	if body.Proposal.Series == nil || body.Proposal.Series.Name != "Political Books" || body.Proposal.Series.Position != "2" {
+		t.Fatalf("series = %+v", body.Proposal.Series)
+	}
+	if body.Proposal.Cover == nil || !body.Proposal.Cover.Available {
+		t.Fatalf("cover = %+v", body.Proposal.Cover)
+	}
+	if strings.Contains(rr.Body.String(), epubPath) {
+		t.Fatalf("response exposed full file path: %s", rr.Body.String())
+	}
+}
+
+func TestV1BookMetadataExtractUnsupportedFormat(t *testing.T) {
+	s, bookID, _, cleanup := newMetadataToolsAPIServer(t)
+	defer cleanup()
+	files, err := s.library().GetBookFiles(context.Background(), bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mobiPath := filepath.Join(t.TempDir(), "book.mobi")
+	if err := os.WriteFile(mobiPath, []byte("mobi"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.library().MoveFile(context.Background(), files[0].ID, mobiPath); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.SQLDB().Exec(`UPDATE files SET format = 'mobi' WHERE id = ?`, files[0].ID); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/books/%d/metadata/extract", bookID), nil)
+	req.SetPathValue("id", fmt.Sprint(bookID))
+	rr := httptest.NewRecorder()
+	s.handleV1BookMetadataExtract(rr, req)
+	if rr.Code != http.StatusUnprocessableEntity && rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if !strings.Contains(strings.ToLower(rr.Body.String()), "not supported") {
+		t.Fatalf("body = %s", rr.Body.String())
+	}
+}
+
+func TestV1BookMetadataMatchOnlineAndApplySelectedFields(t *testing.T) {
+	s, bookID, _, cleanup := newMetadataToolsAPIServer(t)
+	defer cleanup()
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasPrefix(r.URL.Path, "/search.json"):
+			writeJSON(w, http.StatusOK, map[string]any{"docs": []map[string]any{{
+				"key": "/works/OL123W", "title": "American Marxism", "author_name": []string{"Mark R. Levin"},
+				"first_publish_year": 2021, "cover_i": 44, "isbn": []string{"9781501135972"},
+				"publisher": []string{"Threshold Editions"}, "language": []string{"en"}, "subject": []string{"Politics", "Conservatism"},
+			}}})
+		case strings.HasPrefix(r.URL.Path, "/works/OL123W.json"):
+			writeJSON(w, http.StatusOK, map[string]any{"description": map[string]any{"value": "<b>Provider description</b>"}, "subjects": []string{"Politics"}})
+		case strings.Contains(r.URL.Path, "/b/id/44-M.jpg"):
+			w.Header().Set("Content-Type", "image/png")
+			_, _ = w.Write(testPNGBytes(t))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer provider.Close()
+	s.metadataClient = metadata.NewClientForTest(provider.Client(), provider.URL+"/search.json", provider.URL, provider.URL)
+
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/books/%d/metadata/matches", bookID), nil)
+	req.SetPathValue("id", fmt.Sprint(bookID))
+	rr := httptest.NewRecorder()
+	s.handleV1BookMetadataMatches(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var matches struct {
+		Candidates []metadataProposal `json:"candidates"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &matches); err != nil {
+		t.Fatal(err)
+	}
+	if len(matches.Candidates) != 1 || matches.Candidates[0].Token == "" {
+		t.Fatalf("matches = %+v", matches.Candidates)
+	}
+	if matches.Candidates[0].Fields["publisher"] != "Threshold Editions" || matches.Candidates[0].Cover == nil {
+		t.Fatalf("candidate = %+v", matches.Candidates[0])
+	}
+
+	body := fmt.Sprintf(`{"token":%q,"selected_fields":["publisher","description","identifiers","cover"]}`, matches.Candidates[0].Token)
+	req = httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/books/%d/metadata/apply", bookID), strings.NewReader(body))
+	req.SetPathValue("id", fmt.Sprint(bookID))
+	rr = httptest.NewRecorder()
+	s.handleV1BookMetadataApply(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("apply status = %d body=%s", rr.Code, rr.Body.String())
+	}
+
+	metadataDoc, err := s.library().GetBookMetadata(context.Background(), bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadataDoc.Fields[library.MetadataFieldPublisher].Value != "Threshold Editions" {
+		t.Fatalf("metadata = %+v", metadataDoc.Fields)
+	}
+	if metadataDoc.Fields[library.MetadataFieldDescription].Value != "<b>Provider description</b>" {
+		t.Fatalf("description = %+v", metadataDoc.Fields[library.MetadataFieldDescription])
+	}
+	if len(metadataDoc.Identifiers) == 0 {
+		t.Fatalf("identifiers = %+v", metadataDoc.Identifiers)
+	}
+	cover, err := s.library().GetPrimaryCover(context.Background(), bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cover.Source != "openlibrary" || cover.LocalPath == "" {
+		t.Fatalf("cover = %+v", cover)
+	}
+}
+
+func TestV1BookMetadataApplyPreservesManualFieldsUnlessSelected(t *testing.T) {
+	s, bookID, _, cleanup := newMetadataToolsAPIServer(t)
+	defer cleanup()
+	if _, err := s.library().PatchBookMetadata(context.Background(), bookID, library.BookMetadataPatch{Fields: map[library.MetadataField]string{
+		library.MetadataFieldTitle: "American Marxism (Manual)",
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	proposal := metadataProposal{
+		Token:      "manual-preserve-token",
+		BookID:     bookID,
+		Source:     "openlibrary",
+		Confidence: string(library.ConfidenceHigh),
+		Fields: map[string]string{
+			"title":       "American Marxism",
+			"description": "Provider description",
+		},
+		CreatedAt: time.Now().UTC(),
+	}
+	s.storeMetadataProposal(proposal)
+	req := httptest.NewRequest(http.MethodPost, fmt.Sprintf("/api/v1/books/%d/metadata/apply", bookID), strings.NewReader(`{"token":"manual-preserve-token","selected_fields":["description"]}`))
+	req.SetPathValue("id", fmt.Sprint(bookID))
+	rr := httptest.NewRecorder()
+	s.handleV1BookMetadataApply(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	metadataDoc, err := s.library().GetBookMetadata(context.Background(), bookID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metadataDoc.Fields[library.MetadataFieldTitle].Value != "American Marxism (Manual)" {
+		t.Fatalf("manual title was overwritten: %+v", metadataDoc.Fields[library.MetadataFieldTitle])
+	}
+	if metadataDoc.Fields[library.MetadataFieldDescription].Value != "Provider description" {
+		t.Fatalf("description not applied: %+v", metadataDoc.Fields[library.MetadataFieldDescription])
+	}
+}
+
 func TestV1BookDeleteRemoveOnlyLeavesFiles(t *testing.T) {
 	s, bookID, paths, cleanup := newNormalizedDeleteBookAPIServer(t)
 	defer cleanup()
@@ -1257,6 +1448,120 @@ func newNormalizedBooksAPIServer(t *testing.T) (*Server, normalizedBookAPIIDs, f
 		audiobookID:       audiobookBook.ID,
 		mangaID:           mangaBook.ID,
 	}, func() { _ = d.Close() }
+}
+
+func newMetadataToolsAPIServer(t *testing.T) (*Server, int64, string, func()) {
+	t.Helper()
+	base := t.TempDir()
+	d, err := db.New(filepath.Join(base, "metadata-tools.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seedCompletedEmptyBackfill(t, d)
+	cfg := &config.Config{LibraryRepositoryMode: "normalized", DBPath: filepath.Join(base, "metadata-tools.db")}
+	selection, err := library.NewConfiguredLibraryService(context.Background(), cfg, d)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	book, err := selection.LibraryService.CreateBook(ctx, library.Book{Title: "American Marxism", MediaType: library.MediaTypeEbook, Status: library.BookStatusOwned})
+	if err != nil {
+		t.Fatal(err)
+	}
+	edition, err := selection.LibraryService.CreateEdition(ctx, library.Edition{BookID: book.ID, Title: "American Marxism"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := selection.LibraryService.AttachContributor(ctx, edition.ID, library.Contributor{Name: "Mark R. Levin", Roles: []library.ContributorRole{library.RoleAuthor}}); err != nil {
+		t.Fatal(err)
+	}
+	epubPath := filepath.Join(base, "American Marxism.epub")
+	writeMetadataToolsEPUB(t, epubPath)
+	if _, err := selection.LibraryService.AttachFile(ctx, library.BookFile{
+		EditionID:   edition.ID,
+		MediaType:   library.MediaTypeEbook,
+		Format:      "epub",
+		Path:        epubPath,
+		Size:        1234,
+		ContentHash: "hash-american-marxism",
+		SourceType:  "test",
+		Managed:     true,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s := &Server{
+		cfg:               cfg,
+		db:                d,
+		libraryService:    selection.LibraryService,
+		coverCache:        library.NewCoverCache(filepath.Join(base, "covers")),
+		metadataProposals: map[string]metadataProposal{},
+	}
+	return s, book.ID, epubPath, func() { _ = d.Close() }
+}
+
+func writeMetadataToolsEPUB(t *testing.T, target string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.Create(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	zw := zip.NewWriter(f)
+	addZip := func(name string, body []byte) {
+		w, err := zw.Create(name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := w.Write(body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	addZip("META-INF/container.xml", []byte(`<?xml version="1.0"?>
+<container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">
+  <rootfiles><rootfile full-path="OPS/content.opf" media-type="application/oebps-package+xml"/></rootfiles>
+</container>`))
+	addZip("OPS/content.opf", []byte(`<?xml version="1.0"?>
+<package version="3.0" unique-identifier="isbn-id" xmlns="http://www.idpf.org/2007/opf" xmlns:opf="http://www.idpf.org/2007/opf">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
+    <dc:title>American Marxism</dc:title>
+    <dc:creator>Levin, Mark R.</dc:creator>
+    <dc:language>en</dc:language>
+    <dc:publisher>Threshold Editions</dc:publisher>
+    <dc:date>2021-07-13</dc:date>
+    <dc:description>A book description from the EPUB.</dc:description>
+    <dc:subject>Politics</dc:subject>
+    <dc:subject>Conservatism</dc:subject>
+    <dc:identifier id="isbn-id" opf:scheme="ISBN">9781501135972</dc:identifier>
+    <meta name="calibre:series" content="Political Books"/>
+    <meta name="calibre:series_index" content="2"/>
+    <meta name="cover" content="cover-image"/>
+  </metadata>
+  <manifest>
+    <item id="cover-image" href="cover.png" media-type="image/png" properties="cover-image"/>
+  </manifest>
+</package>`))
+	addZip("OPS/cover.png", testPNGBytes(t))
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func testPNGBytes(t *testing.T) []byte {
+	t.Helper()
+	img := image.NewRGBA(image.Rect(0, 0, 2, 3))
+	for y := 0; y < 3; y++ {
+		for x := 0; x < 2; x++ {
+			img.Set(x, y, color.RGBA{R: 200, G: 100, B: 20, A: 255})
+		}
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		t.Fatal(err)
+	}
+	return buf.Bytes()
 }
 
 func newNestedEbookRepairServer(t *testing.T) (*Server, func()) {

@@ -13,8 +13,18 @@ import (
 // EbookMetadata contains the best metadata available for an ebook file.
 // Metadata embedded in the file is preferred; filename values are fallbacks.
 type EbookMetadata struct {
-	Title  string
-	Author string
+	Title           string
+	Subtitle        string
+	Author          string
+	Language        string
+	Publisher       string
+	PublicationDate string
+	Description     string
+	ISBN            string
+	Identifiers     map[string]string
+	Subjects        []string
+	Series          string
+	SeriesIndex     string
 }
 
 var pdfInfoValueRe = regexp.MustCompile(`/((?:Title)|(?:Author))\s*\(([^()]*)\)`)

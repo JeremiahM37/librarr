@@ -1362,6 +1362,106 @@
         ]
       }
     },
+    "/api/v1/books/{id}/metadata/extract": {
+      "post": {
+        "summary": "Build a review proposal from a managed local ebook file",
+        "description": "Returns a server-issued metadata proposal. Does not update catalog metadata or modify ebook files.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadata extraction proposal"
+          },
+          "400": {
+            "description": "No supported managed file"
+          },
+          "422": {
+            "description": "File metadata could not be extracted"
+          }
+        }
+      }
+    },
+    "/api/v1/books/{id}/metadata/matches": {
+      "post": {
+        "summary": "Search online metadata providers for review candidates",
+        "description": "Returns scored provider candidates with server-issued proposal tokens. Does not update catalog metadata.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Metadata match candidates"
+          },
+          "502": {
+            "description": "Provider failure"
+          }
+        }
+      }
+    },
+    "/api/v1/books/{id}/metadata/apply": {
+      "post": {
+        "summary": "Apply selected fields from a metadata proposal",
+        "description": "Applies only explicitly selected fields from a server-issued proposal through the normalized LibraryService path.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "required": [
+                  "token",
+                  "selected_fields"
+                ],
+                "properties": {
+                  "token": {
+                    "type": "string"
+                  },
+                  "selected_fields": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Selected metadata fields applied"
+          },
+          "400": {
+            "description": "Invalid or expired proposal"
+          }
+        }
+      }
+    },
     "/api/v1/books/{id}/provenance": {
       "get": {
         "summary": "Get metadata provenance and competing evidence for a Librarr 2.0 book",

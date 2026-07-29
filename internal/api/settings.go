@@ -187,6 +187,11 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			slog.Info("remove torrent after import updated", "enabled", b)
 		}
 	}
+	if v, ok := data["file_org_enabled"]; ok {
+		if b, ok := v.(bool); ok {
+			s.cfg.FileOrgEnabled = b
+		}
+	}
 	if v, ok := data["wanted_monitor_enabled"]; ok {
 		if b, ok := v.(bool); ok {
 			s.cfg.WantedMonitorEnabled = b
@@ -225,6 +230,10 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	s.applyStringSetting(data, "qb_audiobook_category", &s.cfg.QBAudiobookCategory)
 	s.applyStringSetting(data, "qb_manga_save_path", &s.cfg.QBMangaSavePath)
 	s.applyStringSetting(data, "qb_manga_category", &s.cfg.QBMangaCategory)
+	s.applyStringSetting(data, "incoming_dir", &s.cfg.IncomingDir)
+	s.applyStringSetting(data, "ebook_dir", &s.cfg.EbookDir)
+	s.applyStringSetting(data, "audiobook_dir", &s.cfg.AudiobookDir)
+	s.applyStringSetting(data, "manga_dir", &s.cfg.MangaDir)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }

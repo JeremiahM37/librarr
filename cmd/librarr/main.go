@@ -149,7 +149,24 @@ func main() {
 
 	// Start audiobook folder scanner (Feature 21).
 	scanner := organize.NewAudiobookScanner(cfg, database, targets)
-	go scanner.Start(ctx)
+	if enabled, reason := scanner.Enabled(); enabled {
+		slog.Info("legacy audiobook scanner startup decision",
+			"repository_mode", librarySelection.Mode,
+			"import_engine", importSelection.Mode,
+			"legacy_scanner_enabled", true,
+			"audiobook_scanner_enabled", true,
+			"reason", reason,
+		)
+		go scanner.Start(ctx)
+	} else {
+		slog.Info("legacy audiobook scanner startup decision",
+			"repository_mode", librarySelection.Mode,
+			"import_engine", importSelection.Mode,
+			"legacy_scanner_enabled", false,
+			"audiobook_scanner_enabled", false,
+			"reason", reason,
+		)
+	}
 
 	// Create HTTP server (also initializes webhook sender, scheduler, series detector).
 	server := api.NewServerWithServices(cfg, database, searchMgr, downloadMgr, qb, transmission, sab, organizer, targets, librarySelection.LibraryService, importSelection.Engine)

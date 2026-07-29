@@ -362,16 +362,26 @@ Completed download, manual import, or library scan review
 history, notifications, integrations
 ```
 
-The metadata editor is part of the scan review flow rather than a separate
-pipeline. It stores user edits on the scan candidate, sends them as explicit
-manual metadata overrides when import starts, and never modifies the source
-file. The first implementation is offline-only: no internet metadata provider
-is called from the editor.
+The metadata editor began in the scan review flow and is now also available
+from imported Book Details. Book Details adds two review-first enrichment tools:
+
+- `Extract from File` resolves a managed catalog file on the backend, extracts
+  EPUB package metadata and embedded cover declarations, and returns a proposal.
+- `Match Online` uses existing identifiers and conservative title/author
+  matching against Open Library, returning scored candidates.
+
+Both tools issue server-side proposal tokens. The browser can choose fields
+from a proposal, but it cannot submit arbitrary local file paths or arbitrary
+cover URLs. Applying a proposal goes through `LibraryService`, records
+provenance/confidence, preserves manual overrides unless the user explicitly
+selects the field, and never modifies the source ebook file.
 
 Local cover handling follows the same ownership rule. Librarr may extract
 embedded artwork from files the user already owns, cache it under the data
 directory, and attach a normalized `covers` row through `LibraryService`.
-External cover downloads remain a separate metadata-provider milestone.
+Open Library cover URLs are only downloaded from server-issued metadata
+proposals and are stored in the managed cover cache before the catalog points at
+them.
 
 ### Import guarantees
 
@@ -382,6 +392,9 @@ External cover downloads remain a separate metadata-provider milestone.
 - The source download is not removed until import success is durable.
 - Library scanning is discovery-only; it never imports until the user explicitly
   chooses Import Selected or Import All Ready.
+- In normalized mode, startup does not auto-adopt mounted library folders or run
+  legacy scanners that write to `library_items`; mounted libraries enter the
+  normalized model through the explicit scan/review/import workflow.
 
 ## Download Client Architecture
 

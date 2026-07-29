@@ -4,6 +4,9 @@ import (
 	"archive/zip"
 	"encoding/xml"
 	"fmt"
+	"io"
+	"net/url"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -63,23 +66,67 @@ func ExtractEPUBMeta(path string) (*EPUBMeta, error) {
 		return nil, fmt.Errorf("no .opf file found in epub")
 	}
 
-	rc, err := opfFile.Open()
+	pkg, err := readOPFPackage(opfFile)
 	if err != nil {
-		return nil, fmt.Errorf("open opf: %w", err)
-	}
-	defer rc.Close()
-
-	var pkg opfPackage
-	if err := xml.NewDecoder(rc).Decode(&pkg); err != nil {
-		return nil, fmt.Errorf("parse opf: %w", err)
+		return nil, err
 	}
 
-	author := normalizeAuthor(strings.TrimSpace(pkg.Metadata.Creator))
+	return metadataFromOPF(pkg), nil
+}
 
+func metadataFromOPF(pkg *opfPackage) *EPUBMeta {
+	if pkg == nil {
+		return &EPUBMeta{}
+	}
+	author := normalizeAuthor(strings.TrimSpace(firstNonEmpty(pkg.Metadata.Creators...)))
+	identifiers := map[string]string{}
+	isbn := ""
+	for _, identifier := range pkg.Metadata.Identifiers {
+		value := strings.TrimSpace(identifier.Value)
+		if value == "" {
+			continue
+		}
+		scheme := strings.ToLower(strings.TrimSpace(firstNonEmpty(identifier.Scheme, identifier.ID)))
+		if strings.Contains(scheme, "isbn") || looksLikeISBN(value) {
+			clean := normalizeIdentifierValue(value)
+			if clean != "" {
+				isbn = clean
+				identifiers["isbn"] = clean
+			}
+			continue
+		}
+		if scheme != "" {
+			identifiers[scheme] = value
+		}
+	}
+	for _, meta := range pkg.Metadata.Meta {
+		property := strings.ToLower(strings.TrimSpace(firstNonEmpty(meta.Property, meta.Name)))
+		content := strings.TrimSpace(firstNonEmpty(meta.Content, meta.Value))
+		switch property {
+		case "calibre:series", "belongs-to-collection":
+			if pkgMetaValueRefinesCollection(meta) || property == "calibre:series" {
+				pkg.Metadata.Series = firstNonEmpty(pkg.Metadata.Series, content)
+			}
+		case "calibre:series_index", "group-position":
+			pkg.Metadata.SeriesIndex = firstNonEmpty(pkg.Metadata.SeriesIndex, content)
+		case "dcterms:modified":
+			// Internal EPUB timestamp, not publication metadata.
+		}
+	}
 	return &EPUBMeta{
-		Title:  strings.TrimSpace(pkg.Metadata.Title),
-		Author: author,
-	}, nil
+		Title:           strings.TrimSpace(pkg.Metadata.Title),
+		Subtitle:        strings.TrimSpace(pkg.Metadata.Subtitle),
+		Author:          author,
+		Language:        strings.TrimSpace(firstNonEmpty(pkg.Metadata.Languages...)),
+		Publisher:       strings.TrimSpace(firstNonEmpty(pkg.Metadata.Publishers...)),
+		PublicationDate: strings.TrimSpace(firstNonEmpty(pkg.Metadata.Dates...)),
+		Description:     strings.TrimSpace(pkg.Metadata.Description),
+		ISBN:            isbn,
+		Identifiers:     identifiers,
+		Subjects:        uniqueCleanStrings(pkg.Metadata.Subjects),
+		Series:          strings.TrimSpace(pkg.Metadata.Series),
+		SeriesIndex:     strings.TrimSpace(pkg.Metadata.SeriesIndex),
+	}
 }
 
 // normalizeAuthor cleans up common author name formats from EPUB metadata.
@@ -179,12 +226,32 @@ type opfPackage struct {
 }
 
 type opfMetadata struct {
-	Title   string `xml:"title"`
-	Creator string `xml:"creator"`
-	Meta    []struct {
-		Name    string `xml:"name,attr"`
-		Content string `xml:"content,attr"`
-	} `xml:"meta"`
+	Title       string          `xml:"title"`
+	Subtitle    string          `xml:"subtitle"`
+	Creators    []string        `xml:"creator"`
+	Languages   []string        `xml:"language"`
+	Publishers  []string        `xml:"publisher"`
+	Dates       []string        `xml:"date"`
+	Description string          `xml:"description"`
+	Subjects    []string        `xml:"subject"`
+	Identifiers []opfIdentifier `xml:"identifier"`
+	Meta        []opfMeta       `xml:"meta"`
+	Series      string
+	SeriesIndex string
+}
+
+type opfIdentifier struct {
+	ID     string `xml:"id,attr"`
+	Scheme string `xml:"scheme,attr"`
+	Value  string `xml:",chardata"`
+}
+
+type opfMeta struct {
+	Name     string `xml:"name,attr"`
+	Property string `xml:"property,attr"`
+	Refines  string `xml:"refines,attr"`
+	Content  string `xml:"content,attr"`
+	Value    string `xml:",chardata"`
 }
 
 type opfManifest struct {
@@ -206,4 +273,95 @@ type opfGuideReference struct {
 	Type  string `xml:"type,attr"`
 	Href  string `xml:"href,attr"`
 	Title string `xml:"title,attr"`
+}
+
+func ReadEPUBPackageMetadata(filePath string) (*EPUBMeta, error) {
+	return ExtractEPUBMeta(filePath)
+}
+
+func readEPUBOPF(filePath string) (*opfPackage, string, error) {
+	r, err := zip.OpenReader(filePath)
+	if err != nil {
+		return nil, "", fmt.Errorf("open epub zip: %w", err)
+	}
+	defer r.Close()
+	opfFile, err := findOPFFile(r.File)
+	if err != nil {
+		return nil, "", err
+	}
+	pkg, err := readOPFPackage(opfFile)
+	if err != nil {
+		return nil, "", err
+	}
+	return pkg, path.Dir(opfFile.Name), nil
+}
+
+func openZipText(file *zip.File, limit int64) (string, error) {
+	rc, err := file.Open()
+	if err != nil {
+		return "", err
+	}
+	defer rc.Close()
+	data, err := io.ReadAll(io.LimitReader(rc, limit+1))
+	if err != nil {
+		return "", err
+	}
+	if int64(len(data)) > limit {
+		return "", fmt.Errorf("zip entry is too large")
+	}
+	return string(data), nil
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, value := range values {
+		if strings.TrimSpace(value) != "" {
+			return strings.TrimSpace(value)
+		}
+	}
+	return ""
+}
+
+func uniqueCleanStrings(values []string) []string {
+	seen := map[string]struct{}{}
+	result := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value == "" {
+			continue
+		}
+		key := strings.ToLower(value)
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, value)
+	}
+	return result
+}
+
+func looksLikeISBN(value string) bool {
+	clean := normalizeIdentifierValue(value)
+	return len(clean) == 10 || len(clean) == 13
+}
+
+func normalizeIdentifierValue(value string) string {
+	value = strings.TrimSpace(value)
+	if parsed, err := url.Parse(value); err == nil && parsed.Scheme == "urn" {
+		parts := strings.Split(parsed.Opaque, ":")
+		value = parts[len(parts)-1]
+	}
+	var b strings.Builder
+	for _, r := range value {
+		if r >= '0' && r <= '9' {
+			b.WriteRune(r)
+		} else if r == 'X' || r == 'x' {
+			b.WriteRune('X')
+		}
+	}
+	return b.String()
+}
+
+func pkgMetaValueRefinesCollection(meta opfMeta) bool {
+	refines := strings.TrimPrefix(strings.TrimSpace(meta.Refines), "#")
+	return refines != ""
 }

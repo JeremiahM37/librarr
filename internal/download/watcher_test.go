@@ -103,6 +103,70 @@ func TestResolveLocalPathMapsConfiguredQBRoot(t *testing.T) {
 	}
 }
 
+func TestResolveLocalPathExactReportedPathWins(t *testing.T) {
+	dir := t.TempDir()
+	exactPath := filepath.Join(dir, "mounted", "Exact Book.epub")
+	if err := os.MkdirAll(filepath.Dir(exactPath), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(exactPath, []byte("book"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	w := &Watcher{cfg: &config.Config{
+		QBSavePath:  "/remote/downloads",
+		IncomingDir: filepath.Join(dir, "incoming"),
+	}}
+
+	got := w.resolveLocalPath(TorrentInfo{
+		ContentPath: exactPath,
+		SavePath:    "/remote/downloads",
+	}, "ebook")
+	if got != exactPath {
+		t.Fatalf("resolveLocalPath = %q, want exact mounted path %q", got, exactPath)
+	}
+}
+
+func TestResolveLocalPathRemoteSingleFileFallsBackToIncomingBasename(t *testing.T) {
+	w := &Watcher{cfg: &config.Config{
+		QBSavePath:  "/different/remote/root",
+		IncomingDir: "/data/incoming",
+	}}
+
+	got := w.resolveLocalPath(TorrentInfo{
+		ContentPath: "/downloads/rclone-mnt/downloads/Unfreedom of the Press(Unabridged)e.mp3",
+	}, "audiobook")
+	want := "/data/incoming/Unfreedom of the Press(Unabridged)e.mp3"
+	if got != want {
+		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
+	}
+}
+
+func TestResolveLocalPathRemoteDirectoryFallsBackToIncomingBasename(t *testing.T) {
+	w := &Watcher{cfg: &config.Config{
+		QBSavePath:  "/different/remote/root",
+		IncomingDir: "/data/incoming",
+	}}
+
+	got := w.resolveLocalPath(TorrentInfo{
+		ContentPath: "/downloads/rclone-mnt/downloads/Some Audiobook",
+	}, "audiobook")
+	want := "/data/incoming/Some Audiobook"
+	if got != want {
+		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
+	}
+}
+
+func TestResolveLocalPathRejectsMalformedRelativeContentPath(t *testing.T) {
+	w := &Watcher{cfg: &config.Config{IncomingDir: "/data/incoming"}}
+
+	resolved := w.resolveLocalPathResult(TorrentInfo{
+		ContentPath: "../secret/book.epub",
+	}, "ebook")
+	if resolved.Path != "/data/incoming" || resolved.Failure == "" {
+		t.Fatalf("resolveLocalPathResult = %+v, want safe incoming root with failure", resolved)
+	}
+}
+
 func TestResolveLocalPathAudiobookUsesContentPath(t *testing.T) {
 	w := &Watcher{
 		cfg: &config.Config{
@@ -116,7 +180,7 @@ func TestResolveLocalPathAudiobookUsesContentPath(t *testing.T) {
 		ContentPath: "/downloads/audiobooks-incoming/Brigands &amp; Breadknives.m4b",
 	}, "audiobook")
 
-	want := "/downloads/audiobooks-incoming/Brigands & Breadknives.m4b"
+	want := "/downloads/incoming/Brigands & Breadknives.m4b"
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -136,7 +200,7 @@ func TestResolveLocalPathAudiobookMapsRemoteContentPathToLocalIncoming(t *testin
 		SavePath:    "/downloads/audiobooks-incoming",
 	}, "audiobook")
 
-	want := "/data/audiobooks-incoming/Brigands & Breadknives.m4b"
+	want := "/data/incoming/Brigands & Breadknives.m4b"
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -155,7 +219,7 @@ func TestResolveLocalPathAudiobookPreservesRelativeContentPath(t *testing.T) {
 		ContentPath: "Series/Some Book/part01.mp3",
 	}, "audiobook")
 
-	want := filepath.Join("/data/audiobooks-incoming", "Series/Some Book/part01.mp3")
+	want := filepath.Join("/data/incoming", "Series/Some Book/part01.mp3")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -175,7 +239,7 @@ func TestResolveLocalPathAudiobookMapsRemoteSaveRootToLocalIncoming(t *testing.T
 		SavePath:    "/downloads/audiobooks-incoming",
 	}, "audiobook")
 
-	want := "/data/audiobooks-incoming"
+	want := "/data/incoming"
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -193,7 +257,7 @@ func TestResolveLocalPathAudiobookFallsBackToName(t *testing.T) {
 		Name: "Brigands &amp; Breadknives (Legends &amp; Lattes) - Travis Baldree",
 	}, "audiobook")
 
-	want := filepath.Join("/downloads/audiobooks-incoming", "Brigands & Breadknives (Legends & Lattes) - Travis Baldree")
+	want := filepath.Join("/downloads/incoming", "Brigands & Breadknives (Legends & Lattes) - Travis Baldree")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -295,7 +359,7 @@ func TestResolveLocalPathUsesGetTorrentFilesWhenContentPathEmpty(t *testing.T) {
 		Hash: "abc123",
 	}, "audiobook")
 
-	want := filepath.Join("/downloads/audiobooks-incoming", "Sublimation")
+	want := filepath.Join("/downloads/incoming", "Sublimation")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -323,7 +387,7 @@ func TestResolveLocalPathSingleFileNoSubfolder(t *testing.T) {
 		Hash: "def456",
 	}, "audiobook")
 
-	want := filepath.Join("/downloads/audiobooks-incoming", "The_Unicorn_Hunters.m4b")
+	want := filepath.Join("/downloads/incoming", "The_Unicorn_Hunters.m4b")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -353,7 +417,7 @@ func TestResolveLocalPathMultiFileDifferentRootsFallsBack(t *testing.T) {
 	}, "audiobook")
 
 	// Multiple files without a common root -> falls back to t.Name
-	want := filepath.Join("/downloads/audiobooks-incoming", "Some Audiobook - Author")
+	want := filepath.Join("/downloads/incoming", "Some Audiobook - Author")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -387,7 +451,7 @@ func TestResolveLocalPathAPIErrorFallsBackToName(t *testing.T) {
 		Hash: "fail",
 	}, "audiobook")
 
-	want := filepath.Join("/downloads/audiobooks-incoming", "Some Book - Author")
+	want := filepath.Join("/downloads/incoming", "Some Book - Author")
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -415,7 +479,7 @@ func TestResolveLocalPathContentPathTakesPrecedence(t *testing.T) {
 		ContentPath: "/downloads/audiobooks-incoming/CorrectFolder",
 	}, "audiobook")
 
-	want := "/downloads/audiobooks-incoming/CorrectFolder"
+	want := "/downloads/incoming/CorrectFolder"
 	if got != want {
 		t.Fatalf("resolveLocalPath = %q, want %q", got, want)
 	}
@@ -480,6 +544,98 @@ func TestWatcherUsesConfiguredImportEngine(t *testing.T) {
 	}
 	if got.RootPath != destFile || got.OriginalPath != sourceFile {
 		t.Fatalf("request paths = %+v", got)
+	}
+}
+
+func TestWatcherImportsAudiobookFromRemoteContentPathMappedToIncoming(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	incoming := filepath.Join(dir, "incoming")
+	sourceFile := filepath.Join(incoming, "Unfreedom of the Press(Unabridged)e.mp3")
+	if err := os.MkdirAll(incoming, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sourceFile, []byte("audio"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		FileOrgEnabled:           false,
+		IncomingDir:              incoming,
+		QBAudiobookSavePath:      "/downloads/rclone-mnt/downloads",
+		QBAudiobookCategory:      "audiobook",
+		RemoveTorrentAfterImport: false,
+	}
+	engine := &watcherSpyImportEngine{result: &libraryimport.EngineResult{InsertedCount: 1}}
+	w := &Watcher{
+		cfg:       cfg,
+		db:        database,
+		organizer: organize.NewOrganizer(cfg),
+		importer:  engine,
+	}
+
+	w.importTorrent(TorrentInfo{
+		Name:        "Mark R. Levin - Unfreedom of the Press",
+		Hash:        "audio-hash",
+		ContentPath: "/downloads/rclone-mnt/downloads/Unfreedom of the Press(Unabridged)e.mp3",
+		SavePath:    "/downloads/rclone-mnt/downloads",
+		Progress:    1,
+	}, "audiobook")
+
+	if len(engine.requests) != 1 {
+		t.Fatalf("engine requests = %d, want 1", len(engine.requests))
+	}
+	got := engine.requests[0]
+	if got.Source.MediaType != library.MediaTypeAudiobook {
+		t.Fatalf("media type = %q, want audiobook", got.Source.MediaType)
+	}
+	if got.OriginalPath != sourceFile || got.RootPath != sourceFile {
+		t.Fatalf("request paths = original %q root %q, want %q", got.OriginalPath, got.RootPath, sourceFile)
+	}
+	if _, ok := w.imported.Load("audio-hash"); !ok {
+		t.Fatal("torrent hash should be marked imported after successful audiobook import")
+	}
+}
+
+func TestWatcherKeepsMissingRemoteContentPathPending(t *testing.T) {
+	dir := t.TempDir()
+	database, err := db.New(filepath.Join(dir, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{
+		FileOrgEnabled:      false,
+		IncomingDir:         filepath.Join(dir, "incoming"),
+		QBAudiobookSavePath: "/downloads/rclone-mnt/downloads",
+	}
+	engine := &watcherSpyImportEngine{result: &libraryimport.EngineResult{InsertedCount: 1}}
+	w := &Watcher{
+		cfg:       cfg,
+		db:        database,
+		organizer: organize.NewOrganizer(cfg),
+		importer:  engine,
+	}
+
+	w.importTorrent(TorrentInfo{
+		Name:        "Mark R. Levin - Unfreedom of the Press",
+		Hash:        "pending-audio",
+		ContentPath: "/downloads/rclone-mnt/downloads/Unfreedom of the Press(Unabridged)e.mp3",
+		SavePath:    "/downloads/rclone-mnt/downloads",
+		Progress:    1,
+	}, "audiobook")
+
+	if len(engine.requests) != 0 {
+		t.Fatalf("engine requests = %d, want 0 while local synchronized file is missing", len(engine.requests))
+	}
+	if _, ok := w.imported.Load("pending-audio"); ok {
+		t.Fatal("missing local file should not be marked imported")
 	}
 }
 

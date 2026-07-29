@@ -123,6 +123,26 @@ func TestScannerEmbeddedMetadataAndFilenameFallback(t *testing.T) {
 	}
 }
 
+func TestScannerAudiobookPathFallbackUsesAuthorDirectoryAndFilenameTitle(t *testing.T) {
+	roots := testRoots(t)
+	writeFile(t, filepath.Join(roots.AudiobookDir, "Stephen King", "11.22.63 - Part.m4b"), "audio bytes")
+
+	job := runScan(t, NewManager(newFakeCatalog()), roots)
+	candidate := candidatesByFilename(job.Result.Candidates)["11.22.63 - Part.m4b"]
+	if candidate.MediaType != library.MediaTypeAudiobook {
+		t.Fatalf("candidate = %+v", candidate)
+	}
+	if candidate.Author != "Stephen King" {
+		t.Fatalf("author = %q, want Stephen King", candidate.Author)
+	}
+	if candidate.Title != "11.22.63" {
+		t.Fatalf("title = %q, want 11.22.63", candidate.Title)
+	}
+	if candidate.Metadata.Source != "filename_fallback" {
+		t.Fatalf("metadata source = %q", candidate.Metadata.Source)
+	}
+}
+
 func TestPreviewDestinationDoesNotDuplicateLibrarySegment(t *testing.T) {
 	candidate := Candidate{
 		Title:           "The Guardian's Path",

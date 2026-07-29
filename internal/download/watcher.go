@@ -34,6 +34,7 @@ type Watcher struct {
 
 	processing sync.Map // hash -> struct{}, tracks in-progress imports
 	imported   sync.Map // hash -> struct{}, tracks already-imported hashes
+	pending    sync.Map // hash/type -> reason signature, suppresses repeated pending INFO logs
 }
 
 var errTorrentContentPending = errors.New("torrent content pending synchronization")
@@ -119,14 +120,16 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 
 	slog.Debug("processing completed torrent", "name", t.Name, "hash", t.Hash, "type", mediaType)
 
-	savePath := w.resolveLocalPath(t, mediaType)
+	resolved := w.resolveLocalPathResult(t, mediaType)
+	savePath := resolved.Path
+	w.logPathResolution(t, mediaType, resolved)
 
 	var importErr error
 	if _, err := os.Stat(savePath); err != nil {
 		if os.IsNotExist(err) {
-			slog.Info("torrent import pending", "name", t.Name, "hash", t.Hash, "type", mediaType, "path", savePath, "reason", "local synchronized path not available")
+			w.logImportPending(t, mediaType, savePath, "local synchronized path not available", nil)
 		} else {
-			slog.Warn("torrent import pending", "name", t.Name, "hash", t.Hash, "type", mediaType, "path", savePath, "error", err)
+			w.logImportPending(t, mediaType, savePath, "local path stat failed", err)
 		}
 		return
 	}
@@ -141,8 +144,9 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 
 	if importErr != nil {
 		if errors.Is(importErr, errTorrentContentPending) {
-			slog.Info("torrent import pending", "name", t.Name, "hash", t.Hash, "type", mediaType, "path", savePath, "error", importErr)
+			w.logImportPending(t, mediaType, savePath, "content not ready for import", importErr)
 		} else {
+			w.clearImportPending(t.Hash, mediaType)
 			slog.Error("torrent import failed", "name", t.Name, "type", mediaType, "error", importErr)
 		}
 		return
@@ -162,6 +166,7 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 
 	// Mark as imported.
 	w.imported.Store(t.Hash, struct{}{})
+	w.clearImportPending(t.Hash, mediaType)
 
 	// Log the import.
 	if err := w.db.LogEvent("torrent_import", t.Name, fmt.Sprintf("Imported %s from torrent", mediaType), nil, t.Hash); err != nil {
@@ -170,13 +175,25 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 }
 
 // resolveLocalPath maps qBittorrent container paths to local paths.
-// Each media type uses its dedicated INCOMING directory (where qBit
-// downloads to), NOT the final organized library directory. Previously
-// audiobooks used AudiobookDir (the library target) which caused files
-// to be looked up in the wrong place and could lead to ebooks being
-// misrouted if paths overlapped.
+// Each media type resolves to Librarr's local synchronized incoming mount,
+// not the remote qBittorrent save path or the final organized library
+// directory. qBittorrent may report paths from a seedbox filesystem that
+// Librarr can only see by basename under INCOMING_DIR after rclone sync.
 func (w *Watcher) resolveLocalPath(t TorrentInfo, mediaType string) string {
+	return w.resolveLocalPathResult(t, mediaType).Path
+}
+
+type localPathResolution struct {
+	Path         string
+	Strategy     string
+	ReportedPath string
+	IncomingDir  string
+	Failure      string
+}
+
+func (w *Watcher) resolveLocalPathResult(t TorrentInfo, mediaType string) localPathResolution {
 	var rootName string
+	localIncoming := w.incomingDirForMedia(mediaType)
 
 	if t.ContentPath != "" {
 		return w.resolveContentPath(t, mediaType)
@@ -211,17 +228,27 @@ func (w *Watcher) resolveLocalPath(t TorrentInfo, mediaType string) string {
 		rootName = normalizeTorrentPath(t.Name)
 	}
 
-	return filepath.Join(w.incomingDirForMedia(mediaType), rootName)
+	path, ok := joinWithinRoot(localIncoming, rootName)
+	if !ok {
+		return localPathResolution{
+			Path:         localIncoming,
+			Strategy:     "rejected_torrent_name_or_files",
+			ReportedPath: t.Name,
+			IncomingDir:  localIncoming,
+			Failure:      "torrent name or file root could not be resolved safely",
+		}
+	}
+	return localPathResolution{
+		Path:         path,
+		Strategy:     "torrent_name_or_files",
+		ReportedPath: t.Name,
+		IncomingDir:  localIncoming,
+	}
 }
 
 func (w *Watcher) incomingDirForMedia(mediaType string) string {
 	switch mediaType {
-	case "ebook":
-		return w.cfg.IncomingDir
 	case "audiobook":
-		if w.cfg.QBAudiobookSavePath != "" {
-			return w.cfg.QBAudiobookSavePath
-		}
 		return w.cfg.IncomingDir
 	case "manga":
 		if w.cfg.MangaIncomingDir != "" {
@@ -244,32 +271,49 @@ func (w *Watcher) remoteSavePathForMedia(mediaType string) string {
 	}
 }
 
-func (w *Watcher) resolveContentPath(t TorrentInfo, mediaType string) string {
+func (w *Watcher) resolveContentPath(t TorrentInfo, mediaType string) localPathResolution {
 	contentPath := normalizeTorrentPath(t.ContentPath)
 	contentPath = filepath.Clean(contentPath)
 	savePath := filepath.Clean(normalizeTorrentPath(t.SavePath))
 	localIncoming := w.incomingDirForMedia(mediaType)
 
 	if contentPath == "" {
-		return localIncoming
+		return localPathResolution{Path: localIncoming, Strategy: "empty_content_path", ReportedPath: t.ContentPath, IncomingDir: localIncoming, Failure: "empty content path"}
+	}
+
+	if filepath.IsAbs(contentPath) {
+		if _, err := os.Stat(contentPath); err == nil {
+			return localPathResolution{Path: contentPath, Strategy: "reported_path_exists", ReportedPath: t.ContentPath, IncomingDir: localIncoming}
+		}
 	}
 
 	remoteRoots := []string{savePath, filepath.Clean(normalizeTorrentPath(w.remoteSavePathForMedia(mediaType)))}
 	for _, remoteRoot := range remoteRoots {
 		if mapped, ok := mapTorrentPath(contentPath, remoteRoot, localIncoming); ok {
-			return mapped
+			return localPathResolution{Path: mapped, Strategy: "mapped_remote_root", ReportedPath: t.ContentPath, IncomingDir: localIncoming}
 		}
 	}
 
 	if mapped, ok := mapTorrentPath(contentPath, localIncoming, localIncoming); ok {
-		return mapped
+		return localPathResolution{Path: mapped, Strategy: "already_under_incoming", ReportedPath: t.ContentPath, IncomingDir: localIncoming}
 	}
 
-	if !filepath.IsAbs(contentPath) && contentPath != ".." && !strings.HasPrefix(contentPath, ".."+string(os.PathSeparator)) {
-		return filepath.Join(localIncoming, contentPath)
+	if !filepath.IsAbs(contentPath) && (contentPath == ".." || strings.HasPrefix(contentPath, ".."+string(os.PathSeparator))) {
+		return localPathResolution{Path: localIncoming, Strategy: "rejected_relative_content_path", ReportedPath: t.ContentPath, IncomingDir: localIncoming, Failure: "relative content path escaped incoming root"}
 	}
 
-	return filepath.Join(localIncoming, filepath.Base(contentPath))
+	if !filepath.IsAbs(contentPath) {
+		if joined, ok := joinWithinRoot(localIncoming, contentPath); ok {
+			return localPathResolution{Path: joined, Strategy: "relative_content_path", ReportedPath: t.ContentPath, IncomingDir: localIncoming}
+		}
+		return localPathResolution{Path: localIncoming, Strategy: "rejected_relative_content_path", ReportedPath: t.ContentPath, IncomingDir: localIncoming, Failure: "relative content path escaped incoming root"}
+	}
+
+	base := filepath.Base(contentPath)
+	if joined, ok := joinWithinRoot(localIncoming, base); ok {
+		return localPathResolution{Path: joined, Strategy: "incoming_basename_fallback", ReportedPath: t.ContentPath, IncomingDir: localIncoming}
+	}
+	return localPathResolution{Path: localIncoming, Strategy: "rejected_content_path", ReportedPath: t.ContentPath, IncomingDir: localIncoming, Failure: "content path could not be resolved safely"}
 }
 
 // mapTorrentPath translates a path reported by the remote torrent client into
@@ -290,6 +334,73 @@ func mapTorrentPath(reportedPath, remoteRoot, localRoot string) (string, bool) {
 		return "", false
 	}
 	return filepath.Join(localRoot, rel), true
+}
+
+func joinWithinRoot(root, relPath string) (string, bool) {
+	root = filepath.Clean(normalizeTorrentPath(root))
+	relPath = filepath.Clean(normalizeTorrentPath(relPath))
+	if root == "." || relPath == "." || relPath == "" || filepath.IsAbs(relPath) || !filepath.IsAbs(root) {
+		return "", false
+	}
+	if relPath == ".." || strings.HasPrefix(relPath, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	candidate := filepath.Join(root, relPath)
+	rel, err := filepath.Rel(root, candidate)
+	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", false
+	}
+	return candidate, true
+}
+
+func (w *Watcher) logPathResolution(t TorrentInfo, mediaType string, resolved localPathResolution) {
+	fields := []any{
+		"name", t.Name,
+		"hash", t.Hash,
+		"type", mediaType,
+		"reported_path", resolved.ReportedPath,
+		"incoming_dir", resolved.IncomingDir,
+		"strategy", resolved.Strategy,
+		"resolved_path", resolved.Path,
+	}
+	if resolved.Failure != "" {
+		slog.Warn("torrent local path resolution warning", append(fields, "failure", resolved.Failure)...)
+		return
+	}
+	slog.Debug("torrent local path resolved", fields...)
+}
+
+func (w *Watcher) logImportPending(t TorrentInfo, mediaType, path, reason string, err error) {
+	fields := []any{
+		"name", t.Name,
+		"hash", t.Hash,
+		"type", mediaType,
+		"path", path,
+		"reason", reason,
+	}
+	if err != nil {
+		fields = append(fields, "error", err)
+	}
+
+	key := t.Hash + ":" + mediaType
+	signature := path + ":" + reason
+	if err != nil {
+		signature += ":" + err.Error()
+	}
+	if previous, ok := w.pending.Load(key); ok && previous == signature {
+		slog.Debug("torrent import still pending", fields...)
+		return
+	}
+	w.pending.Store(key, signature)
+	if err != nil && !errors.Is(err, errTorrentContentPending) {
+		slog.Warn("torrent import pending", fields...)
+		return
+	}
+	slog.Info("torrent import pending", fields...)
+}
+
+func (w *Watcher) clearImportPending(hash, mediaType string) {
+	w.pending.Delete(hash + ":" + mediaType)
 }
 
 func (w *Watcher) importEbook(t TorrentInfo, savePath string) error {

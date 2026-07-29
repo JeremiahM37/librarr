@@ -239,6 +239,14 @@ func (s *LibraryService) GetEdition(ctx context.Context, id int64) (*Edition, er
 	return edition, translateLibraryError(err)
 }
 
+func (s *LibraryService) UpdateEdition(ctx context.Context, edition Edition) (*Edition, error) {
+	if s.editions == nil {
+		return nil, ErrUnsupportedOperation
+	}
+	updated, err := s.editions.UpdateEdition(ctx, edition)
+	return updated, translateLibraryError(err)
+}
+
 func (s *LibraryService) GetPrimaryCover(ctx context.Context, bookID int64) (*Cover, error) {
 	cover, err := s.covers.GetPrimaryCover(ctx, bookID)
 	return cover, translateLibraryError(err)
@@ -270,6 +278,10 @@ func (s *LibraryService) GetSeries(ctx context.Context, name string) (*Series, e
 	return series, translateLibraryError(err)
 }
 
+func (s *LibraryService) AttachBookToSeries(ctx context.Context, bookID int64, series BookSeries) error {
+	return translateLibraryError(s.series.AttachBookToSeries(ctx, bookID, series))
+}
+
 func (s *LibraryService) MergeContributor(ctx context.Context, contributor Contributor) (*Contributor, error) {
 	merged, err := s.contributors.MergeContributor(ctx, contributor)
 	return merged, translateLibraryError(err)
@@ -282,6 +294,10 @@ func (s *LibraryService) GetEditionContributors(ctx context.Context, editionID i
 
 func (s *LibraryService) AttachContributor(ctx context.Context, editionID int64, contributor Contributor) error {
 	return translateLibraryError(s.contributors.AttachContributor(ctx, editionID, contributor))
+}
+
+func (s *LibraryService) DetachContributor(ctx context.Context, editionID, contributorID int64, role ContributorRole) error {
+	return translateLibraryError(s.contributors.DetachContributor(ctx, editionID, contributorID, role))
 }
 
 func (s *LibraryService) AddIdentifier(ctx context.Context, identifier Identifier) (*Identifier, error) {

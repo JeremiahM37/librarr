@@ -286,7 +286,7 @@
             <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider">Library & Import</h3>
             <p class="text-xs text-slate-500 mt-1">Configure the folders Librarr watches and where imported books are organized.</p>
           </div>
-          <button id="settings-library-import-save-standard" data-action="saveLibraryImportStandard" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Save</button>
+          <button type="button" id="settings-library-import-save-standard" data-action="saveLibraryImportStandard" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-md transition-colors">Save</button>
         </div>
         <div class="mb-4 rounded-lg border border-amber-500/20 bg-amber-500/8 px-4 py-3">
           <p class="text-sm font-medium text-amber-100">Step 1 – Configure Library Folders</p>
@@ -295,21 +295,21 @@
         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
           <div>
             <label class="block text-xs text-slate-500 mb-1">Import Folder (Downloads)</label>
-            <input type="text" id="setting-incoming_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/downloads">
+            <input type="text" id="setting-incoming_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/data/incoming">
             <p class="text-xs text-slate-500 mt-1">Folder where Librarr watches for newly downloaded books.</p>
           </div>
           <div>
             <label class="block text-xs text-slate-500 mb-1">Ebook Library</label>
-            <input type="text" id="setting-ebook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/books">
+            <input type="text" id="setting-ebook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/books/ebooks">
             <p class="text-xs text-slate-500 mt-1">Destination for organized ebook files after import.</p>
           </div>
           <div>
             <label class="block text-xs text-slate-500 mb-1">Audiobook Library</label>
-            <input type="text" id="setting-audiobook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/audiobooks">
+            <input type="text" id="setting-audiobook_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/books/audiobooks">
           </div>
           <div>
             <label class="block text-xs text-slate-500 mb-1">Manga Library</label>
-            <input type="text" id="setting-manga_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/manga">
+            <input type="text" id="setting-manga_dir" class="w-full bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 placeholder-slate-600" placeholder="/books/manga">
           </div>
         </div>
         <div class="mt-4 flex items-center justify-between rounded-lg bg-slate-800/40 px-4 py-3">
@@ -325,7 +325,7 @@
         <div class="mt-5 flex flex-col items-end gap-2">
           <div id="settings-library-import-unsaved" class="hidden text-xs text-amber-300">Unsaved changes</div>
           <div id="settings-library-import-validation" class="hidden max-w-md rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-200"></div>
-          <button id="settings-library-import-save-continue" data-action="saveLibraryImportContinue" class="px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-medium transition-colors">Save & Continue</button>
+          <button type="button" id="settings-library-import-save-continue" data-action="saveLibraryImportContinue" class="px-4 py-2.5 rounded-lg bg-amber-500 hover:bg-amber-400 text-stone-950 font-medium transition-colors">Save & Continue</button>
           <div id="settings-library-import-complete" class="hidden rounded-lg border border-emerald-500/30 bg-emerald-500/12 px-4 py-2.5 text-sm text-emerald-100">
             <div class="flex items-center gap-2 font-medium">
               <span aria-hidden="true">✓</span>

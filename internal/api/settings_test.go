@@ -39,6 +39,11 @@ func settingsTestServer(t *testing.T) (*Server, string) {
 		QBAudiobookCategory: "env-audiobooks",
 		QBMangaSavePath:     "/env/manga",
 		QBMangaCategory:     "env-manga",
+		FileOrgEnabled:      true,
+		EbookDir:            "/books/ebooks",
+		AudiobookDir:        "/books/audiobooks",
+		MangaDir:            "/books/manga",
+		IncomingDir:         "/data/incoming",
 	}
 
 	database, err := db.New(filepath.Join(dir, "test.db"))
@@ -73,6 +78,35 @@ func TestHandleSettingsExposesQBittorrentSavePathDefaults(t *testing.T) {
 	}
 }
 
+func TestHandleSettingsExposesLibraryImportDefaults(t *testing.T) {
+	s, _ := settingsTestServer(t)
+	req := httptest.NewRequest(http.MethodGet, "/api/settings", nil)
+	rr := httptest.NewRecorder()
+	s.handleGetSettings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	var settings map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &settings); err != nil {
+		t.Fatal(err)
+	}
+	if settings["incoming_dir"] != "/data/incoming" {
+		t.Fatalf("incoming_dir default = %v", settings["incoming_dir"])
+	}
+	if settings["ebook_dir"] != "/books/ebooks" {
+		t.Fatalf("ebook_dir default = %v", settings["ebook_dir"])
+	}
+	if settings["audiobook_dir"] != "/books/audiobooks" {
+		t.Fatalf("audiobook_dir default = %v", settings["audiobook_dir"])
+	}
+	if settings["manga_dir"] != "/books/manga" {
+		t.Fatalf("manga_dir default = %v", settings["manga_dir"])
+	}
+	if settings["file_org_enabled"] != true {
+		t.Fatalf("file_org_enabled default = %v", settings["file_org_enabled"])
+	}
+}
+
 func TestHandleSaveSettingsAppliesQBittorrentSavePathsToRuntimeConfig(t *testing.T) {
 	s, settingsPath := settingsTestServer(t)
 	body, _ := json.Marshal(map[string]interface{}{
@@ -101,6 +135,39 @@ func TestHandleSaveSettingsAppliesQBittorrentSavePathsToRuntimeConfig(t *testing
 		t.Fatal(err)
 	}
 	if !strings.Contains(string(data), `"qb_save_path": "/remote/ebooks"`) {
+		t.Fatalf("saved settings = %s", string(data))
+	}
+}
+
+func TestHandleSaveSettingsAppliesLibraryImportSettingsToRuntimeConfig(t *testing.T) {
+	s, settingsPath := settingsTestServer(t)
+	body, _ := json.Marshal(map[string]interface{}{
+		"incoming_dir":     "/library/incoming",
+		"ebook_dir":        "/library/ebooks",
+		"audiobook_dir":    "/library/audiobooks",
+		"manga_dir":        "/library/manga",
+		"file_org_enabled": false,
+	})
+	req := httptest.NewRequest(http.MethodPost, "/api/settings", bytes.NewReader(body))
+	rr := httptest.NewRecorder()
+	s.handleSaveSettings(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d body=%s", rr.Code, rr.Body.String())
+	}
+	if s.cfg.IncomingDir != "/library/incoming" {
+		t.Fatalf("IncomingDir = %q", s.cfg.IncomingDir)
+	}
+	if s.cfg.EbookDir != "/library/ebooks" || s.cfg.AudiobookDir != "/library/audiobooks" || s.cfg.MangaDir != "/library/manga" {
+		t.Fatalf("library dirs: ebook=%q audiobook=%q manga=%q", s.cfg.EbookDir, s.cfg.AudiobookDir, s.cfg.MangaDir)
+	}
+	if s.cfg.FileOrgEnabled != false {
+		t.Fatalf("FileOrgEnabled = %v", s.cfg.FileOrgEnabled)
+	}
+	data, err := os.ReadFile(settingsPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"ebook_dir": "/library/ebooks"`) {
 		t.Fatalf("saved settings = %s", string(data))
 	}
 }

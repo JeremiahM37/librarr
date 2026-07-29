@@ -99,6 +99,16 @@ Normalized startup now distinguishes two cases:
 This keeps migration safeguards intact for real upgrades while allowing a clean
 dogfood database to boot.
 
+Mounted library folders do not make a fresh normalized install non-fresh.
+Librarr 2.0 does not auto-adopt ebooks, audiobooks, or manga at startup. The
+legacy audiobook folder scanner is disabled when
+`LIBRARR_LIBRARY_REPOSITORY_MODE=normalized`; adoption is intentionally driven
+through Settings → Library & Import → Scan Library, followed by review and
+explicit import.
+
+If startup logs show `legacy audiobook scanner startup decision` with
+`audiobook_scanner_enabled=false`, that is expected in normalized mode.
+
 ## Prerequisites
 
 - Docker

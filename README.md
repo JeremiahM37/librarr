@@ -87,6 +87,12 @@ After the first Library & Import save:
 
 Scanning never imports files. It only discovers and classifies files.
 
+In normalized Librarr 2.0 mode, mounted library folders are not adopted at
+startup. Legacy background folder scanners are disabled, including the older
+audiobook folder scanner that wrote directly to `library_items`. Existing
+ebooks, audiobooks, and manga mounted into the container become part of Librarr
+only after an administrator runs the explicit Scan → Review → Import workflow.
+
 The scanner currently supports:
 
 - recursive folder scanning
@@ -186,12 +192,21 @@ locally and displayed during scan review, manual review, metadata editing,
 Library, and book details. Unsupported formats or corrupt artwork continue to
 use the colored placeholder.
 
-The Library book-details Metadata Editor uses the same editing/validation
-patterns for already-imported books and saves catalog metadata through
-`PATCH /api/v1/books/{id}/metadata`. The current persisted fields are title,
-edition title, subtitle, publisher, publication date/year, language,
-description, and tags/genres. Author, series, ISBN, destination folder, and
-filename are shown as context until those domain update paths are added.
+The Library book-details Metadata section also includes review-first enrichment
+tools:
+
+- **Extract from File** reads managed EPUB package metadata and embedded cover
+  artwork from the attached local file.
+- **Match Online** searches Open Library using existing identifiers first, then
+  conservative title/author matching.
+
+Both tools show current and proposed values side by side. Users choose the
+fields to apply; Librarr never silently overwrites catalog metadata and never
+modifies the ebook file itself. Manual fields are protected unless explicitly
+selected in the proposal review. Applied metadata is persisted through the
+normalized LibraryService path, including title, edition title, subtitle,
+publisher, publication date/year, language, description, tags/genres, author,
+series, identifiers, and managed covers where available.
 
 ### User management
 
@@ -616,6 +631,9 @@ Prefer Librarr 2.0 endpoints for new integrations.
 | GET | `/api/v1/books/{id}/cover` | Stored local book cover |
 | GET | `/api/v1/books/{id}/metadata` | Effective metadata |
 | PATCH | `/api/v1/books/{id}/metadata` | Partial metadata update |
+| POST | `/api/v1/books/{id}/metadata/extract` | Build a review proposal from a managed local ebook file |
+| POST | `/api/v1/books/{id}/metadata/matches` | Search online metadata providers and return review candidates |
+| POST | `/api/v1/books/{id}/metadata/apply` | Apply selected fields from a server-issued metadata proposal |
 | GET | `/api/v1/books/{id}/provenance` | Metadata provenance |
 | GET | `/api/v1/downloads` | Active and recent downloads/import jobs |
 
