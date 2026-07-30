@@ -143,7 +143,10 @@ func (lt *LibraryTargets) absLibraryScan(libraryID string) {
 
 	resp, err := lt.client.Do(req)
 	if err != nil {
-		slog.Error("abs scan failed", "library_id", libraryID, "error", err)
+		// Include the configured base URL: the most common cause of a
+		// failure here is a malformed ABS_URL, and the bare net/http error
+		// ("unsupported protocol scheme") never says which URL it came from.
+		slog.Error("abs scan failed", "library_id", libraryID, "abs_url", lt.cfg.ABSURL, "error", err)
 		return
 	}
 	defer resp.Body.Close()

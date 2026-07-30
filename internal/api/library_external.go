@@ -103,7 +103,7 @@ func (s *Server) handleLibraryAudiobooks(w http.ResponseWriter, r *http.Request)
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
 	if err != nil {
-		slog.Error("ABS library request failed", "error", err)
+		slog.Error("ABS library request failed", "abs_url", s.cfg.ABSURL, "error", err)
 		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
 			"error": "Failed to reach Audiobookshelf",
 		})

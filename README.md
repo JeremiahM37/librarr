@@ -176,6 +176,12 @@ Open `http://localhost:5050` in your browser.
 
 All configuration is via environment variables. Every variable has a sensible default.
 
+Service URLs (`ABS_URL`, `PROWLARR_URL`, `KAVITA_URL`, …) may be written with or
+without a scheme — `audiobookshelf:13378` is normalized to
+`http://audiobookshelf:13378`, and trailing slashes are trimmed. The same applies
+to URLs saved from the Settings UI. Use `https://` explicitly when the service is
+behind TLS.
+
 ### Server
 
 | Variable | Default | Description |
