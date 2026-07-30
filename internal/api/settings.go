@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/netutil"
 	"github.com/JeremiahM37/librarr/internal/sources"
 )
@@ -115,6 +116,7 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if value, ok := data["annas_archive_domain"].(string); ok && value != "" {
 		data["annas_archive_domain"] = sources.NormalizeDomain(value)
 	}
+	normalizeSettingURLs(data)
 
 	// Don't save masked values (user didn't change them).
 	for k := range sensitiveKeys {
@@ -184,6 +186,26 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// normalizeSettingURLs repairs service base URLs in an incoming settings
+// payload — mainly by adding the "http://" a user leaves off when they type
+// "audiobookshelf:13378" into the Integrations form. Without a scheme every
+// request built from that value dies with `unsupported protocol scheme ""`
+// (issue #92). Normalizing on write means settings.json, the UI and the
+// runtime config all agree; config.Load repairs the env layer separately.
+func normalizeSettingURLs(data map[string]interface{}) {
+	for _, key := range config.BaseURLSettingKeys {
+		v, ok := data[key]
+		if !ok {
+			continue
+		}
+		str, isStr := v.(string)
+		if !isStr {
+			continue
+		}
+		data[key] = config.NormalizeBaseURL(str)
+	}
 }
 
 func (s *Server) loadSettings() map[string]interface{} {

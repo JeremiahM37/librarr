@@ -216,3 +216,55 @@ func TestGetSettings_MasksSensitiveValues(t *testing.T) {
 		t.Errorf("unset abs_token should be empty string, got %v", got)
 	}
 }
+
+// TestSaveSettings_NormalizesSchemeLessURLs — regression for issue #92. A URL
+// typed without "http://" was persisted verbatim, and every request built from
+// it failed with `unsupported protocol scheme ""` (library page stuck on
+// "Failed to load library", "abs scan failed" in the logs). The save handler
+// now repairs the value, so settings.json and the next GET both show the URL
+// the runtime will actually use.
+func TestSaveSettings_NormalizesSchemeLessURLs(t *testing.T) {
+	s, path := settingsTestServer(t)
+
+	saveSettings(t, s, map[string]interface{}{
+		"abs_url":      "audiobookshelf:13378",
+		"abs_token":    "tok",
+		"kavita_url":   "  kavita:5000/  ",
+		"komga_url":    "https://komga.example.com",
+		"prowlarr_url": "192.168.1.5:9696",
+	})
+
+	saved := readSettingsFile(t, path)
+	for key, want := range map[string]string{
+		"abs_url":      "http://audiobookshelf:13378",
+		"kavita_url":   "http://kavita:5000",
+		"komga_url":    "https://komga.example.com",
+		"prowlarr_url": "http://192.168.1.5:9696",
+	} {
+		if got := saved[key]; got != want {
+			t.Errorf("settings.json %s = %v, want %q", key, got, want)
+		}
+	}
+
+	// Non-URL values must pass through untouched.
+	if got := saved["abs_token"]; got != "tok" {
+		t.Errorf("abs_token = %v, want tok", got)
+	}
+}
+
+// TestSaveSettings_WhitespaceOnlyURLClearsOverride — a field wiped to spaces
+// normalizes to "", which must take the same "delete the override" path as an
+// empty string so the env value reapplies on restart.
+func TestSaveSettings_WhitespaceOnlyURLClearsOverride(t *testing.T) {
+	s, path := settingsTestServer(t)
+
+	saveSettings(t, s, map[string]interface{}{"prowlarr_url": "http://saved:9696"})
+	if got := readSettingsFile(t, path)["prowlarr_url"]; got != "http://saved:9696" {
+		t.Fatalf("setup failed: prowlarr_url = %v", got)
+	}
+
+	saveSettings(t, s, map[string]interface{}{"prowlarr_url": "   "})
+	if _, exists := readSettingsFile(t, path)["prowlarr_url"]; exists {
+		t.Error("whitespace-only URL should delete the override, not persist a value")
+	}
+}
