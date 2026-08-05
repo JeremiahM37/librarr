@@ -15,6 +15,19 @@ jobs:
         with: {fetch-depth: 0}
       - uses: actions/setup-go@v5
         with: {go-version: '1.25', cache: false}
+      # The version the binary reports is embedded from
+      # internal/version/VERSION, not injected from the tag, so the two can
+      # drift silently. Fail the release rather than publish a binary that
+      # misreports its own version.
+      - name: Verify VERSION matches the tag
+        run: |
+          tag="${GITHUB_REF#refs/tags/v}"
+          file="$(tr -d '[:space:]' < internal/version/VERSION)"
+          if [ "$tag" != "$file" ]; then
+            echo "::error::tag v$tag does not match internal/version/VERSION ($file)"
+            exit 1
+          fi
+          echo "version check passed: $file"
       - run: go test ./... -count=1
       - uses: goreleaser/goreleaser-action@v6
         with: {version: '~> v2', args: "release --clean"}
