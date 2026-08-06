@@ -78,6 +78,11 @@ func (g *Gutenberg) Search(ctx context.Context, query string) ([]models.SearchRe
 
 		coverURL, _ := book.Formats["image/jpeg"]
 
+		language := ""
+		if len(book.Languages) > 0 {
+			language = strings.ToLower(book.Languages[0])
+		}
+
 		results = append(results, models.SearchResult{
 			Source:        "gutenberg",
 			Title:         book.Title,
@@ -87,6 +92,7 @@ func (g *Gutenberg) Search(ctx context.Context, query string) ([]models.SearchRe
 			EpubURL:       epubURL,
 			Format:        "epub",
 			CoverURL:      coverURL,
+			Language:      language,
 			SizeHuman:     "Public Domain",
 			DownloadCount: book.DownloadCount,
 		})
@@ -103,6 +109,7 @@ type gutendexBook struct {
 	ID            int               `json:"id"`
 	Title         string            `json:"title"`
 	Authors       []gutendexAuthor  `json:"authors"`
+	Languages     []string          `json:"languages"`
 	Formats       map[string]string `json:"formats"`
 	DownloadCount int               `json:"download_count"`
 }

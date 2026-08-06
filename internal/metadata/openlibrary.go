@@ -138,7 +138,9 @@ func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchD
 		q.Set("author", author)
 	}
 	q.Set("fields", "key,title,author_name,first_publish_year,cover_i,isbn,publisher,language,number_of_pages_median")
-	q.Set("limit", "3")
+	// Wider than strictly needed: the volume a series query is after is often
+	// ranked below one or more box sets, and pickBestDoc has to be able to see it.
+	q.Set("limit", "10")
 	req.URL.RawQuery = q.Encode()
 	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
 
@@ -156,11 +158,7 @@ func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchD
 	if err := json.NewDecoder(resp.Body).Decode(&data); err != nil {
 		return nil, err
 	}
-	if len(data.Docs) == 0 {
-		return nil, nil
-	}
-
-	return &data.Docs[0], nil
+	return pickBestDoc(title, author, data.Docs), nil
 }
 
 // enrichFromWork fetches the Works API for description and series info.

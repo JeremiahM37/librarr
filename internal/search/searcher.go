@@ -231,7 +231,60 @@ func (m *Manager) processResults(results []models.SearchResult, query, author st
 			}
 		}
 	}
-	return results
+	// After sorting, so the copy that survives a merge is the best-scoring one.
+	return CollapseDuplicateCopies(results)
+}
+
+// CollapseDuplicateCopies merges results that match on everything the UI shows
+// and differ only by content hash. Anna's Archive lists the same upload under
+// several MD5s, which fills the result grid with rows a user has no way to tell
+// apart. Only hashed results are considered: two torrent rows for one release
+// legitimately differ by seeders and indexer, so those are left alone.
+//
+// The key deliberately covers every displayed field, size and publisher
+// included — a 1MB single volume and a 9MB omnibus of the same title are
+// different books to the reader, and must not be folded together. The survivor
+// keeps its rank and records how many rows it now stands for.
+func CollapseDuplicateCopies(results []models.SearchResult) []models.SearchResult {
+	out := make([]models.SearchResult, 0, len(results))
+	seen := make(map[string]int, len(results))
+
+	for _, r := range results {
+		if r.MD5 == "" {
+			out = append(out, r)
+			continue
+		}
+		key := strings.Join([]string{
+			r.Source,
+			normalizeForDedupe(r.Title),
+			normalizeForDedupe(r.Author),
+			normalizeForDedupe(r.Publisher),
+			strings.ToLower(r.Format),
+			strings.ToLower(r.Language),
+			r.Year,
+			// Sizes are compared with spacing removed rather than word-split,
+			// so "1.3 MB" and "1.3MB" match without "1.3MB" and "13MB" doing so.
+			strings.ToLower(strings.Join(strings.Fields(r.SizeHuman), "")),
+			r.MediaType,
+		}, "\x00")
+
+		if i, ok := seen[key]; ok {
+			if out[i].Copies == 0 {
+				out[i].Copies = 1
+			}
+			out[i].Copies++
+			continue
+		}
+		seen[key] = len(out)
+		out = append(out, r)
+	}
+	return out
+}
+
+// normalizeForDedupe reduces a field to its words so that punctuation, casing
+// and spacing differences don't keep two otherwise identical rows apart.
+func normalizeForDedupe(s string) string {
+	return strings.Join(wordRe.FindAllString(strings.ToLower(s), -1), " ")
 }
 
 // GetSources returns all registered sources.

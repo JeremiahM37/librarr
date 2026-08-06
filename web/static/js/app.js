@@ -69,6 +69,8 @@ const I18N = {
     search_failed: 'Search failed: {msg}',
     n_seeds: '{n} seed',
     n_leech: '{n} leech',
+    n_copies: '{n} copies',
+    n_copies_title: '{n} identical copies, differing only by file hash',
     // Library
     library_filter_placeholder: 'Filter library...',
     library_empty: 'Your library is empty',
@@ -270,6 +272,8 @@ const I18N = {
     search_failed: 'Ошибка поиска: {msg}',
     n_seeds: '{n} сид.',
     n_leech: '{n} лич.',
+    n_copies: '{n} копий',
+    n_copies_title: '{n} одинаковых копий, различаются только хешем файла',
     // Library
     library_filter_placeholder: 'Фильтр библиотеки...',
     library_empty: 'Ваша библиотека пуста',
@@ -1174,6 +1178,15 @@ function renderBookCard(result, index) {
   const size = sizeText ? `<span class="text-slate-400 text-xs font-medium">${escapeHtml(sizeText)}</span>` : '';
   const format = result.format ? `<span class="text-slate-500 text-xs uppercase">${escapeHtml(result.format)}</span>` : '';
   const indexer = result.indexer ? `<span class="text-slate-600 text-xs">${escapeHtml(result.indexer)}</span>` : '';
+  // Edition metadata — what separates otherwise identical-looking hits.
+  const language = result.language ? `<span class="result-language text-sky-400 text-xs uppercase font-medium">${escapeHtml(result.language)}</span>` : '';
+  const year = result.year ? `<span class="result-year text-slate-500 text-xs">${escapeHtml(result.year)}</span>` : '';
+  const publisher = result.publisher
+    ? `<span class="result-publisher text-slate-500 text-xs truncate max-w-[10rem]" title="${escapeHtml(result.publisher)}">${escapeHtml(result.publisher)}</span>`
+    : '';
+  const copies = result.copies > 1
+    ? `<span class="result-copies text-slate-500 text-xs" title="${escapeHtml(t('n_copies_title', {n: result.copies}))}">${escapeHtml(t('n_copies', {n: result.copies}))}</span>`
+    : '';
 
   const buttonState = (isDownloading || isTrackedAnnaDownload || isTrackedDirectDownload) ? 'loading' : (downloadOutcome ? downloadOutcome.status : 'idle');
   const buttonStyles = {
@@ -1208,7 +1221,7 @@ function renderBookCard(result, index) {
         <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1" title="${escapeHtml(result.title || '')}">${escapeHtml(result.title || 'Unknown')}</h3>
         <p class="text-xs text-slate-400 mb-2 line-clamp-1">${escapeHtml(result.author || '')}</p>
         <div class="flex items-center gap-2 flex-wrap mt-auto mb-2">
-          ${seeders}${leechers}${size}${format}${indexer}
+          ${seeders}${leechers}${size}${format}${language}${year}${publisher}${indexer}${copies}
         </div>
         <button
           data-action="startDownload" data-idx="${index}"
