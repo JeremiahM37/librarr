@@ -25,6 +25,18 @@ type SearchResult struct {
 	MediaType        string `json:"media_type,omitempty"`        // ebook, audiobook, manga
 	DownloadProtocol string `json:"download_protocol,omitempty"` // "torrent" or "nzb"
 
+	// Edition metadata, filled in by sources that publish it (Anna's Archive,
+	// Gutenberg). Language is an ISO 639 code ("en", "ru") so the UI can render
+	// it compactly; Year is a string because "not reported" and "year 0" are
+	// different things.
+	Language  string `json:"language,omitempty"`
+	Publisher string `json:"publisher,omitempty"`
+	Year      string `json:"year,omitempty"`
+
+	// Copies counts how many results collapsed into this one because they were
+	// identical apart from their content hash. Zero or one means nothing merged.
+	Copies int `json:"copies,omitempty"`
+
 	// Scoring fields (populated by scorer).
 	Score          float64         `json:"score,omitempty"`
 	ScoreBreakdown *ScoreBreakdown `json:"score_breakdown,omitempty"`

@@ -132,3 +132,42 @@ func TestGutenberg_SearchHTTPError(t *testing.T) {
 		t.Errorf("unexpected name: %s", g.Name())
 	}
 }
+
+func TestGutenberg_PopulatesLanguage(t *testing.T) {
+	response := gutendexResponse{
+		Results: []gutendexBook{
+			{
+				ID:        1342,
+				Title:     "Pride and Prejudice",
+				Languages: []string{"EN"},
+				Formats:   map[string]string{"application/epub+zip": "https://example.invalid/1342.epub"},
+			},
+			{
+				ID:      84,
+				Title:   "Frankenstein",
+				Formats: map[string]string{"application/epub+zip": "https://example.invalid/84.epub"},
+			},
+		},
+	}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_ = json.NewEncoder(w).Encode(response)
+	}))
+	defer server.Close()
+
+	cfg := configWithRegistry(t)
+	cfg.Sources.Gutenberg.URL = server.URL
+	results, err := NewGutenberg(cfg, server.Client()).Search(context.Background(), "test")
+	if err != nil {
+		t.Fatalf("search: %v", err)
+	}
+	if len(results) != 2 {
+		t.Fatalf("results = %d, want 2", len(results))
+	}
+	if results[0].Language != "en" {
+		t.Errorf("Language = %q, want %q (normalised to lower case)", results[0].Language, "en")
+	}
+	if results[1].Language != "" {
+		t.Errorf("Language = %q, want empty when gutendex reports none", results[1].Language)
+	}
+}

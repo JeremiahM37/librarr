@@ -220,3 +220,92 @@ def test_language_toggle_rerenders(ui):
     assert before != after, "language toggle changed nothing"
     page.click('[data-action="toggleLanguage"]')  # restore EN for later tests
     page.wait_for_timeout(300)
+
+
+# ── Edition metadata on result cards (issue #94) ────────────────────────────
+
+def test_language_badge_comes_from_real_source_metadata(searched):
+    """The stub declares languages:["en"] on every book, so the language badge
+    must reach the card through the real Gutenberg parser and API response —
+    not just through the renderer."""
+    page = searched["page"]
+    badges = page.locator(".result-language")
+    assert badges.count() == 3, f"expected a language badge per card, got {badges.count()}"
+    assert badges.first.inner_text().strip().lower() == "en"
+
+
+def _render_card(page, result):
+    """Render one result through the shipped renderer and return its badge row."""
+    page.evaluate(
+        "r => { document.getElementById('search-results').innerHTML = renderBookCard(r, 0); }",
+        result,
+    )
+    return page
+
+
+def test_edition_metadata_badges_render(ui):
+    """An Anna's Archive hit now carries language, year and publisher; all three
+    have to reach the card, because they are what tells near-identical rows
+    apart."""
+    page = _render_card(ui["page"], {
+        "source": "annas",
+        "title": "The Mark of Athena",
+        "author": "Rick Riordan",
+        "size_human": "1.2MB",
+        "format": "epub",
+        "language": "en",
+        "year": "2012",
+        "publisher": "Hyperion Book CH",
+        "md5": "3e8184fac9f9d2413af8260dbf240ac9",
+    })
+    assert page.locator(".result-language").inner_text().strip().lower() == "en"
+    assert page.locator(".result-year").inner_text().strip() == "2012"
+    assert page.locator(".result-publisher").inner_text().strip() == "Hyperion Book CH"
+    # The publisher is truncated by CSS, so the full imprint lives in the tooltip.
+    assert page.locator(".result-publisher").get_attribute("title") == "Hyperion Book CH"
+    assert page.locator(".result-copies").count() == 0, "single copy must not show a count"
+
+
+def test_missing_metadata_renders_no_empty_badges(ui):
+    """Sources that report none of this must not leak 'undefined' into the row."""
+    page = _render_card(ui["page"], {
+        "source": "prowlarr",
+        "title": "Some Torrent Release",
+        "size_human": "700MB",
+        "seeders": 12,
+    })
+    for cls in (".result-language", ".result-year", ".result-publisher", ".result-copies"):
+        assert page.locator(cls).count() == 0, f"{cls} rendered without data"
+    assert "undefined" not in page.inner_text(".book-card")
+
+
+def test_copies_badge_reports_collapsed_duplicates(ui):
+    page = _render_card(ui["page"], {
+        "source": "annas",
+        "title": "The Mark of Athena",
+        "size_human": "1.3MB",
+        "format": "epub",
+        "copies": 3,
+        "md5": "aaa",
+    })
+    badge = page.locator(".result-copies")
+    assert badge.count() == 1
+    assert "3" in badge.inner_text()
+    assert "3" in badge.get_attribute("title")
+
+
+def test_metadata_badges_escape_hostile_values(ui):
+    """These fields are scraped from a third-party page, so they are untrusted
+    input on a strict-CSP page. They must be escaped, not executed."""
+    page = _render_card(ui["page"], {
+        "source": "annas",
+        "title": "Injection Probe",
+        "publisher": '<img src=x onerror="window.__pwned=1">',
+        "year": '"><script>window.__pwned=1</script>',
+        "language": "en",
+        "md5": "bbb",
+    })
+    page.wait_for_timeout(300)
+    assert page.evaluate("() => window.__pwned") is None, "metadata badge executed injected markup"
+    assert page.locator("#search-results img").count() == 0
+    assert "<img" in page.locator(".result-publisher").inner_text()
