@@ -1,10 +1,16 @@
 package organize
 
 import (
+	"os"
+	"path/filepath"
+	"syscall"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 )
+
+// errCrossDevice stands in for EXDEV so tests can force moveFile's copy fallback.
+var errCrossDevice = syscall.EXDEV
 
 func TestSanitizePath(t *testing.T) {
 	tests := []struct {
@@ -71,5 +77,119 @@ func TestOrganizer_DisabledDoesNothing(t *testing.T) {
 
 	if o.cfg.FileOrgEnabled {
 		t.Error("expected FileOrgEnabled to be false")
+	}
+}
+
+func TestMoveFileSameFilesystem(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.m4b")
+	dst := filepath.Join(dir, "dst.m4b")
+	payload := []byte("librarr-move-test")
+	if err := os.WriteFile(src, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := moveFile(src, dst); err != nil {
+		t.Fatalf("moveFile: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("source still present after move: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("dst content = %q, want %q", got, payload)
+	}
+}
+
+func TestMoveFileStreamsWhenRenameFails(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "src.m4b")
+	dst := filepath.Join(dir, "dst.m4b")
+	payload := []byte("forced-fallback-copy")
+	if err := os.WriteFile(src, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := renameFile
+	renameFile = func(string, string) error {
+		return &os.LinkError{Op: "rename", Old: src, New: dst, Err: errCrossDevice}
+	}
+	defer func() { renameFile = orig }()
+
+	if err := moveFile(src, dst); err != nil {
+		t.Fatalf("moveFile: %v", err)
+	}
+	if _, err := os.Stat(src); !os.IsNotExist(err) {
+		t.Fatalf("source still present after fallback move: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != string(payload) {
+		t.Fatalf("dst content = %q, want %q", got, payload)
+	}
+}
+
+func TestCopyFileForOrgStreamsLargeFile(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "big.m4b")
+	dst := filepath.Join(dir, "big-copy.m4b")
+
+	// Large enough that a ReadFile fallback would be obviously wrong under a
+	// small container mem_limit; still cheap for CI.
+	const size = 32 << 20 // 32 MiB
+	f, err := os.Create(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := make([]byte, 1<<20)
+	for i := range chunk {
+		chunk[i] = byte(i)
+	}
+	written := 0
+	for written < size {
+		n, err := f.Write(chunk)
+		if err != nil {
+			f.Close()
+			t.Fatal(err)
+		}
+		written += n
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := copyFileForOrg(src, dst); err != nil {
+		t.Fatalf("copyFileForOrg: %v", err)
+	}
+
+	srcInfo, err := os.Stat(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dstInfo, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srcInfo.Size() != dstInfo.Size() {
+		t.Fatalf("size mismatch: src=%d dst=%d", srcInfo.Size(), dstInfo.Size())
+	}
+}
+
+func TestCopyFileForOrgCleansPartialOnFailure(t *testing.T) {
+	dir := t.TempDir()
+	src := filepath.Join(dir, "missing-src.m4b")
+	dst := filepath.Join(dir, "should-not-remain.m4b")
+
+	err := copyFileForOrg(src, dst)
+	if err == nil {
+		t.Fatal("expected error for missing source")
+	}
+	if _, err := os.Stat(dst); !os.IsNotExist(err) {
+		t.Fatalf("partial dst should be removed, stat err=%v", err)
 	}
 }

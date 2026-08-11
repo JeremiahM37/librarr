@@ -222,20 +222,21 @@ func cleanSeriesTitle(name string) string {
 
 func moveFile(src, dst string) error {
 	// Try rename first (same filesystem).
-	if err := os.Rename(src, dst); err == nil {
+	if err := renameFile(src, dst); err == nil {
 		return nil
 	}
 
-	// Fall back to copy + delete.
-	data, err := os.ReadFile(src)
-	if err != nil {
-		return err
-	}
-	if err := os.WriteFile(dst, data, 0644); err != nil {
+	// Cross-filesystem (and other rename failures): stream copy then delete.
+	// Never os.ReadFile the whole payload — large audiobooks OOM small containers
+	// when organizing from local downloads onto CIFS/NFS library mounts.
+	if err := copyFileForOrg(src, dst); err != nil {
 		return err
 	}
 	return os.Remove(src)
 }
+
+// renameFile is os.Rename; tests swap it to force the streaming copy fallback.
+var renameFile = os.Rename
 
 func moveDirTree(srcDir, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
@@ -275,7 +276,8 @@ func moveDirTree(srcDir, dstDir string) error {
 	return os.RemoveAll(srcDir)
 }
 
-// copyFileForOrg copies a file without removing the source.
+// copyFileForOrg copies a file without removing the source, streaming in
+// chunks so memory use stays bounded regardless of file size.
 func copyFileForOrg(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
@@ -283,12 +285,24 @@ func copyFileForOrg(src, dst string) error {
 	}
 	defer srcFile.Close()
 
-	dstFile, err := os.Create(dst)
+	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
 	}
-	defer dstFile.Close()
+	ok := false
+	defer func() {
+		_ = dstFile.Close()
+		if !ok {
+			_ = os.Remove(dst)
+		}
+	}()
 
-	_, err = io.Copy(dstFile, srcFile)
-	return err
+	if _, err := io.Copy(dstFile, srcFile); err != nil {
+		return err
+	}
+	if err := dstFile.Sync(); err != nil {
+		return err
+	}
+	ok = true
+	return nil
 }
