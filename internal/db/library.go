@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/librarr/internal/library"
 	"github.com/JeremiahM37/librarr/internal/models"
 	"github.com/JeremiahM37/librarr/internal/netutil"
 )
@@ -316,6 +317,36 @@ func (d *DB) HasSourceID(sourceID string) bool {
 	var exists int
 	err := d.db.QueryRow("SELECT 1 FROM library_items WHERE source_id = ?", sourceID).Scan(&exists)
 	return err == nil
+}
+
+// LibraryMatchIndex builds an ownership index over the whole library so search
+// results and download requests can be checked against what the user already
+// has.
+//
+// Only the four columns matching needs are read: a library of several thousand
+// books would otherwise drag file paths, metadata blobs and content hashes
+// through memory on every search. Building the index is a single sequential
+// scan and the result is queried by map lookup, so callers should build it once
+// per request and reuse it across every result they annotate.
+func (d *DB) LibraryMatchIndex() (*library.Index, error) {
+	rows, err := d.db.Query("SELECT id, title, author, media_type FROM library_items")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var candidates []library.Candidate
+	for rows.Next() {
+		var c library.Candidate
+		if err := rows.Scan(&c.ID, &c.Title, &c.Author, &c.MediaType); err != nil {
+			return nil, err
+		}
+		candidates = append(candidates, c)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return library.NewIndex(candidates), nil
 }
 
 // FindByTitle performs a case-insensitive title lookup.

@@ -73,7 +73,39 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// rejectIfInLibrary blocks a download whose title and author already exist in
+// the library, and reports whether it wrote the response.
+//
+// This lives on the server rather than in the UI on purpose: the API is used
+// directly by scripts, the OPDS/Torznab clients and third-party tooling, so a
+// frontend-only check would not actually stop duplicate grabs. Setting
+// "force": true on the request is the documented override, used by the
+// "Download anyway" button for people who do want another edition.
+func (s *Server) rejectIfInLibrary(w http.ResponseWriter, req models.DownloadRequest) bool {
+	if req.Force {
+		return false
+	}
+	match, ok := s.libraryIndex().Lookup(req.Title, req.Author, req.MediaType)
+	if !ok {
+		return false
+	}
+	slog.Info("download blocked, already in library",
+		"title", req.Title, "library_item_id", match.ID, "library_title", match.Title)
+	writeJSON(w, http.StatusConflict, map[string]interface{}{
+		"success":         false,
+		"error":           "Already in library",
+		"code":            "already_in_library",
+		"in_library":      true,
+		"library_item_id": match.ID,
+		"library_title":   match.Title,
+	})
+	return true
+}
+
 func (s *Server) handleTorrentDownload(w http.ResponseWriter, r *http.Request, req models.DownloadRequest) {
+	if s.rejectIfInLibrary(w, req) {
+		return
+	}
 	if !s.cfg.HasTorrentClient() {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 			"success": false,
@@ -140,6 +172,10 @@ func (s *Server) handleTorrentDownload(w http.ResponseWriter, r *http.Request, r
 }
 
 func (s *Server) handleDirectDownloadReq(w http.ResponseWriter, req models.DownloadRequest) {
+	if s.rejectIfInLibrary(w, req) {
+		return
+	}
+
 	// Anna's Archive download.
 	if req.MD5 != "" {
 		if !validateMD5(req.MD5) {
@@ -454,6 +490,9 @@ func isNZBResult(req models.DownloadRequest) bool {
 }
 
 func (s *Server) handleNZBDownload(w http.ResponseWriter, req models.DownloadRequest) {
+	if s.rejectIfInLibrary(w, req) {
+		return
+	}
 	if !s.cfg.HasSABnzbd() {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 			"success": false,

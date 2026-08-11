@@ -38,6 +38,7 @@ func (s *Server) handleSearchTab(w http.ResponseWriter, r *http.Request, tab, ac
 	if results == nil {
 		results = []models.SearchResult{}
 	}
+	results = annotateOwnership(s.libraryIndex(), results, tab)
 
 	resp := map[string]interface{}{
 		"results":        results,
@@ -93,6 +94,10 @@ func (s *Server) handleSearchStreamTab(w http.ResponseWriter, r *http.Request, t
 	w.Header().Set("X-Accel-Buffering", "no")
 
 	author := truncateSearchQuery(r.URL.Query().Get("author"))
+	// Built once: the stream re-processes the whole result set on every source
+	// update, and rebuilding the index each time would rescan the library
+	// table a dozen times per search.
+	ownership := s.libraryIndex()
 	var allResults []models.SearchResult
 	emit := func(event string, payload interface{}) bool {
 		data, err := json.Marshal(payload)
@@ -121,6 +126,7 @@ func (s *Server) handleSearchStreamTab(w http.ResponseWriter, r *http.Request, t
 		if results == nil {
 			results = []models.SearchResult{}
 		}
+		results = annotateOwnership(ownership, results, tab)
 		payload := map[string]interface{}{
 			"source":         update.Source,
 			"source_done":    update.Done,
@@ -141,6 +147,7 @@ func (s *Server) handleSearchStreamTab(w http.ResponseWriter, r *http.Request, t
 	if finalResults == nil {
 		finalResults = []models.SearchResult{}
 	}
+	finalResults = annotateOwnership(ownership, finalResults, tab)
 	emit("complete", map[string]interface{}{
 		"results": finalResults,
 		"sources": s.searchMgr.SourceMeta(),

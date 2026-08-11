@@ -33,6 +33,13 @@ type SearchResult struct {
 	Publisher string `json:"publisher,omitempty"`
 	Year      string `json:"year,omitempty"`
 
+	// Ownership, resolved against library_items at response time. InLibrary is
+	// always serialized — a client checking for the field must be able to tell
+	// "not owned" from "this build does not report ownership".
+	InLibrary     bool   `json:"in_library"`
+	LibraryItemID int64  `json:"library_item_id,omitempty"`
+	LibraryTitle  string `json:"library_title,omitempty"`
+
 	// Copies counts how many results collapsed into this one because they were
 	// identical apart from their content hash. Zero or one means nothing merged.
 	Copies int `json:"copies,omitempty"`

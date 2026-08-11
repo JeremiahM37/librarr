@@ -11,10 +11,10 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/library"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
@@ -314,56 +314,18 @@ func conservativeWishlistMatches(item models.WishlistItem, candidates []cleanupC
 	return matches
 }
 
+// The normalization below is shared with search/download ownership detection
+// (internal/library): the wishlist cleaner and the "already in library" badge
+// must agree on what counts as the same book, or a title would be flagged as
+// owned in search while its wishlist row survived.
 func authorMatches(wishlistAuthor, libraryAuthor string) bool {
-	if wishlistAuthor == "" {
-		return true
-	}
-	if strings.TrimSpace(libraryAuthor) == "" {
-		return false
-	}
-	if normalizePerson(libraryAuthor) == wishlistAuthor {
-		return true
-	}
-	for _, part := range splitAuthorList(libraryAuthor) {
-		if normalizePerson(part) == wishlistAuthor {
-			return true
-		}
-	}
-	return false
-}
-
-func splitAuthorList(author string) []string {
-	replacer := strings.NewReplacer("&", ",", ";", ",", " and ", ",")
-	return strings.Split(replacer.Replace(" "+strings.ToLower(author)+" "), ",")
+	return library.AuthorMatches(wishlistAuthor, libraryAuthor)
 }
 
 func normalizeTitle(s string) string {
-	normalized := normalizeWords(s)
-	for _, suffix := range []string{" unabridged", " abridged"} {
-		normalized = strings.TrimSuffix(normalized, suffix)
-	}
-	return strings.TrimSpace(normalized)
+	return library.NormalizeTitle(s)
 }
 
 func normalizePerson(s string) string {
-	return normalizeWords(s)
-}
-
-func normalizeWords(s string) string {
-	s = strings.ToLower(strings.TrimSpace(s))
-	var b strings.Builder
-	lastSpace := true
-	for _, r := range s {
-		switch {
-		case unicode.IsLetter(r) || unicode.IsNumber(r):
-			b.WriteRune(r)
-			lastSpace = false
-		case unicode.IsSpace(r) || unicode.IsPunct(r) || unicode.IsSymbol(r):
-			if !lastSpace {
-				b.WriteByte(' ')
-				lastSpace = true
-			}
-		}
-	}
-	return strings.Join(strings.Fields(b.String()), " ")
+	return library.NormalizePerson(s)
 }
