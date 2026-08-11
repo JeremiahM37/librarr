@@ -226,10 +226,13 @@ func moveFile(src, dst string) error {
 		return nil
 	}
 
-	// Cross-filesystem (and other rename failures): stream copy then delete.
-	// Never os.ReadFile the whole payload — large audiobooks OOM small containers
-	// when organizing from local downloads onto CIFS/NFS library mounts.
+	// Rename failed (often EXDEV onto CIFS/NFS): stream copy then delete.
+	// Avoid os.ReadFile — large audiobooks OOM small container mem_limits.
 	if err := copyFileForOrg(src, dst); err != nil {
+		return err
+	}
+	// Flush before removing the only complete source on cross-FS moves.
+	if err := syncFile(dst); err != nil {
 		return err
 	}
 	return os.Remove(src)
@@ -276,15 +279,27 @@ func moveDirTree(srcDir, dstDir string) error {
 	return os.RemoveAll(srcDir)
 }
 
-// copyFileForOrg copies a file without removing the source, streaming in
-// chunks so memory use stays bounded regardless of file size.
+func syncFile(path string) error {
+	f, err := os.OpenFile(path, os.O_WRONLY, 0)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return f.Sync()
+}
+
+// copyFileForOrg copies a file without removing the source (streaming).
 func copyFileForOrg(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
+	return copyReaderToFile(srcFile, dst)
+}
 
+// copyReaderToFile streams r into dst; removes a partial dst on failure.
+func copyReaderToFile(r io.Reader, dst string) error {
 	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
 	if err != nil {
 		return err
@@ -297,10 +312,7 @@ func copyFileForOrg(src, dst string) error {
 		}
 	}()
 
-	if _, err := io.Copy(dstFile, srcFile); err != nil {
-		return err
-	}
-	if err := dstFile.Sync(); err != nil {
+	if _, err := io.Copy(dstFile, r); err != nil {
 		return err
 	}
 	ok = true

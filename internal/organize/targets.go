@@ -392,7 +392,5 @@ func (lt *LibraryTargets) ABSCleanupDuplicateEbooks(title string) {
 }
 
 func copyFile(src, dst string) error {
-	// Same streaming path as organize moves — library targets often sit on
-	// network mounts and must not load whole audiobooks/ebooks into RAM.
 	return copyFileForOrg(src, dst)
 }
