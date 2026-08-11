@@ -71,6 +71,10 @@ const I18N = {
     n_leech: '{n} leech',
     n_copies: '{n} copies',
     n_copies_title: '{n} identical copies, differing only by file hash',
+    in_library: 'In Library',
+    in_library_title: 'Already in your library as "{title}"',
+    download_anyway: 'Download anyway',
+    already_in_library: 'Already in your library: {title}',
     // Library
     library_filter_placeholder: 'Filter library...',
     library_empty: 'Your library is empty',
@@ -274,6 +278,10 @@ const I18N = {
     n_leech: '{n} лич.',
     n_copies: '{n} копий',
     n_copies_title: '{n} одинаковых копий, различаются только хешем файла',
+    in_library: 'В библиотеке',
+    in_library_title: 'Уже в вашей библиотеке как «{title}»',
+    download_anyway: 'Всё равно скачать',
+    already_in_library: 'Уже в вашей библиотеке: {title}',
     // Library
     library_filter_placeholder: 'Фильтр библиотеки...',
     library_empty: 'Ваша библиотека пуста',
@@ -1172,6 +1180,13 @@ function renderBookCard(result, index) {
     ? `<img src="${escapeHtml(result.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy" data-ph-title="${escapeHtml(result.title || '')}" data-ph-idx="${index}">`
     : makePlaceholderHtml(result.title || '?', index);
 
+  // Ownership, resolved server-side against the library. Sits on the cover
+  // rather than in the badge row so it is legible before reading the title —
+  // the whole point is to stop a download that was about to happen.
+  const ownedBadge = result.in_library
+    ? `<span class="result-in-library absolute top-2 right-2 px-2 py-0.5 rounded text-xs font-medium bg-emerald-600 text-white" title="${escapeHtml(t('in_library_title', {title: result.library_title || result.title || ''}))}">${escapeHtml(t('in_library'))}</span>`
+    : '';
+
   const seeders = result.seeders ? `<span class="text-emerald-400 text-xs font-medium">${t('n_seeds', {n: result.seeders})}</span>` : '';
   const leechers = result.leechers ? `<span class="text-amber-400 text-xs">${t('n_leech', {n: result.leechers})}</span>` : '';
   const sizeText = (result.size && result.size > 0) ? formatSize(result.size) : (result.size_human || result.sizeHuman || '');
@@ -1207,6 +1222,14 @@ function renderBookCard(result, index) {
     success: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M5 13l4 4L19 7"/></svg>`,
     error: `<svg class="w-4 h-4" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M12 8v4m0 4h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z"/></svg>`,
   };
+  // An owned book keeps a working button — a second edition is a legitimate
+  // want — but the label has to say what the click will do, because the server
+  // rejects the plain request and only honours an explicit override.
+  if (result.in_library && buttonState === 'idle') {
+    buttonStyles.idle = 'bg-amber-600 hover:bg-amber-500 text-white';
+    buttonText.idle = t('download_anyway');
+  }
+
   const displayButtonText = buttonState === 'loading' && trackedJob?.detail
     ? escapeHtml(trackedJob.detail)
     : (buttonText[buttonState] || buttonText.idle);
@@ -1216,6 +1239,7 @@ function renderBookCard(result, index) {
       <div class="relative">
         ${coverHtml}
         <span class="absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium" style="background:${src.bg};color:${src.text}">${escapeHtml(src.label)}</span>
+        ${ownedBadge}
       </div>
       <div class="p-3 flex-1 flex flex-col">
         <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1" title="${escapeHtml(result.title || '')}">${escapeHtml(result.title || 'Unknown')}</h3>
@@ -1359,12 +1383,33 @@ async function startDownload(result) {
       // is misrouted to the torrent client and silently discarded.
       media_type: result.media_type || '',
       download_protocol: result.download_protocol || '',
+      // The server refuses books already in the library. Sending force with a
+      // result the user was shown as owned is the "Download anyway" click.
+      force: !!result.in_library,
     };
 
-    const data = await apiJson('/api/download', {
+    const resp = await api('/api/download', {
       method: 'POST',
       body: JSON.stringify(body),
     });
+    let data = {};
+    try {
+      data = await resp.json();
+    } catch {
+      data = {};
+    }
+
+    // The library can gain the book between the search and the click, so a
+    // result that was not flagged can still come back owned. Flag it now: the
+    // re-render turns this button into "Download anyway".
+    if (resp.status === 409 && data.in_library) {
+      result.in_library = true;
+      if (data.library_item_id) result.library_item_id = data.library_item_id;
+      if (data.library_title) result.library_title = data.library_title;
+      showToast(t('already_in_library', {title: data.library_title || result.title}), 'warning');
+      return;
+    }
+    if (!resp.ok) throw new Error(`API error: ${resp.status}`);
 
     if (result.source === 'annas' && data.job_id) {
       setDownloadOutcome(downloadKey, 'loading', true);
@@ -2570,7 +2615,10 @@ function escapeHtml(str) {
   if (!str) return '';
   const div = document.createElement('div');
   div.textContent = str;
-  return div.innerHTML;
+  // textContent -> innerHTML escapes & < >, but not quotes, and most callers
+  // interpolate into a quoted attribute (title=, alt=). A value containing a
+  // quote would close the attribute early and drop the rest of the text.
+  return div.innerHTML.replaceAll('"', '&quot;').replaceAll("'", '&#39;');
 }
 
 function escapeJs(str) {

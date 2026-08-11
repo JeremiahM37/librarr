@@ -41,6 +41,7 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 - **Quality profiles** -- define format ranking and preferred attributes, auto-upgrade existing downloads
 - **Release profiles** -- preferred and excluded words for fine-grained filtering
 - **Blocklist** -- failed downloads are auto-blocked to prevent retries; manual entries supported
+- **Already-in-library detection** -- results you already own are flagged with `in_library` / `library_item_id` and badged in the UI; matching normalizes punctuation, author prefixes and parenthetical alternate titles, so `Agatha Christie - 4.50 From Paddington` finds `4:50 from Paddington`
 
 ### Download Management
 
@@ -375,6 +376,9 @@ Legacy per-source env vars (e.g. `PROWLARR_URL` and other per-driver overrides) 
 | GET | `/api/search/audiobooks?q=` | Search audiobooks |
 | GET | `/api/search/manga?q=` | Search manga |
 
+Every result carries `in_library` (always present), plus `library_item_id` and
+`library_title` when the book is already in your library.
+
 ### Downloads
 
 | Method | Path | Description |
@@ -388,6 +392,11 @@ Legacy per-source env vars (e.g. `PROWLARR_URL` and other per-driver overrides) 
 | DELETE | `/api/downloads/novel/{jobID}` | Remove a novel download job |
 | POST | `/api/downloads/clear` | Clear finished downloads |
 | POST | `/api/downloads/jobs/{id}/retry` | Retry a failed download |
+
+All four download endpoints refuse a book that is already in your library with
+`409 Conflict` and `{"code": "already_in_library", "library_item_id": N}`. Set
+`"force": true` on the request to download it anyway (a different edition, a
+different format); that is what the UI's **Download anyway** button sends.
 
 ### Library
 

@@ -309,3 +309,17 @@ def test_metadata_badges_escape_hostile_values(ui):
     assert page.evaluate("() => window.__pwned") is None, "metadata badge executed injected markup"
     assert page.locator("#search-results img").count() == 0
     assert "<img" in page.locator(".result-publisher").inner_text()
+
+
+def test_quotes_in_metadata_do_not_truncate_tooltips(ui):
+    """Escaping via textContent leaves quotes intact, which would close a
+    title="..." attribute early and silently drop the rest of the tooltip."""
+    publisher = 'The "Best" Books Ltd.'
+    page = _render_card(ui["page"], {
+        "source": "annas",
+        "title": 'A "Quoted" Title',
+        "publisher": publisher,
+        "md5": "ccc",
+    })
+    assert page.locator(".result-publisher").get_attribute("title") == publisher
+    assert page.locator(".book-card h3").get_attribute("title") == 'A "Quoted" Title'
