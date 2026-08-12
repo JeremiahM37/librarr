@@ -1,6 +1,11 @@
 package organize
 
 import (
+	"bytes"
+	"errors"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
@@ -72,4 +77,135 @@ func TestOrganizer_DisabledDoesNothing(t *testing.T) {
 	if o.cfg.FileOrgEnabled {
 		t.Error("expected FileOrgEnabled to be false")
 	}
+}
+
+func TestMoveFile(t *testing.T) {
+	t.Run("same filesystem rename", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "src.m4b")
+		dst := filepath.Join(dir, "dst.m4b")
+		payload := []byte("librarr-move-test")
+		if err := os.WriteFile(src, payload, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := moveFile(src, dst); err != nil {
+			t.Fatalf("moveFile: %v", err)
+		}
+		if _, err := os.Stat(src); !os.IsNotExist(err) {
+			t.Fatalf("source still present after move: %v", err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("dst content = %q, want %q", got, payload)
+		}
+	})
+
+	t.Run("streams when rename fails", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "src.m4b")
+		dst := filepath.Join(dir, "dst.m4b")
+		payload := []byte("forced-fallback-copy")
+		if err := os.WriteFile(src, payload, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		orig := renameFile
+		renameFile = func(string, string) error {
+			return errors.New("rename forced fail")
+		}
+		defer func() { renameFile = orig }()
+
+		if err := moveFile(src, dst); err != nil {
+			t.Fatalf("moveFile: %v", err)
+		}
+		if _, err := os.Stat(src); !os.IsNotExist(err) {
+			t.Fatalf("source still present after fallback move: %v", err)
+		}
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("dst content = %q, want %q", got, payload)
+		}
+	})
+}
+
+func TestCopyFileForOrg(t *testing.T) {
+	t.Run("large file size and content", func(t *testing.T) {
+		dir := t.TempDir()
+		src := filepath.Join(dir, "big.m4b")
+		dst := filepath.Join(dir, "big-copy.m4b")
+
+		// Larger than a naive ReadFile would comfortably fit in a 256MiB
+		// cgroup alongside the process; still cheap for CI.
+		const size = 32 << 20 // 32 MiB
+		payload := bytes.Repeat([]byte{0x5a}, size)
+		if err := os.WriteFile(src, payload, 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		if err := copyFileForOrg(src, dst); err != nil {
+			t.Fatalf("copyFileForOrg: %v", err)
+		}
+
+		got, err := os.ReadFile(dst)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !bytes.Equal(got, payload) {
+			t.Fatalf("content mismatch: len=%d want=%d", len(got), len(payload))
+		}
+	})
+
+	t.Run("removes partial dst on mid-copy failure", func(t *testing.T) {
+		dir := t.TempDir()
+		dst := filepath.Join(dir, "partial.m4b")
+		r := io.MultiReader(
+			bytes.NewReader(bytes.Repeat([]byte("x"), 4096)),
+			&errReader{err: errors.New("injected read failure")},
+		)
+
+		err := copyReaderToFile(r, dst)
+		if err == nil {
+			t.Fatal("expected mid-copy error")
+		}
+		if _, err := os.Stat(dst); !os.IsNotExist(err) {
+			t.Fatalf("partial dst should be removed, stat err=%v", err)
+		}
+	})
+}
+
+func TestCopyFileUsesStreamingPath(t *testing.T) {
+	// targets.copyFile must share copyFileForOrg so library imports don't
+	// reintroduce the ReadFile OOM on network mounts.
+	dir := t.TempDir()
+	src := filepath.Join(dir, "book.epub")
+	dst := filepath.Join(dir, "book-out.epub")
+	payload := []byte("ebook-bytes")
+	if err := os.WriteFile(src, payload, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst); err != nil {
+		t.Fatalf("copyFile: %v", err)
+	}
+	got, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, payload) {
+		t.Fatalf("dst content = %q, want %q", got, payload)
+	}
+}
+
+type errReader struct {
+	err error
+}
+
+func (e *errReader) Read([]byte) (int, error) {
+	return 0, e.err
 }
