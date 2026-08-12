@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	neturl "net/url"
 	"os"
 	"path/filepath"
 	"time"
@@ -35,6 +36,9 @@ func (lt *LibraryTargets) ImportEbook(filePath, title, author string) {
 	lt.copyToCalibre(filePath, title, author)
 	lt.copyToKavitaEbook(filePath, title, author)
 	lt.scanABSEbookLibrary()
+	// Issue #98: ebooks landing in a Kavita library folder stayed invisible
+	// until someone scanned by hand — only manga ever asked Kavita to look.
+	lt.scanKavita(lt.cfg.KavitaEbookLibraryID)
 }
 
 // ImportAudiobook triggers ABS library scan.
@@ -45,7 +49,7 @@ func (lt *LibraryTargets) ImportAudiobook() {
 // ImportManga copies to Kavita and Komga manga libraries and triggers scans.
 func (lt *LibraryTargets) ImportManga(filePath, seriesTitle string) {
 	lt.copyToKavitaManga(filePath, seriesTitle)
-	lt.scanKavita()
+	lt.scanKavita(lt.cfg.KavitaMangaLibraryID)
 	lt.copyToKomga(filePath, seriesTitle)
 	lt.scanKomga()
 }
@@ -159,8 +163,12 @@ func (lt *LibraryTargets) absLibraryScan(libraryID string) {
 	}
 }
 
-// scanKavita triggers a Kavita library scan.
-func (lt *LibraryTargets) scanKavita() {
+// scanKavita triggers a Kavita library scan. When libraryID is set only that
+// library is scanned; otherwise every library is, which is the only correct
+// default — Kavita's /api/Library/scan requires a libraryId query parameter
+// and answers HTTP 400 without one, so the old parameter-less call never
+// actually scanned anything.
+func (lt *LibraryTargets) scanKavita(libraryID string) {
 	if !lt.cfg.HasKavita() {
 		return
 	}
@@ -172,7 +180,12 @@ func (lt *LibraryTargets) scanKavita() {
 		return
 	}
 
-	url := fmt.Sprintf("%s/api/Library/scan", lt.cfg.KavitaURL)
+	url := fmt.Sprintf("%s/api/Library/scan-all", lt.cfg.KavitaURL)
+	if libraryID != "" {
+		url = fmt.Sprintf("%s/api/Library/scan?libraryId=%s&force=false",
+			lt.cfg.KavitaURL, neturl.QueryEscape(libraryID))
+	}
+
 	req, err := http.NewRequest("POST", url, nil)
 	if err != nil {
 		slog.Error("kavita scan request creation failed", "error", err)
@@ -182,16 +195,16 @@ func (lt *LibraryTargets) scanKavita() {
 
 	resp, err := lt.client.Do(req)
 	if err != nil {
-		slog.Error("kavita scan failed", "error", err)
+		slog.Error("kavita scan failed", "kavita_url", lt.cfg.KavitaURL, "error", err)
 		return
 	}
 	defer resp.Body.Close()
 	io.Copy(io.Discard, resp.Body)
 
 	if resp.StatusCode < 300 {
-		slog.Info("kavita library scan triggered")
+		slog.Info("kavita library scan triggered", "library_id", libraryID)
 	} else {
-		slog.Warn("kavita scan returned non-success", "status", resp.StatusCode)
+		slog.Warn("kavita scan returned non-success", "library_id", libraryID, "status", resp.StatusCode)
 	}
 }
 

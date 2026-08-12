@@ -78,6 +78,8 @@ type Config struct {
 	KavitaPass             string
 	KavitaLibraryPath      string
 	KavitaMangaLibraryPath string
+	KavitaEbookLibraryID   string
+	KavitaMangaLibraryID   string
 	ABSURL                 string
 	ABSToken               string
 	ABSLibraryID           string
@@ -326,6 +328,8 @@ func buildFromEnv() *Config {
 		KavitaPass:             getEnv("KAVITA_PASS", ""),
 		KavitaLibraryPath:      getEnv("KAVITA_LIBRARY_PATH", ""),
 		KavitaMangaLibraryPath: getEnv("KAVITA_MANGA_LIBRARY_PATH", ""),
+		KavitaEbookLibraryID:   getEnv("KAVITA_EBOOK_LIBRARY_ID", ""),
+		KavitaMangaLibraryID:   getEnv("KAVITA_MANGA_LIBRARY_ID", ""),
 		ABSURL:                 getEnv("ABS_URL", ""),
 		ABSToken:               getEnv("ABS_TOKEN", ""),
 		ABSLibraryID:           getEnv("ABS_LIBRARY_ID", ""),
@@ -575,6 +579,8 @@ func (c *Config) applySettingsFileOverrides() {
 		"kavita_pass":               &c.KavitaPass,
 		"kavita_library_path":       &c.KavitaLibraryPath,
 		"kavita_manga_library_path": &c.KavitaMangaLibraryPath,
+		"kavita_ebook_library_id":   &c.KavitaEbookLibraryID,
+		"kavita_manga_library_id":   &c.KavitaMangaLibraryID,
 		"kavita_public_url":         &c.KavitaPublicURL,
 		"komga_url":                 &c.KomgaURL,
 		"komga_user":                &c.KomgaUser,

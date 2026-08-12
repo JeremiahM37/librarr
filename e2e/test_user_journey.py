@@ -323,3 +323,77 @@ def test_quotes_in_metadata_do_not_truncate_tooltips(ui):
     })
     assert page.locator(".result-publisher").get_attribute("title") == publisher
     assert page.locator(".book-card h3").get_attribute("title") == 'A "Quoted" Title'
+
+
+# ── Kavita scan on ebook import (issue #98) ────────────────────────────────
+
+def test_ebook_download_triggers_kavita_scan(searched):
+    """A user downloads a book; Kavita must be told to scan without anyone
+    touching its UI. Before the fix only manga imports asked Kavita to look,
+    so a downloaded ebook sat on disk invisible until a manual scan.
+
+    The stub Kavita mirrors the real API's 400 for a libraryId-less
+    /api/Library/scan, so a scan the real server would reject cannot pass here.
+    """
+    page = searched["page"]
+    scans = searched["kavita_scans"]
+    before = len(scans)
+
+    # Download a book the earlier journey test did not take.
+    title = page.evaluate("""() => {
+        const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
+        const btn = btns[btns.length - 1];
+        btn.scrollIntoView();
+        return state.renderedResults[+btn.dataset.idx].title;
+    }""")
+    page.locator('[data-action="startDownload"]').last.click()
+
+    deadline = time.time() + 60
+    last = None
+    while time.time() < deadline:
+        rows = (api(page, "/api/downloads") or {}).get("downloads") or []
+        ours = [j for j in rows if j.get("title") == title]
+        if ours:
+            last = ours[0]
+            if last.get("status") == "completed":
+                break
+            assert last.get("status") not in ("error", "dead_letter"), \
+                f"download failed: {json.dumps(last)}"
+        time.sleep(2)  # gentle poll — 1/s trips the API rate limiter
+    assert last and last.get("status") == "completed", f"job never completed: {last}"
+
+    # The import fires the scan asynchronously, just after the job flips to
+    # completed — give it a moment to land.
+    scan_deadline = time.time() + 20
+    while time.time() < scan_deadline and len(scans) == before:
+        time.sleep(0.5)
+
+    new_scans = scans[before:]
+    assert new_scans, "ebook import triggered no Kavita scan at all (issue #98)"
+    # No library ID configured -> scan every library. The bare /api/Library/scan
+    # is the call Kavita answers with 400, and must never be what we send.
+    assert all(s == "/api/Library/scan-all" for s in new_scans), \
+        f"unexpected Kavita scan calls: {new_scans}"
+
+
+def test_kavita_library_ids_save_from_settings_ui(ui):
+    """The optional per-library scan targets are settable without editing env
+    vars: type an ID, hit Kavita's Save, and it survives a reload."""
+    page = ui["page"]
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_selector("#setting-kavita_ebook_library_id")
+
+    page.fill("#setting-kavita_ebook_library_id", "4")
+    page.fill("#setting-kavita_manga_library_id", "9")
+    page.click('[data-action="saveIntegration"][data-arg="kavita"]')
+    page.wait_for_timeout(500)
+
+    saved = api(page, "/api/settings")
+    assert saved.get("kavita_ebook_library_id") == "4"
+    assert saved.get("kavita_manga_library_id") == "9"
+
+    page.reload(wait_until="networkidle")
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_timeout(500)
+    assert page.input_value("#setting-kavita_ebook_library_id") == "4"
+    assert page.input_value("#setting-kavita_manga_library_id") == "9"

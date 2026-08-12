@@ -152,6 +152,46 @@ def stub_server():
     httpd.shutdown()
 
 
+class _KavitaHandler(BaseHTTPRequestHandler):
+    """A stand-in Kavita: hands out a JWT on login and records scan calls.
+
+    Mirrors the real API's contract that /api/Library/scan without a libraryId
+    is a 400, so a scan that Kavita would have rejected can't look like a pass.
+    """
+
+    def do_POST(self):  # noqa: N802 (http.server API)
+        path = self.path.split("?")[0]
+        if path == "/api/Account/login":
+            body = json.dumps({"token": "e2e-jwt"}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        self.server.scan_calls.append(self.path)
+        rejected = path == "/api/Library/scan" and "libraryId=" not in self.path
+        self.send_response(400 if rejected else 200)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture(scope="session")
+def kavita_stub():
+    """Records every scan librarr asks Kavita to run (issue #98)."""
+    port = _free_port()
+    httpd = ThreadingHTTPServer(("127.0.0.1", port), _KavitaHandler)
+    httpd.scan_calls = []
+    t = threading.Thread(target=httpd.serve_forever, daemon=True)
+    t.start()
+    yield {"url": f"http://127.0.0.1:{port}", "scan_calls": httpd.scan_calls}
+    httpd.shutdown()
+
+
 @pytest.fixture(scope="session")
 def librarr_binary(tmp_path_factory) -> Path:
     env_bin = os.environ.get("LIBRARR_E2E_BIN")
@@ -166,7 +206,7 @@ def librarr_binary(tmp_path_factory) -> Path:
 
 
 @pytest.fixture(scope="session")
-def app(stub_server, librarr_binary, tmp_path_factory):
+def app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
     """Boot librarr with an injected registry: gutenberg -> stub, everything
     else -> a dead port that refuses connections instantly."""
     data = tmp_path_factory.mktemp("data")
@@ -204,6 +244,11 @@ def app(stub_server, librarr_binary, tmp_path_factory):
         "EBOOK_DIR": str(books),
         "AUDIOBOOK_DIR": str(data / "audiobooks"),
         "INCOMING_DIR": str(incoming),
+        # Kavita integration on, no library ID — the reporter's configuration
+        # in issue #98, where EBOOK_DIR already sits inside a Kavita folder.
+        "KAVITA_URL": kavita_stub["url"],
+        "KAVITA_USER": "e2e",
+        "KAVITA_PASS": "e2e",
         # The stub serves downloads from 127.0.0.1, which the SSRF guard
         # rightly blocks by default. This opt-out exists for LAN mirrors and
         # for exactly this kind of hermetic test.
@@ -227,7 +272,12 @@ def app(stub_server, librarr_binary, tmp_path_factory):
         proc.kill()
         raise RuntimeError("librarr did not become healthy within 30s")
 
-    yield {"base": base, "data": data, "books_dir": books}
+    yield {
+        "base": base,
+        "data": data,
+        "books_dir": books,
+        "kavita_scans": kavita_stub["scan_calls"],
+    }
 
     proc.terminate()
     try:
