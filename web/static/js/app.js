@@ -2103,7 +2103,7 @@ const INTEGRATION_FIELDS = {
   transmission:   ['transmission_url', 'transmission_user', 'transmission_pass', 'torrent_client'],
   sabnzbd:        ['sabnzbd_url', 'sabnzbd_api_key', 'sabnzbd_category'],
   audiobookshelf: ['abs_url', 'abs_token'],
-  kavita:         ['kavita_url', 'kavita_user', 'kavita_pass'],
+  kavita:         ['kavita_url', 'kavita_user', 'kavita_pass', 'kavita_ebook_library_id', 'kavita_manga_library_id'],
   komga:          ['komga_url', 'komga_user', 'komga_pass'],
   calibre:        ['calibre_url', 'calibre_library_path'],
 };

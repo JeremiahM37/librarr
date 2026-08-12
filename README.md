@@ -275,6 +275,8 @@ which requires Transmission 3.0+).
 | `KAVITA_PASS` | | Kavita password |
 | `KAVITA_LIBRARY_PATH` | | Kavita ebook library path |
 | `KAVITA_MANGA_LIBRARY_PATH` | | Kavita manga library path |
+| `KAVITA_EBOOK_LIBRARY_ID` | | Kavita library to scan after an ebook import (blank = all) |
+| `KAVITA_MANGA_LIBRARY_ID` | | Kavita library to scan after a manga import (blank = all) |
 | `KAVITA_PUBLIC_URL` | | Kavita URL for external links |
 | `ABS_URL` | | Audiobookshelf server URL |
 | `ABS_TOKEN` | | Audiobookshelf API token |
