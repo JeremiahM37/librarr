@@ -38,6 +38,22 @@ func newBookTrackerTestServer(t *testing.T, authCookie bool) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/login.php", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			t.Errorf("login method = %s, want POST", r.Method)
+		}
+		if got := r.PostFormValue("login_username"); got != "u" {
+			t.Errorf("login_username = %q, want u", got)
+		}
+		if got := r.PostFormValue("login_password"); got == "" {
+			t.Error("login_password is empty")
+		}
+		if got := r.PostFormValue("username"); got != "" {
+			t.Errorf("legacy username field unexpectedly sent: %q", got)
+		}
+		if got := r.PostFormValue("password"); got != "" {
+			t.Error("legacy password field unexpectedly sent")
+		}
+
 		if authCookie {
 			// Mimic a phpBB persistent-login cookie (value is a serialized blob).
 			http.SetCookie(w, &http.Cookie{Name: "phpbb2mysql_data", Value: "a%3A2%3A%7Bi%3A0%3Bs%3A1%3A%221%22%3B%7D", Path: "/"})

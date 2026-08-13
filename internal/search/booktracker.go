@@ -90,10 +90,10 @@ func (b *BookTracker) login() error {
 
 	loginURL := strings.TrimRight(b.cfg.BookTrackerURL, "/") + "/login.php"
 	form := url.Values{
-		"username":  {b.cfg.BookTrackerUser},
-		"password":  {b.cfg.BookTrackerPass},
-		"autologin": {"1"},
-		"login":     {"1"},
+		"login_username": {b.cfg.BookTrackerUser},
+		"login_password": {b.cfg.BookTrackerPass},
+		"autologin":      {"1"},
+		"login":          {"1"},
 	}
 
 	resp, err := b.authClient.PostForm(loginURL, form)
