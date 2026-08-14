@@ -13,6 +13,7 @@ import (
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/JeremiahM37/librarr/internal/models"
+	"github.com/JeremiahM37/librarr/internal/netutil"
 	"github.com/JeremiahM37/librarr/internal/organize"
 	"github.com/JeremiahM37/librarr/internal/search"
 	"github.com/JeremiahM37/librarr/internal/webhook"
@@ -99,7 +100,33 @@ func (m *Manager) StartTorrentDownload(torrentURL, title, savePath, category, ex
 	if m.torrent == nil {
 		return fmt.Errorf("no torrent download client configured")
 	}
+	if err := m.validateClientFetchURL(torrentURL); err != nil {
+		return err
+	}
 	return m.torrent.AddTorrent(torrentURL, title, savePath, category, expectedInfoHash)
+}
+
+// validateClientFetchURL guards URLs handed to the torrent/NZB client. The
+// client performs the HTTP GET itself, from its own network position, so an
+// unvalidated URL is an SSRF sink Librarr cannot see the result of. Validated
+// at this single entry point shared by every caller (download handlers, request
+// fulfillment) so none can bypass it — same pattern as StartDirectDownload.
+func (m *Manager) validateClientFetchURL(rawURL string) error {
+	if isMagnetURL(rawURL) {
+		// Magnets carry no fetch target; the client resolves them over DHT.
+		return nil
+	}
+	if !isHTTPURL(rawURL) {
+		return fmt.Errorf("unsupported download URL scheme")
+	}
+	// The configured Prowlarr origin is operator-supplied, not attacker-supplied,
+	// and is normally a LAN address the outbound guard would reject.
+	if m.cfg != nil && m.cfg.ProwlarrURL != "" {
+		if _, err := netutil.ValidateSameOriginHTTPURL(rawURL, m.cfg.ProwlarrURL); err == nil {
+			return nil
+		}
+	}
+	return netutil.ValidateOutboundURL(rawURL)
 }
 
 // StartNZBDownload sends an NZB URL to SABnzbd and records the media type so
@@ -107,6 +134,9 @@ func (m *Manager) StartTorrentDownload(torrentURL, title, savePath, category, ex
 func (m *Manager) StartNZBDownload(nzbURL, title, mediaType string) (string, error) {
 	if m.sab == nil {
 		return "", fmt.Errorf("SABnzbd not configured")
+	}
+	if err := m.validateClientFetchURL(nzbURL); err != nil {
+		return "", err
 	}
 	nzoID, err := m.sab.AddNZB(nzbURL, title)
 	if err != nil {
