@@ -46,7 +46,10 @@ func (o *Organizer) OrganizeEbook(filePath, title, author string) (string, error
 	safeAuthor := sanitizePath(author, 80)
 	safeTitle := sanitizePath(title, 80)
 
-	destDir := filepath.Join(o.cfg.EbookDir, safeAuthor, safeTitle)
+	destDir, err := joinUnder(o.cfg.EbookDir, filepath.Join(safeAuthor, safeTitle))
+	if err != nil {
+		return filePath, err
+	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return filePath, err
 	}
@@ -60,8 +63,8 @@ func (o *Organizer) OrganizeEbook(filePath, title, author string) (string, error
 
 	// Also copy to Kavita ebook library if configured.
 	if o.cfg.KavitaLibraryPath != "" {
-		kavitaDir := filepath.Join(o.cfg.KavitaLibraryPath, safeAuthor, safeTitle)
-		if err := os.MkdirAll(kavitaDir, 0755); err == nil {
+		kavitaDir, err := joinUnder(o.cfg.KavitaLibraryPath, filepath.Join(safeAuthor, safeTitle))
+		if err == nil && os.MkdirAll(kavitaDir, 0755) == nil {
 			kavitaDest := filepath.Join(kavitaDir, filepath.Base(destPath))
 			if err := copyFileForOrg(destPath, kavitaDest); err != nil {
 				slog.Warn("copy to kavita ebook library failed", "error", err)
@@ -96,7 +99,10 @@ func (o *Organizer) OrganizeAudiobook(filePath, title, author string) (string, e
 	safeAuthor := sanitizePath(author, 80)
 	safeTitle := sanitizePath(title, 80)
 
-	destDir := filepath.Join(o.cfg.AudiobookDir, safeAuthor, safeTitle)
+	destDir, err := joinUnder(o.cfg.AudiobookDir, filepath.Join(safeAuthor, safeTitle))
+	if err != nil {
+		return filePath, err
+	}
 	if info.IsDir() {
 		if err := moveDirTree(filePath, destDir); err != nil {
 			return filePath, err
@@ -124,7 +130,10 @@ func (o *Organizer) OrganizeManga(filePath, seriesTitle string) (string, error) 
 	}
 
 	safeTitle := cleanSeriesTitle(seriesTitle)
-	destDir := filepath.Join(o.cfg.MangaDir, safeTitle)
+	destDir, err := joinUnder(o.cfg.MangaDir, safeTitle)
+	if err != nil {
+		return filePath, err
+	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		return filePath, err
 	}
@@ -157,8 +166,8 @@ func (o *Organizer) OrganizeManga(filePath, seriesTitle string) (string, error) 
 
 	// Also copy to Kavita manga library if configured.
 	if o.cfg.KavitaMangaLibraryPath != "" {
-		kavitaDir := filepath.Join(o.cfg.KavitaMangaLibraryPath, safeTitle)
-		if err := os.MkdirAll(kavitaDir, 0755); err == nil {
+		kavitaDir, err := joinUnder(o.cfg.KavitaMangaLibraryPath, safeTitle)
+		if err == nil && os.MkdirAll(kavitaDir, 0755) == nil {
 			resultInfo, err := os.Stat(resultPath)
 			if err == nil {
 				if resultInfo.IsDir() {
@@ -214,10 +223,60 @@ func cleanSeriesTitle(name string) string {
 	name = strings.TrimSpace(name)
 	name = strings.TrimRight(name, "-")
 	name = strings.TrimSpace(name)
-	if name == "" {
-		name = "Unknown"
+	// A series title becomes a directory name, so it must go through the same
+	// separator/dot stripping every other organizer uses. Titles come from
+	// manual-import requests and torrent names, both attacker-influenced.
+	return sanitizePath(name, 120)
+}
+
+// joinUnder joins name onto root and verifies the result stays inside root, so
+// a crafted name can never place library files elsewhere on the filesystem.
+// Symlinks in the resolved prefix are followed before comparing.
+func joinUnder(root, name string) (string, error) {
+	dest := filepath.Join(root, name)
+	absRoot, err := filepath.Abs(root)
+	if err != nil {
+		return "", err
 	}
-	return name
+	absDest, err := filepath.Abs(dest)
+	if err != nil {
+		return "", err
+	}
+	if resolved, err := filepath.EvalSymlinks(absRoot); err == nil {
+		absRoot = resolved
+		if resolvedDest, err := resolveExistingPrefix(absDest); err == nil {
+			absDest = resolvedDest
+		}
+	}
+	rel, err := filepath.Rel(absRoot, absDest)
+	if err != nil {
+		return "", fmt.Errorf("destination %q is outside the library root", name)
+	}
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("destination %q is outside the library root", name)
+	}
+	return dest, nil
+}
+
+// resolveExistingPrefix resolves symlinks in the longest existing ancestor of
+// path and re-appends the not-yet-created remainder.
+func resolveExistingPrefix(path string) (string, error) {
+	remainder := ""
+	current := path
+	for {
+		if resolved, err := filepath.EvalSymlinks(current); err == nil {
+			if remainder == "" {
+				return resolved, nil
+			}
+			return filepath.Join(resolved, remainder), nil
+		}
+		parent := filepath.Dir(current)
+		if parent == current {
+			return path, nil
+		}
+		remainder = filepath.Join(filepath.Base(current), remainder)
+		current = parent
+	}
 }
 
 func moveFile(src, dst string) error {

@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
@@ -208,4 +209,91 @@ type errReader struct {
 
 func (e *errReader) Read([]byte) (int, error) {
 	return 0, e.err
+}
+
+// TestOrganizeMangaRejectsTraversalTitle covers the arbitrary-file-write sink
+// reported by Mahmoud Mostafa: cleanSeriesTitle did not strip path separators,
+// so a crafted series title escaped MangaDir via filepath.Join's Clean.
+func TestOrganizeMangaRejectsTraversalTitle(t *testing.T) {
+	root := t.TempDir()
+	mangaDir := filepath.Join(root, "manga")
+	srcDir := filepath.Join(root, "incoming")
+	outside := filepath.Join(root, "pwned")
+	for _, d := range []string{mangaDir, srcDir} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	o := NewOrganizer(&config.Config{FileOrgEnabled: true, MangaDir: mangaDir})
+
+	for _, title := range []string{
+		"../pwned",
+		"../../pwned",
+		`..\..\pwned`,
+		"/etc/cron.d/evil",
+		"..",
+	} {
+		src := filepath.Join(srcDir, "payload.cbz")
+		if err := os.WriteFile(src, []byte("payload"), 0644); err != nil {
+			t.Fatal(err)
+		}
+
+		dest, err := o.OrganizeManga(src, title)
+		if err == nil {
+			rel, relErr := filepath.Rel(mangaDir, dest)
+			if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+				t.Errorf("title %q escaped MangaDir: dest=%q", title, dest)
+			}
+		}
+
+		if _, err := os.Stat(outside); err == nil {
+			t.Fatalf("title %q created a directory outside MangaDir: %s", title, outside)
+		}
+		_ = os.Remove(src)
+	}
+}
+
+// TestCleanSeriesTitleStripsSeparators pins the sanitizer itself.
+func TestCleanSeriesTitleStripsSeparators(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"../../../tmp/pwned", "tmppwned"},
+		{`..\..\windows`, "windows"},
+		{"..", "Unknown"},
+		{"/etc/passwd", "etcpasswd"},
+		{"One Piece", "One Piece"},
+	}
+	for _, tt := range tests {
+		if got := cleanSeriesTitle(tt.input); got != tt.expected {
+			t.Errorf("cleanSeriesTitle(%q) = %q, want %q", tt.input, got, tt.expected)
+		}
+	}
+}
+
+// TestJoinUnderRejectsSymlinkEscape verifies containment survives a symlink
+// planted inside the library root — Join+Clean alone would accept it.
+func TestJoinUnderRejectsSymlinkEscape(t *testing.T) {
+	root := t.TempDir()
+	libRoot := filepath.Join(root, "manga")
+	outside := filepath.Join(root, "outside")
+	for _, d := range []string{libRoot, outside} {
+		if err := os.MkdirAll(d, 0755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.Symlink(outside, filepath.Join(libRoot, "escape")); err != nil {
+		t.Skipf("symlinks unsupported: %v", err)
+	}
+
+	if dest, err := joinUnder(libRoot, filepath.Join("escape", "series")); err == nil {
+		t.Errorf("expected symlink escape to be rejected, got dest=%q", dest)
+	}
+
+	// A normal name still resolves inside the root.
+	if _, err := joinUnder(libRoot, "One Piece"); err != nil {
+		t.Errorf("expected normal series name to be allowed, got %v", err)
+	}
 }

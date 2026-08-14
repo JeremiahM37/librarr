@@ -10,6 +10,7 @@ import (
 
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/organize"
 )
 
 func TestRecordTorrentItemIsIdempotentAcrossWatcherPolls(t *testing.T) {
@@ -436,5 +437,41 @@ func TestNormalizeTorrentPath(t *testing.T) {
 				t.Errorf("normalizeTorrentPath(%q) = %q, want %q", tt.input, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestImportMangaRejectsTraversalTorrentName covers the second sink of the
+// manga path-traversal report (Mahmoud Hassan): the download watcher passes the
+// torrent name straight into OrganizeManga, so a malicious torrent name is an
+// unauthenticated route to the same arbitrary write.
+func TestImportMangaRejectsTraversalTorrentName(t *testing.T) {
+	root := t.TempDir()
+	mangaDir := filepath.Join(root, "manga")
+	savePath := filepath.Join(root, "downloads", "series")
+	outside := filepath.Join(root, "pwned")
+	if err := os.MkdirAll(savePath, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(mangaDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(savePath, "ch1.cbz"), []byte("payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := db.New(filepath.Join(root, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	cfg := &config.Config{FileOrgEnabled: true, MangaDir: mangaDir}
+	w := NewWatcher(cfg, database, nil, nil, organize.NewOrganizer(cfg), nil, nil)
+
+	info := TorrentInfo{Name: "../pwned", Hash: "abc123", TotalSize: 7}
+	_ = w.importManga(info, savePath, "test")
+
+	if _, err := os.Stat(outside); err == nil {
+		t.Fatalf("malicious torrent name wrote outside MangaDir: %s", outside)
 	}
 }
