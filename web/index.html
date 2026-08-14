@@ -318,6 +318,55 @@
         </div>
       </div>
 
+      <!-- Two-Factor Authentication (shown by loadTOTPStatus on DB-backed accounts) -->
+      <div id="totp-settings" class="hidden bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <div class="mb-4">
+          <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider" data-i18n="s_totp_title">Two-Factor Authentication</h3>
+          <p class="text-xs text-slate-500 mt-1" data-i18n="s_totp_desc">Add an extra layer of security with a TOTP authenticator app.</p>
+        </div>
+
+        <div id="totp-disabled-section" class="hidden">
+          <button data-action="setupTOTP" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="enable_2fa">Enable 2FA</button>
+        </div>
+
+        <div id="totp-enabled-section" class="hidden">
+          <p class="text-sm text-emerald-400 mb-3" data-i18n="totp_enabled_msg">Two-factor authentication is enabled.</p>
+          <button data-action="showDisableTOTP" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-i18n="disable_2fa">Disable 2FA</button>
+        </div>
+
+        <div id="totp-setup-section" class="hidden space-y-4">
+          <div>
+            <p class="text-xs text-slate-500 mb-2" data-i18n="totp_manual_secret">Or enter this secret manually:</p>
+            <code id="totp-secret-display" class="block bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 break-all"></code>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500 mb-2" data-i18n="totp_setup_uri">Setup URI (paste into your authenticator app):</p>
+            <code id="totp-otpauth-uri" class="block bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-xs text-slate-400 break-all"></code>
+          </div>
+          <div>
+            <p class="text-xs text-slate-500 mb-2" data-i18n="totp_backup_codes">Backup Codes (save these somewhere safe!):</p>
+            <div id="totp-backup-codes" class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm text-slate-200"></div>
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1" data-i18n="totp_code_label">TOTP Code</label>
+            <input type="text" id="totp-verify-code" class="w-full sm:w-48 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 text-center tracking-widest" placeholder="000000" autocomplete="one-time-code" maxlength="8">
+          </div>
+          <div class="flex gap-2">
+            <button data-action="verifyTOTP" class="px-4 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="verify_enable">Verify &amp; Enable</button>
+            <button data-action="cancelTOTPSetup" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
+          </div>
+        </div>
+
+        <div id="totp-disable-section" class="hidden space-y-3">
+          <p class="text-sm text-slate-400" data-i18n="totp_disable_desc">Enter your current TOTP code to disable 2FA:</p>
+          <input type="text" id="totp-disable-code" class="w-full sm:w-48 bg-slate-800 border border-slate-600 rounded-lg px-3 py-2 text-white placeholder-slate-500 text-center tracking-widest" placeholder="000000" autocomplete="one-time-code" maxlength="8">
+          <div class="flex gap-2">
+            <button data-action="disableTOTP" class="px-4 py-2 text-sm bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors" data-i18n="confirm_disable">Confirm Disable</button>
+            <button data-action="cancelDisableTOTP" class="px-4 py-2 text-sm bg-slate-700 hover:bg-slate-600 text-slate-200 rounded-lg transition-colors" data-i18n="cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
+
       <!-- Integrations -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <div class="flex items-start justify-between mb-4 gap-3">
