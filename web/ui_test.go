@@ -32,6 +32,8 @@ func TestTOTPSettingsMarkupExists(t *testing.T) {
 		"totp-disable-section",
 		"totp-secret-display",
 		"totp-otpauth-uri",
+		"totp-qr-wrap",
+		"totp-qr-img",
 		"totp-backup-codes",
 		"totp-verify-code",
 		"totp-disable-code",

@@ -335,6 +335,10 @@
         </div>
 
         <div id="totp-setup-section" class="hidden space-y-4">
+          <div id="totp-qr-wrap" class="hidden">
+            <p class="text-xs text-slate-500 mb-2" data-i18n="totp_scan_qr">Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)</p>
+            <img id="totp-qr-img" alt="TOTP QR code" width="220" height="220" class="bg-white p-2 rounded-lg">
+          </div>
           <div>
             <p class="text-xs text-slate-500 mb-2" data-i18n="totp_manual_secret">Or enter this secret manually:</p>
             <code id="totp-secret-display" class="block bg-slate-800 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200 break-all"></code>

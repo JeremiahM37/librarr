@@ -2333,11 +2333,20 @@ async function setupTOTP() {
     document.getElementById('totp-disabled-section').classList.add('hidden');
     document.getElementById('totp-setup-section').classList.remove('hidden');
     document.getElementById('totp-secret-display').textContent = data.secret;
-    // Deliberately no QR image: rendering one meant POSTing the otpauth URL —
-    // which contains the TOTP secret — to a third-party QR service, and the UI
-    // is meant to work with no internet access. Show the secret and the
-    // otpauth URI instead; every authenticator app accepts manual entry.
     document.getElementById('totp-otpauth-uri').textContent = data.qr_url || '';
+    // The QR is rendered server-side and arrives as a data: URI — the otpauth
+    // URL carries the TOTP secret, so it must never be handed to a third-party
+    // QR service. If the server could not render one, the secret and otpauth
+    // URI above are enough for manual entry.
+    const qrWrap = document.getElementById('totp-qr-wrap');
+    const qrImg = document.getElementById('totp-qr-img');
+    if (data.qr_png) {
+      qrImg.src = data.qr_png;
+      qrWrap.classList.remove('hidden');
+    } else {
+      qrImg.removeAttribute('src');
+      qrWrap.classList.add('hidden');
+    }
 
     // Display backup codes.
     const codesEl = document.getElementById('totp-backup-codes');
