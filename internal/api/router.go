@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -497,6 +498,53 @@ func (s *Server) requestSizeLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
+// imgSrcDirective builds the img-src source list. Covers served over https are
+// already allowed, but a self-hosted Audiobookshelf, Kavita, Calibre-Web, or
+// Komga is normally reached over plain http on the LAN, and the browser blocks
+// those covers. Rather than allowing http: wholesale, allow exactly the origins
+// the operator configured — attacker-supplied URLs still cannot widen it.
+func (s *Server) imgSrcDirective() string {
+	sources := []string{"'self'", "data:", "https:"}
+	if s.cfg == nil {
+		return strings.Join(sources, " ")
+	}
+	seen := map[string]bool{}
+	for _, raw := range []string{
+		s.cfg.ABSURL, s.cfg.ABSPublicURL,
+		s.cfg.KavitaURL, s.cfg.KavitaPublicURL,
+		s.cfg.CalibreURL, s.cfg.KomgaURL,
+	} {
+		origin := httpOrigin(raw)
+		// https origins are already covered by the blanket https: source.
+		if origin == "" || seen[origin] || strings.HasPrefix(origin, "https://") {
+			continue
+		}
+		seen[origin] = true
+		sources = append(sources, origin)
+	}
+	return strings.Join(sources, " ")
+}
+
+// httpOrigin reduces a configured service URL to a bare CSP origin
+// (scheme://host[:port]), or "" if it is not a usable http(s) URL. A CSP source
+// cannot contain a path, userinfo, or wildcard host, so anything unparseable is
+// dropped rather than emitted into the header.
+func httpOrigin(raw string) string {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return ""
+	}
+	u, err := url.Parse(raw)
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return ""
+	}
+	// Reject anything that would inject extra directives or sources.
+	if strings.ContainsAny(u.Host, " ;,'\"") {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
+}
+
 func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("X-Content-Type-Options", "nosniff")
@@ -509,10 +557,12 @@ func (s *Server) securityHeadersMiddleware(next http.Handler) http.Handler {
 		//     <style> element at load; style injection, unlike script, is not
 		//     an XSS vector on its own.
 		//   img-src https: data: — book/audiobook cover art is hotlinked from
-		//     external sources (Open Library, Anna's Archive, indexers).
+		//     external sources (Open Library, Anna's Archive, indexers), plus
+		//     the operator's own media services, which on a LAN are usually
+		//     plain http and would otherwise be blocked.
 		w.Header().Set("Content-Security-Policy",
 			"default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "+
-				"img-src 'self' data: https:; font-src 'self'; connect-src 'self'; "+
+				"img-src "+s.imgSrcDirective()+"; font-src 'self'; connect-src 'self'; "+
 				"object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'")
 		next.ServeHTTP(w, r)
 	})
