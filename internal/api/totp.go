@@ -1,16 +1,36 @@
 package api
 
 import (
+	"bytes"
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"image/png"
+	"log/slog"
 	"math/big"
 	"net/http"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/pquerna/otp"
 	"github.com/pquerna/otp/totp"
 )
+
+// totpQRDataURI renders the key's otpauth URL as a PNG QR code, encoded as a
+// data: URI. otp/totp already depends on a barcode encoder, so this costs no
+// new dependency and no request leaves the instance.
+func totpQRDataURI(key *otp.Key) (string, error) {
+	img, err := key.Image(220, 220)
+	if err != nil {
+		return "", err
+	}
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, img); err != nil {
+		return "", err
+	}
+	return "data:image/png;base64," + base64.StdEncoding.EncodeToString(buf.Bytes()), nil
+}
 
 // validateTOTPCode validates a TOTP code against a secret.
 func validateTOTPCode(secret, code string) bool {
@@ -107,12 +127,24 @@ func handleTOTPSetup(database *db.DB) http.HandlerFunc {
 			return
 		}
 
-		writeJSON(w, http.StatusOK, map[string]interface{}{
+		resp := map[string]interface{}{
 			"success":      true,
 			"secret":       key.Secret(),
 			"qr_url":       key.URL(),
 			"backup_codes": backupCodes,
-		})
+		}
+		// Render the enrolment QR here rather than in the browser: the otpauth
+		// URL carries the TOTP secret, so handing it to a third-party QR service
+		// would disclose the seed (and break the offline-by-default UI). A data:
+		// URI keeps it in the response we already send.
+		if png, err := totpQRDataURI(key); err == nil {
+			resp["qr_png"] = png
+		} else {
+			// Non-fatal: the UI falls back to the secret and otpauth URI, which
+			// every authenticator app accepts for manual entry.
+			slog.Warn("failed to render TOTP QR code", "error", err)
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }
 

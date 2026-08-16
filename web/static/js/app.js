@@ -44,6 +44,7 @@ const I18N = {
     totp_enabled_msg: 'Two-factor authentication is enabled.',
     totp_scan_qr: 'Scan this QR code with your authenticator app (Google Authenticator, Authy, etc.)',
     totp_manual_secret: 'Or enter this secret manually:',
+    totp_setup_uri: 'Setup URI (paste into your authenticator app):',
     totp_backup_codes: 'Backup Codes (save these somewhere safe!):',
     verify_enable: 'Verify & Enable',
     confirm_disable: 'Confirm Disable',
@@ -251,6 +252,7 @@ const I18N = {
     totp_enabled_msg: 'Двухфакторная аутентификация включена.',
     totp_scan_qr: 'Отсканируйте QR-код приложением-аутентификатором (Google Authenticator, Authy и т.д.)',
     totp_manual_secret: 'Или введите секрет вручную:',
+    totp_setup_uri: 'URI для настройки (вставьте в приложение-аутентификатор):',
     totp_backup_codes: 'Резервные коды (сохраните в безопасном месте!):',
     verify_enable: 'Проверить и включить',
     confirm_disable: 'Подтвердить отключение',
@@ -2331,10 +2333,20 @@ async function setupTOTP() {
     document.getElementById('totp-disabled-section').classList.add('hidden');
     document.getElementById('totp-setup-section').classList.remove('hidden');
     document.getElementById('totp-secret-display').textContent = data.secret;
-
-    // Generate QR code using a QR API.
-    const qrUrl = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' + encodeURIComponent(data.qr_url);
-    document.getElementById('totp-qr-img').src = qrUrl;
+    document.getElementById('totp-otpauth-uri').textContent = data.qr_url || '';
+    // The QR is rendered server-side and arrives as a data: URI — the otpauth
+    // URL carries the TOTP secret, so it must never be handed to a third-party
+    // QR service. If the server could not render one, the secret and otpauth
+    // URI above are enough for manual entry.
+    const qrWrap = document.getElementById('totp-qr-wrap');
+    const qrImg = document.getElementById('totp-qr-img');
+    if (data.qr_png) {
+      qrImg.src = data.qr_png;
+      qrWrap.classList.remove('hidden');
+    } else {
+      qrImg.removeAttribute('src');
+      qrWrap.classList.add('hidden');
+    }
 
     // Display backup codes.
     const codesEl = document.getElementById('totp-backup-codes');
@@ -2698,6 +2710,12 @@ const CLICK_ACTIONS = {
   doLogout: () => doLogout(),
   clearCompleted: () => clearCompleted(),
   addUser: () => addUser(),
+  setupTOTP: () => setupTOTP(),
+  verifyTOTP: () => verifyTOTP(),
+  cancelTOTPSetup: () => cancelTOTPSetup(),
+  showDisableTOTP: () => showDisableTOTP(),
+  cancelDisableTOTP: () => cancelDisableTOTP(),
+  disableTOTP: () => disableTOTP(),
   refreshDownloads: () => refreshDownloads(true), // toolbar button forces a refresh
   // Dynamically rendered rows/cards:
   startDownload: el => {
