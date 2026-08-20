@@ -469,9 +469,165 @@ func TestImportMangaRejectsTraversalTorrentName(t *testing.T) {
 	w := NewWatcher(cfg, database, nil, nil, organize.NewOrganizer(cfg), nil, nil)
 
 	info := TorrentInfo{Name: "../pwned", Hash: "abc123", TotalSize: 7}
-	_ = w.importManga(info, savePath, "test")
+	_, _ = w.importManga(info, savePath, "test")
 
 	if _, err := os.Stat(outside); err == nil {
 		t.Fatalf("malicious torrent name wrote outside MangaDir: %s", outside)
+	}
+}
+
+// fakeTorrentClient records post-import deletions so tests can assert whether
+// the payload was deleted along with the torrent record.
+type fakeTorrentClient struct {
+	deletes []deleteCall
+}
+
+type deleteCall struct {
+	hash        string
+	deleteFiles bool
+}
+
+func (f *fakeTorrentClient) AddTorrent(string, string, string, string, string) error { return nil }
+func (f *fakeTorrentClient) GetTorrents(string) ([]TorrentInfo, error)               { return nil, nil }
+func (f *fakeTorrentClient) GetTorrentFiles(string) ([]TorrentFile, error)           { return nil, nil }
+func (f *fakeTorrentClient) DeleteTorrent(hash string, deleteFiles bool) error {
+	f.deletes = append(f.deletes, deleteCall{hash: hash, deleteFiles: deleteFiles})
+	return nil
+}
+func (f *fakeTorrentClient) Diagnose() map[string]interface{} { return nil }
+func (f *fakeTorrentClient) Name() string                     { return "fake" }
+
+// newImportFixture wires a watcher over a real temp filesystem holding one
+// finished ebook download, and returns the watcher, the fake client and the
+// payload path inside the download folder.
+func newImportFixture(t *testing.T, importMode string, fileOrg, removeAfterImport bool) (*Watcher, *fakeTorrentClient, string, TorrentInfo) {
+	t.Helper()
+	root := t.TempDir()
+	incoming := filepath.Join(root, "incoming", "Some Book")
+	if err := os.MkdirAll(incoming, 0755); err != nil {
+		t.Fatal(err)
+	}
+	payload := filepath.Join(incoming, "book.epub")
+	if err := os.WriteFile(payload, []byte("book payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	database, err := db.New(filepath.Join(root, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	cfg := &config.Config{
+		FileOrgEnabled:           fileOrg,
+		EbookDir:                 filepath.Join(root, "books"),
+		IncomingDir:              filepath.Join(root, "incoming"),
+		QBSavePath:               filepath.Join(root, "incoming"),
+		ImportMode:               importMode,
+		RemoveTorrentAfterImport: removeAfterImport,
+	}
+	client := &fakeTorrentClient{}
+	w := NewWatcher(cfg, database, client, nil, organize.NewOrganizer(cfg), nil, nil)
+
+	info := TorrentInfo{
+		Name:        "Some Book",
+		Hash:        "hash-1",
+		Progress:    1.0,
+		ContentPath: incoming,
+		SavePath:    filepath.Join(root, "incoming"),
+	}
+	return w, client, payload, info
+}
+
+// In move mode the payload is already out of the download folder, so the
+// torrent record is removed without touching files.
+func TestImportTorrentMoveModeRemovesRecordOnly(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeMove, true, true)
+
+	w.importTorrent(info, "ebook")
+
+	if len(client.deletes) != 1 {
+		t.Fatalf("DeleteTorrent calls = %d, want 1", len(client.deletes))
+	}
+	if client.deletes[0].deleteFiles {
+		t.Error("move mode must not ask the client to delete files")
+	}
+	if _, err := os.Stat(payload); !os.IsNotExist(err) {
+		t.Errorf("move mode should have consumed the payload, stat err = %v", err)
+	}
+}
+
+// In hardlink mode the payload is still in the download folder. Removing the
+// torrent without its files would orphan it, so the files go too — the library
+// keeps its own link to the same data.
+func TestImportTorrentHardlinkModeRemovesTorrentWithFiles(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeHardlink, true, true)
+
+	w.importTorrent(info, "ebook")
+
+	if len(client.deletes) != 1 {
+		t.Fatalf("DeleteTorrent calls = %d, want 1", len(client.deletes))
+	}
+	if !client.deletes[0].deleteFiles {
+		t.Error("hardlink mode should remove the orphaned payload with the torrent")
+	}
+	if _, err := os.Stat(payload); err != nil {
+		t.Errorf("librarr itself must not remove the payload: %v", err)
+	}
+}
+
+// The fix for issue #59: with the torrent kept and a payload-preserving mode,
+// nothing touches the download folder, so the torrent can really keep seeding.
+func TestImportTorrentKeepsPayloadWhenTorrentIsKept(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeHardlink, true, false)
+
+	w.importTorrent(info, "ebook")
+
+	if len(client.deletes) != 0 {
+		t.Fatalf("DeleteTorrent calls = %d, want 0", len(client.deletes))
+	}
+	if _, err := os.Stat(payload); err != nil {
+		t.Errorf("payload must stay in the download folder for seeding: %v", err)
+	}
+}
+
+// With organization off the download folder holds the only copy — the library
+// row points straight at it — so its files must never be deleted.
+func TestImportTorrentNeverDeletesFilesWhenOrganizationDisabled(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeHardlink, false, true)
+
+	w.importTorrent(info, "ebook")
+
+	if len(client.deletes) != 1 {
+		t.Fatalf("DeleteTorrent calls = %d, want 1", len(client.deletes))
+	}
+	if client.deletes[0].deleteFiles {
+		t.Error("must not delete files that are the library's only copy")
+	}
+	if _, err := os.Stat(payload); err != nil {
+		t.Errorf("payload should be untouched: %v", err)
+	}
+}
+
+// A failed organize leaves that file in the download folder as the only copy,
+// which must veto the file deletion for the whole torrent.
+func TestImportTorrentDoesNotDeleteFilesWhenOrganizeFails(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeHardlink, true, true)
+	// A regular file where the library directory must go makes MkdirAll fail,
+	// so OrganizeEbook returns the source path unchanged.
+	if err := os.WriteFile(w.cfg.EbookDir, []byte("not a directory"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	w.importTorrent(info, "ebook")
+
+	if len(client.deletes) != 1 {
+		t.Fatalf("DeleteTorrent calls = %d, want 1", len(client.deletes))
+	}
+	if client.deletes[0].deleteFiles {
+		t.Error("a failed organize must veto deleting the payload")
+	}
+	if _, err := os.Stat(payload); err != nil {
+		t.Errorf("payload should be untouched: %v", err)
 	}
 }

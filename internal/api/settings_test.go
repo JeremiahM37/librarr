@@ -268,3 +268,47 @@ func TestSaveSettings_WhitespaceOnlyURLClearsOverride(t *testing.T) {
 		t.Error("whitespace-only URL should delete the override, not persist a value")
 	}
 }
+
+// A bad import_mode must never reach settings.json or the runtime config: an
+// unrecognized value falls back to "move" rather than disabling organization.
+func TestSaveSettings_NormalizesImportMode(t *testing.T) {
+	s, path := settingsTestServer(t)
+
+	saveSettings(t, s, map[string]interface{}{"import_mode": " HardLink "})
+
+	if got := readSettingsFile(t, path)["import_mode"]; got != config.ImportModeHardlink {
+		t.Errorf("stored import_mode = %v, want %q", got, config.ImportModeHardlink)
+	}
+	if s.cfg.ImportMode != config.ImportModeHardlink {
+		t.Errorf("runtime ImportMode = %q, want %q", s.cfg.ImportMode, config.ImportModeHardlink)
+	}
+
+	saveSettings(t, s, map[string]interface{}{"import_mode": "hardlnik"})
+
+	if got := readSettingsFile(t, path)["import_mode"]; got != config.ImportModeMove {
+		t.Errorf("stored import_mode = %v, want %q for an unrecognized value", got, config.ImportModeMove)
+	}
+	if s.cfg.ImportMode != config.ImportModeMove {
+		t.Errorf("runtime ImportMode = %q, want %q for an unrecognized value", s.cfg.ImportMode, config.ImportModeMove)
+	}
+}
+
+// The settings UI renders the select from this value, so an unset config must
+// still come back as a valid mode rather than an empty string.
+func TestGetSettings_ExposesNormalizedImportMode(t *testing.T) {
+	s, _ := settingsTestServer(t)
+
+	rr := httptest.NewRecorder()
+	s.handleGetSettings(rr, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("GET returned %d", rr.Code)
+	}
+
+	var body map[string]interface{}
+	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if got := body["import_mode"]; got != config.ImportModeMove {
+		t.Errorf("import_mode = %v, want %q", got, config.ImportModeMove)
+	}
+}

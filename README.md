@@ -241,7 +241,7 @@ which requires Transmission 3.0+).
 | `QB_MANGA_SAVE_PATH` | `/manga-incoming` | Manga download path |
 | `QB_MANGA_CATEGORY` | `manga` | Torrent category for manga |
 | `QB_PRIORITY` | `1` | Download client priority (lower = preferred) |
-| `REMOVE_TORRENT_AFTER_IMPORT` | `true` | Remove torrent from the torrent client after a successful import. Set to `false` to keep seeding (required for private trackers with seed-time minimums). |
+| `REMOVE_TORRENT_AFTER_IMPORT` | `true` | Remove the torrent's **record** from the download client after a successful import. Set to `false` to keep the record — on its own that does *not* keep the torrent seeding, see [Seeding after import](#seeding-after-import). |
 | `TRANSMISSION_URL` | | Transmission RPC URL (e.g. `http://transmission:9091`) |
 | `TRANSMISSION_USER` | | Transmission RPC username (optional — only if RPC auth is enabled) |
 | `TRANSMISSION_PASS` | | Transmission RPC password (optional) |
@@ -294,11 +294,51 @@ which requires Transmission 3.0+).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FILE_ORG_ENABLED` | `true` | Auto-organize downloaded files |
+| `IMPORT_MODE` | `move` | How organized files reach the library: `move` (the download payload is consumed), `hardlink` (a second name for the same data — keeps seeding, no extra disk, same filesystem only), or `copy` (keeps seeding, uses twice the disk). See [Seeding after import](#seeding-after-import). |
 | `EBOOK_DIR` | `/books/ebooks` | Organized ebook destination |
 | `AUDIOBOOK_DIR` | `/books/audiobooks` | Organized audiobook destination |
 | `MANGA_DIR` | `/books/manga` | Organized manga destination |
 | `INCOMING_DIR` | `/data/incoming` | Incoming file staging directory as seen by Librarr; qBittorrent paths beneath `QB_SAVE_PATH` are translated here before import |
 | `MANGA_INCOMING_DIR` | `/data/manga-incoming` | Manga incoming staging directory |
+
+#### Seeding after import
+
+Two separate things have to survive an import for a torrent to keep seeding, and
+they are controlled by two different settings:
+
+| What has to survive | Setting | Notes |
+|---|---|---|
+| The torrent's **record** in the download client | `REMOVE_TORRENT_AFTER_IMPORT=false` | Without this the torrent is removed after import and there is nothing left to seed. |
+| The torrent's **payload files**, where the client wrote them | `IMPORT_MODE=hardlink` (or `copy`) | The default `move` takes the files out of the download folder. The client keeps showing the torrent at 100%, but the data is gone: the next force-recheck drops it to 0% and re-downloads. |
+
+For private trackers with seed-time minimums, set **both**:
+
+```env
+IMPORT_MODE=hardlink
+REMOVE_TORRENT_AFTER_IMPORT=false
+```
+
+Notes on the modes:
+
+- **`hardlink`** costs no extra disk — the library entry and the download folder
+  are two names for the same data, and the space is reclaimed when both are
+  gone. It requires the download folder and the library directories to be on the
+  **same filesystem**; in Docker that usually means one volume mounted at a
+  common parent (e.g. `/data`) rather than separate `/downloads` and `/books`
+  mounts. When a link cannot be created (different filesystem, or a filesystem
+  without hardlinks such as CIFS/exFAT), librarr logs a warning and copies
+  instead, so the import still lands.
+- **`copy`** always works but stores the book twice until you delete the torrent.
+- With `hardlink` or `copy`, if you *also* leave `REMOVE_TORRENT_AFTER_IMPORT=true`,
+  librarr removes the torrent **and its files** once every file is safely in the
+  library — otherwise the payload would sit in the download folder with nothing
+  left to clean it up. The library copy is unaffected (a hardlink keeps the data
+  alive). If any file failed to organize, the payload is left alone.
+- File organization must be on (`FILE_ORG_ENABLED=true`) for any of this; with it
+  off, librarr indexes files where they already are and never touches them.
+
+`IMPORT_MODE` applies to download-client imports and manual imports. Uploads
+through the web UI always move, since their source is librarr's own temp file.
 
 ### Sources Registry
 

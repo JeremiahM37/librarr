@@ -342,7 +342,10 @@ func (m *Manager) runAnnasDownload(job *models.DownloadJob) {
 		}
 	}
 
-	destPath, err := m.organizer.OrganizeEbook(filePath, job.Title, author)
+	// A direct HTTP download is librarr's own file, not a seedable payload, so
+	// it always moves regardless of IMPORT_MODE — hardlinking or copying would
+	// leave a duplicate behind in the incoming directory forever.
+	destPath, err := m.organizer.Moving().OrganizeEbook(filePath, job.Title, author)
 	if err != nil {
 		slog.Warn("organize failed, keeping in place", "error", err)
 		destPath = filePath
@@ -430,7 +433,10 @@ func (m *Manager) runDirectDownload(job *models.DownloadJob, fileURL, sourceID, 
 		}
 	}
 
-	destPath, err := m.organizer.OrganizeEbook(filePath, job.Title, author)
+	// A direct HTTP download is librarr's own file, not a seedable payload, so
+	// it always moves regardless of IMPORT_MODE — hardlinking or copying would
+	// leave a duplicate behind in the incoming directory forever.
+	destPath, err := m.organizer.Moving().OrganizeEbook(filePath, job.Title, author)
 	if err != nil {
 		slog.Warn("organize failed, keeping in place", "error", err)
 		destPath = filePath

@@ -53,6 +53,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"flibusta_url":                s.cfg.FlibustaURL,
 		"zlibrary_enabled":            s.cfg.ZLibraryEnabled,
 		"remove_torrent_after_import": s.cfg.RemoveTorrentAfterImport,
+		"import_mode":                 config.NormalizeImportMode(s.cfg.ImportMode),
 
 		// Integration URLs and credentials (sensitive ones are masked below).
 		"qb_url":                  s.cfg.QBUrl,
@@ -118,6 +119,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if value, ok := data["annas_archive_domain"].(string); ok && value != "" {
 		data["annas_archive_domain"] = sources.NormalizeDomain(value)
 	}
+	if value, ok := data["import_mode"].(string); ok && value != "" {
+		data["import_mode"] = config.NormalizeImportMode(value)
+	}
 	normalizeSettingURLs(data)
 
 	// Don't save masked values (user didn't change them).
@@ -178,6 +182,11 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			s.cfg.RemoveTorrentAfterImport = b
 			slog.Info("remove torrent after import updated", "enabled", b)
 		}
+	}
+	if v, ok := data["import_mode"].(string); ok && v != "" {
+		mode := config.NormalizeImportMode(v)
+		s.cfg.ImportMode = mode
+		slog.Info("import mode updated", "mode", mode)
 	}
 	if v, ok := data["annas_archive_domain"].(string); ok && v != "" {
 		s.cfg.AnnasArchiveDomain = sources.NormalizeDomain(v)

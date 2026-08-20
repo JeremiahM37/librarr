@@ -2117,6 +2117,12 @@ async function loadSettingToggles() {
     if (removeTorrent && data.remove_torrent_after_import !== undefined) {
       removeTorrent.checked = data.remove_torrent_after_import;
     }
+    const importMode = document.getElementById('setting-import_mode');
+    if (importMode && data.import_mode) {
+      importMode.value = data.import_mode;
+      // Remembered so a failed save can put the select back where it was.
+      importMode.dataset.current = data.import_mode;
+    }
     const langFilter = document.getElementById('foreign-lang-filter-toggle');
     if (langFilter && data.foreign_lang_filter !== undefined) {
       langFilter.checked = data.foreign_lang_filter;
@@ -2271,6 +2277,38 @@ async function toggleRemoveTorrent() {
     }
   } catch (err) {
     toggle.checked = !enabled;
+    if (err.message !== 'Unauthorized') {
+      showToast('Failed to save setting', 'error');
+    }
+  }
+}
+
+const IMPORT_MODE_TOASTS = {
+  move: 'Imports will move files into the library (torrents cannot keep seeding)',
+  hardlink: 'Imports will hardlink into the library, so torrents keep seeding',
+  copy: 'Imports will copy into the library, so torrents keep seeding',
+};
+
+async function saveImportMode() {
+  const select = document.getElementById('setting-import_mode');
+  if (!select) return;
+  const mode = select.value;
+  const previous = select.dataset.current || 'move';
+  try {
+    const res = await apiJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ import_mode: mode })
+    });
+    if (res.success) {
+      select.dataset.current = mode;
+      showToast(IMPORT_MODE_TOASTS[mode] || 'Import mode updated', 'success');
+    } else {
+      select.value = previous;
+      showToast('Failed to update setting', 'error');
+    }
+  } catch (err) {
+    select.value = previous;
     if (err.message !== 'Unauthorized') {
       showToast('Failed to save setting', 'error');
     }
@@ -2747,6 +2785,7 @@ const CHANGE_ACTIONS = {
   changeUserRole: el => changeUserRole(+el.dataset.id, el.value),
   toggleForeignLangFilter: () => toggleForeignLangFilter(),
   toggleRemoveTorrent: () => toggleRemoveTorrent(),
+  saveImportMode: () => saveImportMode(),
 };
 
 document.addEventListener('change', e => {
