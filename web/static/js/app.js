@@ -2117,6 +2117,13 @@ async function loadSettingToggles() {
     if (removeTorrent && data.remove_torrent_after_import !== undefined) {
       removeTorrent.checked = data.remove_torrent_after_import;
     }
+    const importMode = document.getElementById('setting-import_mode');
+    if (importMode && data.import_mode !== undefined) {
+      importMode.value = data.import_mode;
+      // Remembered so a failed save can put the select back where it was.
+      importMode.dataset.current = data.import_mode;
+    }
+    renderEffectiveImportMode(data.effective_import_mode, data.remove_torrent_after_import);
     const langFilter = document.getElementById('foreign-lang-filter-toggle');
     if (langFilter && data.foreign_lang_filter !== undefined) {
       langFilter.checked = data.foreign_lang_filter;
@@ -2265,12 +2272,81 @@ async function toggleRemoveTorrent() {
     });
     if (res.success) {
       showToast(enabled ? 'Torrents will be removed after import' : 'Torrents will keep seeding after import', 'success');
+      refreshImportModeHint();
     } else {
       toggle.checked = !enabled;
       showToast('Failed to update setting', 'error');
     }
   } catch (err) {
     toggle.checked = !enabled;
+    if (err.message !== 'Unauthorized') {
+      showToast('Failed to save setting', 'error');
+    }
+  }
+}
+
+// The mode imports actually run in. On Automatic it is decided by the
+// remove-torrents setting, so spell out the result rather than leaving the
+// user to work out which of the two settings won.
+const EFFECTIVE_IMPORT_MODE_TEXT = {
+  move: 'Imports move files into the library — a kept torrent could not seed.',
+  hardlink: 'Imports hardlink into the library — kept torrents keep seeding, at no extra disk.',
+  copy: 'Imports copy into the library — kept torrents keep seeding, using twice the disk.',
+};
+
+function renderEffectiveImportMode(mode, removeAfterImport) {
+  const el = document.getElementById('import-mode-effective');
+  if (!el || !mode) return;
+  const select = document.getElementById('setting-import_mode');
+  const automatic = select && select.value === '';
+  const prefix = automatic ? `Automatic → ${mode}. ` : '';
+  const suffix = mode === 'move' && removeAfterImport === false
+    ? ' Pick Hardlink above, or turn the setting below back on.'
+    : '';
+  el.textContent = prefix + (EFFECTIVE_IMPORT_MODE_TEXT[mode] || '') + suffix;
+  el.className = mode === 'move' && removeAfterImport === false
+    ? 'text-xs text-amber-400 mt-1'
+    : 'text-xs text-indigo-300 mt-1';
+}
+
+// Re-reads what the server decided after either setting changes.
+async function refreshImportModeHint() {
+  try {
+    const data = await apiJson('/api/settings');
+    renderEffectiveImportMode(data.effective_import_mode, data.remove_torrent_after_import);
+  } catch (err) {
+    // A stale hint is not worth a toast; the next settings load fixes it.
+  }
+}
+
+const IMPORT_MODE_TOASTS = {
+  '': 'Import mode follows the remove-torrents setting',
+  move: 'Imports will move files into the library (torrents cannot keep seeding)',
+  hardlink: 'Imports will hardlink into the library, so torrents keep seeding',
+  copy: 'Imports will copy into the library, so torrents keep seeding',
+};
+
+async function saveImportMode() {
+  const select = document.getElementById('setting-import_mode');
+  if (!select) return;
+  const mode = select.value;
+  const previous = select.dataset.current || '';
+  try {
+    const res = await apiJson('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ import_mode: mode })
+    });
+    if (res.success) {
+      select.dataset.current = mode;
+      showToast(IMPORT_MODE_TOASTS[mode] || 'Import mode updated', 'success');
+      refreshImportModeHint();
+    } else {
+      select.value = previous;
+      showToast('Failed to update setting', 'error');
+    }
+  } catch (err) {
+    select.value = previous;
     if (err.message !== 'Unauthorized') {
       showToast('Failed to save setting', 'error');
     }
@@ -2747,6 +2823,7 @@ const CHANGE_ACTIONS = {
   changeUserRole: el => changeUserRole(+el.dataset.id, el.value),
   toggleForeignLangFilter: () => toggleForeignLangFilter(),
   toggleRemoveTorrent: () => toggleRemoveTorrent(),
+  saveImportMode: () => saveImportMode(),
 };
 
 document.addEventListener('change', e => {

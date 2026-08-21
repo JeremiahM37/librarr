@@ -115,18 +115,22 @@ func (s *Server) handleUpload(w http.ResponseWriter, r *http.Request) {
 		title = strings.TrimSuffix(header.Filename, ext)
 	}
 
-	// Organize the file.
+	// Organize the file. An upload is librarr's own temp file, not a download
+	// client payload, so it always moves regardless of IMPORT_MODE — hardlinking
+	// or copying it would strand the temp file in the incoming directory.
 	var organizedPath string
 	var orgErr error
 
+	organizer := s.organizer.Moving()
+
 	switch mediaType {
 	case "ebook":
-		organizedPath, orgErr = s.organizer.OrganizeEbook(tmpPath, title, author)
+		organizedPath, orgErr = organizer.OrganizeEbook(tmpPath, title, author)
 		if orgErr == nil && s.targets != nil {
 			s.targets.ImportEbook(organizedPath, title, author)
 		}
 	case "audiobook":
-		organizedPath, orgErr = s.organizer.OrganizeAudiobook(tmpPath, title, author)
+		organizedPath, orgErr = organizer.OrganizeAudiobook(tmpPath, title, author)
 		if orgErr == nil && s.targets != nil {
 			s.targets.ImportAudiobook()
 		}

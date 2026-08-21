@@ -136,13 +136,14 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 		}
 		return
 	}
+	var inLibrary bool
 	switch mediaType {
 	case "ebook":
-		importErr = w.importEbook(t, savePath, "torrent")
+		inLibrary, importErr = w.importEbook(t, savePath, "torrent")
 	case "audiobook":
-		importErr = w.importAudiobook(t, savePath, "torrent")
+		inLibrary, importErr = w.importAudiobook(t, savePath, "torrent")
 	case "manga":
-		importErr = w.importManga(t, savePath, "torrent")
+		inLibrary, importErr = w.importManga(t, savePath, "torrent")
 	}
 
 	if importErr != nil {
@@ -154,16 +155,31 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 		return
 	}
 
-	// Optionally remove torrent from qBit after import. Default is to remove;
-	// set REMOVE_TORRENT_AFTER_IMPORT=false to keep seeding (e.g. private trackers).
+	// Optionally remove the torrent from the client after import. Default is to
+	// remove; set REMOVE_TORRENT_AFTER_IMPORT=false to keep the torrent — which
+	// only keeps it *seeding* when IMPORT_MODE also leaves the payload in place.
+	keepsPayload := w.organizer != nil && w.organizer.KeepsPayload()
 	if w.cfg.RemoveTorrentAfterImport {
-		if err := w.torrent.DeleteTorrent(t.Hash, false); err != nil {
+		// In move mode the payload is already gone, so there is nothing to
+		// delete. In hardlink/copy mode it is still sitting in the download
+		// folder: delete it with the torrent, but only once every file is
+		// known to exist in the library under its own path — a hardlink shares
+		// the data, so the library entry survives. If any file failed to
+		// organize, the download folder still holds the only copy.
+		deleteFiles := keepsPayload && inLibrary
+		if err := w.torrent.DeleteTorrent(t.Hash, deleteFiles); err != nil {
 			slog.Warn("failed to remove torrent after import", "hash", t.Hash, "error", err)
 		} else {
-			slog.Info("removed completed torrent", "name", t.Name)
+			slog.Info("removed completed torrent", "name", t.Name, "deleted_files", deleteFiles)
 		}
+	} else if keepsPayload {
+		slog.Info("torrent left seeding after import", "name", t.Name, "hash", t.Hash,
+			"mode", w.cfg.EffectiveImportMode())
 	} else {
-		slog.Info("torrent left seeding after import", "name", t.Name, "hash", t.Hash)
+		// The record stays, but its files moved into the library, so the
+		// torrent cannot actually seed. Say so instead of implying otherwise.
+		slog.Info("torrent kept after import but cannot seed: its payload moved into the library",
+			"name", t.Name, "hash", t.Hash, "hint", "set IMPORT_MODE=hardlink to keep seeding")
 	}
 
 	// Mark as imported.
@@ -241,11 +257,11 @@ func (w *Watcher) importNZB(slot SABnzbdHistorySlot, mediaType string) {
 	var importErr error
 	switch mediaType {
 	case "audiobook":
-		importErr = w.importAudiobook(t, savePath, "nzb")
+		_, importErr = w.importAudiobook(t, savePath, "nzb")
 	case "manga":
-		importErr = w.importManga(t, savePath, "nzb")
+		_, importErr = w.importManga(t, savePath, "nzb")
 	default:
-		importErr = w.importEbook(t, savePath, "nzb")
+		_, importErr = w.importEbook(t, savePath, "nzb")
 	}
 
 	if importErr != nil {
@@ -401,12 +417,16 @@ func mapTorrentPath(reportedPath, remoteRoot, localRoot string) (string, bool) {
 	return filepath.Join(localRoot, rel), true
 }
 
-func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) error {
+// importEbook organizes every ebook found under savePath. The bool reports
+// whether all of them now live in the library under a path of their own, i.e.
+// whether the download folder still holds the only copy of anything.
+func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) (bool, error) {
 	bookFiles := findFilesByExt(savePath, []string{".epub", ".mobi", ".pdf", ".azw3"})
 	if len(bookFiles) == 0 {
-		return fmt.Errorf("%w: no ebook files found at %s", errTorrentContentPending, savePath)
+		return false, fmt.Errorf("%w: no ebook files found at %s", errTorrentContentPending, savePath)
 	}
 
+	inLibrary := true
 	for _, bf := range bookFiles {
 		metadata := organize.ExtractEbookMetadata(bf)
 		title := firstNonEmpty(metadata.Title, t.Name)
@@ -416,10 +436,13 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) error {
 			slog.Warn("organize ebook failed", "file", bf, "error", err)
 			destPath = bf
 		}
+		if destPath == bf {
+			inLibrary = false
+		}
 
 		inserted, err := w.recordTorrentItem(source, t, "ebook", bf, destPath, title, author, metadata.Title, metadata.Author, fileFormat(destPath), t.TotalSize)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		// Import to external libraries.
@@ -428,7 +451,7 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) error {
 		}
 	}
 
-	return nil
+	return inLibrary, nil
 }
 
 func firstNonEmpty(values ...string) string {
@@ -440,10 +463,12 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-func (w *Watcher) importAudiobook(t TorrentInfo, savePath, source string) error {
+// importAudiobook organizes the audiobook at savePath. See importEbook for the
+// meaning of the returned bool.
+func (w *Watcher) importAudiobook(t TorrentInfo, savePath, source string) (bool, error) {
 	// If the source path doesn't even exist, fail the import.
 	if _, statErr := os.Stat(savePath); os.IsNotExist(statErr) {
-		return fmt.Errorf("%w: source path does not exist: %s", errTorrentContentPending, savePath)
+		return false, fmt.Errorf("%w: source path does not exist: %s", errTorrentContentPending, savePath)
 	}
 
 	// Extract author from torrent name if possible.
@@ -460,37 +485,43 @@ func (w *Watcher) importAudiobook(t TorrentInfo, savePath, source string) error 
 
 	destPath, err := w.organizer.OrganizeAudiobook(savePath, title, author)
 	if err != nil {
-		return fmt.Errorf("organize audiobook %q: %w", savePath, err)
+		return false, fmt.Errorf("organize audiobook %q: %w", savePath, err)
 	}
 
 	inserted, err := w.recordTorrentItem(source, t, "audiobook", savePath, destPath, title, author, title, author, fileFormat(destPath), t.TotalSize)
 	if err != nil {
-		return err
+		return false, err
 	}
 
 	if inserted && w.targets != nil {
 		w.targets.ImportAudiobook()
 	}
 
-	return nil
+	return destPath != savePath, nil
 }
 
-func (w *Watcher) importManga(t TorrentInfo, savePath, source string) error {
+// importManga organizes every manga file found under savePath. See importEbook
+// for the meaning of the returned bool.
+func (w *Watcher) importManga(t TorrentInfo, savePath, source string) (bool, error) {
 	mangaFiles := findFilesByExt(savePath, []string{".cbz", ".cbr", ".zip", ".pdf", ".epub"})
 	if len(mangaFiles) == 0 {
-		return fmt.Errorf("%w: no manga files found at %s", errTorrentContentPending, savePath)
+		return false, fmt.Errorf("%w: no manga files found at %s", errTorrentContentPending, savePath)
 	}
 
+	inLibrary := true
 	for _, mf := range mangaFiles {
 		destPath, err := w.organizer.OrganizeManga(mf, t.Name)
 		if err != nil {
 			slog.Warn("organize manga failed", "file", mf, "error", err)
 			destPath = mf
 		}
+		if destPath == mf {
+			inLibrary = false
+		}
 
 		inserted, err := w.recordTorrentItem(source, t, "manga", mf, destPath, t.Name, "", t.Name, "", fileFormat(destPath), t.TotalSize)
 		if err != nil {
-			return err
+			return false, err
 		}
 
 		if inserted && w.targets != nil {
@@ -498,7 +529,7 @@ func (w *Watcher) importManga(t TorrentInfo, savePath, source string) error {
 		}
 	}
 
-	return nil
+	return inLibrary, nil
 }
 
 func (w *Watcher) recordTorrentItem(source string, t TorrentInfo, mediaType, sourcePath, destinationPath, title, author, metadataTitle, metadataAuthor, format string, fileSize int64) (bool, error) {

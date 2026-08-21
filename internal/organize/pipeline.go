@@ -3,8 +3,10 @@
 package organize
 
 import (
+	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -17,11 +19,52 @@ import (
 // Organizer handles post-download file organization.
 type Organizer struct {
 	cfg *config.Config
+
+	// forceMove ignores the configured import mode. Set by Moving() for
+	// sources that are not download-client payloads.
+	forceMove bool
 }
 
 // NewOrganizer creates a new file organizer.
 func NewOrganizer(cfg *config.Config) *Organizer {
 	return &Organizer{cfg: cfg}
+}
+
+// Moving returns an organizer that always moves, whatever IMPORT_MODE says.
+// Uploads and other librarr-owned temporary files have nothing to seed, so
+// hardlinking or copying them would leave the original behind forever.
+func (o *Organizer) Moving() *Organizer {
+	clone := *o
+	clone.forceMove = true
+	return &clone
+}
+
+// importMode returns the effective import mode for this organizer.
+func (o *Organizer) importMode() string {
+	if o.forceMove || o.cfg == nil {
+		return config.ImportModeMove
+	}
+	return o.cfg.EffectiveImportMode()
+}
+
+// KeepsPayload reports whether imports leave the source files where the
+// download client put them, which is what seeding requires. Callers use it to
+// decide what to do with the download after a successful import.
+func (o *Organizer) KeepsPayload() bool {
+	return o.importMode() != config.ImportModeMove
+}
+
+// placeFile puts src at dst using the configured import mode. Only the move
+// mode removes src.
+func (o *Organizer) placeFile(src, dst string) error {
+	switch o.importMode() {
+	case config.ImportModeHardlink:
+		return hardlinkFile(src, dst)
+	case config.ImportModeCopy:
+		return copyFileForOrg(src, dst)
+	default:
+		return moveFile(src, dst)
+	}
 }
 
 // OrganizeEbook moves an ebook file into the organized directory structure: {EbookDir}/{Author}/{Title}/{file}
@@ -55,11 +98,11 @@ func (o *Organizer) OrganizeEbook(filePath, title, author string) (string, error
 	}
 
 	destPath := filepath.Join(destDir, filepath.Base(filePath))
-	if err := moveFile(filePath, destPath); err != nil {
+	if err := o.placeFile(filePath, destPath); err != nil {
 		return filePath, err
 	}
 
-	slog.Info("ebook organized", "title", title, "dest", destPath)
+	slog.Info("ebook organized", "title", title, "dest", destPath, "mode", o.importMode())
 
 	// Also copy to Kavita ebook library if configured.
 	if o.cfg.KavitaLibraryPath != "" {
@@ -104,7 +147,7 @@ func (o *Organizer) OrganizeAudiobook(filePath, title, author string) (string, e
 		return filePath, err
 	}
 	if info.IsDir() {
-		if err := moveDirTree(filePath, destDir); err != nil {
+		if err := o.placeDirTree(filePath, destDir); err != nil {
 			return filePath, err
 		}
 		return destDir, nil
@@ -115,7 +158,7 @@ func (o *Organizer) OrganizeAudiobook(filePath, title, author string) (string, e
 	}
 
 	destPath := filepath.Join(destDir, filepath.Base(filePath))
-	if err := moveFile(filePath, destPath); err != nil {
+	if err := o.placeFile(filePath, destPath); err != nil {
 		return filePath, err
 	}
 
@@ -152,13 +195,17 @@ func (o *Organizer) OrganizeManga(filePath, seriesTitle string) (string, error) 
 		for _, entry := range entries {
 			src := filepath.Join(filePath, entry.Name())
 			dst := filepath.Join(destDir, entry.Name())
-			_ = moveFile(src, dst)
+			_ = o.placeFile(src, dst)
 		}
-		_ = os.RemoveAll(filePath)
+		// Only a move consumes the download; hardlink/copy must leave the
+		// source directory intact so the torrent can keep seeding.
+		if !o.KeepsPayload() {
+			_ = os.RemoveAll(filePath)
+		}
 		resultPath = destDir
 	} else {
 		destPath := filepath.Join(destDir, filepath.Base(filePath))
-		if err := moveFile(filePath, destPath); err != nil {
+		if err := o.placeFile(filePath, destPath); err != nil {
 			return filePath, err
 		}
 		resultPath = destPath
@@ -300,7 +347,36 @@ func moveFile(src, dst string) error {
 // renameFile is os.Rename; tests swap it to force the streaming copy fallback.
 var renameFile = os.Rename
 
-func moveDirTree(srcDir, dstDir string) error {
+// linkFile is os.Link; tests swap it to force the copy fallback.
+var linkFile = os.Link
+
+// hardlinkFile points dst at the same data as src, leaving src in place. A
+// hardlink only works within one filesystem and not on every filesystem
+// (CIFS/exFAT, some FUSE mounts), so any failure falls back to a copy — the
+// import must still land, it just costs the extra disk.
+func hardlinkFile(src, dst string) error {
+	err := linkFile(src, dst)
+	if err == nil {
+		return nil
+	}
+	// An existing destination is not a reason to copy: replace it and relink,
+	// matching the overwrite behavior of the move and copy modes.
+	if errors.Is(err, fs.ErrExist) {
+		if rmErr := os.Remove(dst); rmErr == nil {
+			if relinkErr := linkFile(src, dst); relinkErr == nil {
+				return nil
+			} else {
+				err = relinkErr
+			}
+		}
+	}
+	slog.Warn("hardlink failed, copying instead", "src", src, "dst", dst, "error", err)
+	return copyFileForOrg(src, dst)
+}
+
+// placeDirTree recreates srcDir's file tree under dstDir using the configured
+// import mode, removing srcDir only when that mode is a move.
+func (o *Organizer) placeDirTree(srcDir, dstDir string) error {
 	if err := os.MkdirAll(dstDir, 0755); err != nil {
 		return err
 	}
@@ -329,12 +405,15 @@ func moveDirTree(srcDir, dstDir string) error {
 		if err := os.MkdirAll(filepath.Dir(dstPath), 0755); err != nil {
 			return err
 		}
-		return moveFile(path, dstPath)
+		return o.placeFile(path, dstPath)
 	})
 	if err != nil {
 		return err
 	}
 
+	if o.KeepsPayload() {
+		return nil
+	}
 	return os.RemoveAll(srcDir)
 }
 

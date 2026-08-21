@@ -115,6 +115,13 @@ type Config struct {
 	// Post-import torrent handling
 	RemoveTorrentAfterImport bool
 
+	// How organized files reach the library: move, hardlink, copy, or empty
+	// for automatic. Only "move" consumes the download payload; the other two
+	// leave it where the download client wrote it so the torrent can keep
+	// seeding. Read it through EffectiveImportMode, which resolves the
+	// automatic case against RemoveTorrentAfterImport.
+	ImportMode string
+
 	// Flibusta
 	FlibustaURL     string
 	FlibustaEnabled bool
@@ -357,6 +364,7 @@ func buildFromEnv() *Config {
 		SABPriority: getEnvInt("SAB_PRIORITY", 2),
 
 		RemoveTorrentAfterImport: getEnvBool("REMOVE_TORRENT_AFTER_IMPORT", true),
+		ImportMode:               NormalizeImportMode(getEnv("IMPORT_MODE", ImportModeAuto)),
 
 		RateLimitEnabled: getEnvBool("RATE_LIMIT_ENABLED", true),
 		MetricsEnabled:   getEnvBool("METRICS_ENABLED", true),
@@ -609,6 +617,12 @@ func (c *Config) applySettingsFileOverrides() {
 		}
 		*fieldPtr = s
 	}
+	// import_mode is normalized rather than trusted, so a typo in settings.json
+	// lands on the automatic default instead of silently picking a mode.
+	if v, ok := raw["import_mode"].(string); ok {
+		c.ImportMode = NormalizeImportMode(v)
+	}
+
 	// Prefer canonical key; accept legacy alias used by some deployments.
 	if c.AnnasArchiveSecretKey == "" {
 		if s, ok := raw["annas_secret_key"].(string); ok && s != "" {

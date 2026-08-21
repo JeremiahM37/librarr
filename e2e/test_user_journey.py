@@ -397,3 +397,120 @@ def test_kavita_library_ids_save_from_settings_ui(ui):
     page.wait_for_timeout(500)
     assert page.input_value("#setting-kavita_ebook_library_id") == "4"
     assert page.input_value("#setting-kavita_manga_library_id") == "9"
+
+
+# ── Import mode / seeding (issue #59) ──────────────────────────────────────
+
+def _wait_for_download(page, title, timeout=60):
+    deadline = time.time() + timeout
+    last = None
+    while time.time() < deadline:
+        rows = api(page, "/api/downloads").get("downloads") or []
+        ours = [j for j in rows if j.get("title") == title]
+        if ours:
+            last = ours[0]
+            if last.get("status") == "completed":
+                return last
+            assert last.get("status") not in ("error", "dead_letter"), \
+                f"download failed: {json.dumps(last)}"
+        time.sleep(2)  # gentle poll — 1/s trips the API rate limiter
+    raise AssertionError(f"job never completed: {last}")
+
+
+def test_import_mode_saves_from_settings_ui(ui):
+    """Keeping a torrent seedable needs its payload left in place, which is what
+    the import-mode select controls. It must round-trip UI → API → reload."""
+    page = ui["page"]
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_selector("#setting-import_mode")
+    assert page.input_value("#setting-import_mode") == "", \
+        "import mode should start on Automatic"
+
+    page.select_option("#setting-import_mode", "hardlink")
+    page.wait_for_timeout(500)
+    try:
+        assert api(page, "/api/settings").get("import_mode") == "hardlink"
+        assert api(page, "/api/config").get("import_mode") == "hardlink"
+
+        page.reload(wait_until="networkidle")
+        page.click('[data-action="switchTab"][data-arg="settings"]')
+        page.wait_for_timeout(500)
+        assert page.input_value("#setting-import_mode") == "hardlink", \
+            "saved import mode did not survive a reload"
+    finally:
+        page.select_option("#setting-import_mode", "")
+        page.wait_for_timeout(500)
+        assert api(page, "/api/settings").get("import_mode") == "", \
+            "Automatic should clear the override"
+
+
+def test_keeping_torrents_alone_switches_imports_to_hardlink(ui):
+    """The one-knob contract: turning off "remove torrents after import" is by
+    itself enough to make imports keep the payload, with no second setting."""
+    page = ui["page"]
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_selector("#setting-import_mode")
+    assert page.input_value("#setting-import_mode") == "", "expected Automatic"
+
+    settings = api(page, "/api/settings")
+    assert settings.get("effective_import_mode") == "move", \
+        "with torrents removed, imports should move"
+
+    # The checkbox is sr-only; the visible control is the styled track beside
+    # it, which the wrapping <label> forwards to the input.
+    page.click("#remove-torrent-toggle + div")
+    page.wait_for_timeout(700)
+    assert not page.is_checked("#remove-torrent-toggle"), "toggle did not flip"
+    try:
+        settings = api(page, "/api/settings")
+        assert settings.get("import_mode") == "", "no second setting should be written"
+        assert settings.get("effective_import_mode") == "hardlink", \
+            "keeping torrents must imply a payload-preserving import"
+        assert api(page, "/api/config").get("import_mode") == "hardlink"
+
+        hint = page.inner_text("#import-mode-effective")
+        assert "hardlink" in hint.lower() and "seeding" in hint.lower(), \
+            f"UI should spell out the resolved mode, got: {hint!r}"
+    finally:
+        page.click("#remove-torrent-toggle + div")
+        page.wait_for_timeout(700)
+
+
+def test_direct_download_moves_even_in_hardlink_mode(ui):
+    """A direct HTTP download is librarr's own file, not a seedable payload.
+    Hardlink mode must not strand a duplicate of it in the incoming directory."""
+    page = ui["page"]
+    incoming = ui["data"] / "incoming"
+
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_selector("#setting-import_mode")
+    page.select_option("#setting-import_mode", "hardlink")
+    page.wait_for_timeout(500)
+    try:
+        page.click('[data-action="switchTab"][data-arg="search"]')
+        page.fill("#search-input", "test adventure")
+        page.press("#search-input", "Enter")
+        page.wait_for_selector('[data-action="startDownload"]', timeout=30000)
+
+        # Pick the last card so this is a book the earlier download test did
+        # not already import.
+        title = page.evaluate("""() => {
+            const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
+            const btn = btns[btns.length - 1];
+            return state.renderedResults[+btn.dataset.idx].title;
+        }""")
+        page.evaluate("""() => {
+            const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
+            btns[btns.length - 1].click();
+        }""")
+        _wait_for_download(page, title)
+
+        assert list(ui["books_dir"].rglob("*.epub")), "nothing imported into the library"
+        leftovers = [p for p in incoming.rglob("*") if p.is_file()]
+        assert not leftovers, \
+            f"hardlink mode stranded librarr's own download in incoming: {leftovers}"
+    finally:
+        page.click('[data-action="switchTab"][data-arg="settings"]')
+        page.wait_for_timeout(200)
+        page.select_option("#setting-import_mode", "move")
+        page.wait_for_timeout(500)

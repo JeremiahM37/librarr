@@ -105,6 +105,9 @@ func TestOrganizeAudiobookMissingSourceDoesNotCreateDestDir(t *testing.T) {
 	cfg := &config.Config{
 		FileOrgEnabled: true,
 		AudiobookDir:   filepath.Join(root, "audiobooks"),
+		// Matches the shipped default: torrents are removed after import, so
+		// the automatic import mode resolves to a move.
+		RemoveTorrentAfterImport: true,
 	}
 	o := NewOrganizer(cfg)
 
@@ -142,6 +145,9 @@ func TestOrganizeAudiobookMovesNestedTreeRecursively(t *testing.T) {
 	cfg := &config.Config{
 		FileOrgEnabled: true,
 		AudiobookDir:   filepath.Join(root, "audiobooks"),
+		// Matches the shipped default: torrents are removed after import, so
+		// the automatic import mode resolves to a move.
+		RemoveTorrentAfterImport: true,
 	}
 	o := NewOrganizer(cfg)
 
@@ -187,6 +193,9 @@ func TestOrganizeAudiobookSkipsSymlinks(t *testing.T) {
 	cfg := &config.Config{
 		FileOrgEnabled: true,
 		AudiobookDir:   filepath.Join(root, "audiobooks"),
+		// Matches the shipped default: torrents are removed after import, so
+		// the automatic import mode resolves to a move.
+		RemoveTorrentAfterImport: true,
 	}
 	o := NewOrganizer(cfg)
 
@@ -228,6 +237,9 @@ func TestOrganizeAudiobookRejectsSymlinkSource(t *testing.T) {
 	cfg := &config.Config{
 		FileOrgEnabled: true,
 		AudiobookDir:   filepath.Join(root, "audiobooks"),
+		// Matches the shipped default: torrents are removed after import, so
+		// the automatic import mode resolves to a move.
+		RemoveTorrentAfterImport: true,
 	}
 	o := NewOrganizer(cfg)
 

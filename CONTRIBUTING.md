@@ -24,6 +24,20 @@ Check the [good first issue](https://github.com/JeremiahM37/librarr/labels/good%
 5. Commit and push
 6. Open a Pull Request
 
+## Test Suites
+
+| Suite | Command | Needs |
+|---|---|---|
+| Unit + race | `go test ./... -race` | nothing |
+| Integration | `go test -tags=integration ./internal/integration/...` | nothing |
+| Browser end-to-end | `pip install -r e2e/requirements.txt && playwright install chromium`, then `LIBRARR_E2E_BIN=./librarr pytest e2e/` | Chromium |
+| Import modes vs. a real torrent client | `LIBRARR_BIN=./librarr python3 e2e/manual_qbittorrent_check.py --spawn` | Docker |
+
+The last one is not part of CI. It seeds real torrents in a disposable
+qBittorrent and force-rechecks them, which is the only way to prove that an
+imported torrent is still seedable and that deleting a torrent's files leaves
+the library copy intact. Run it when you touch the import pipeline.
+
 ## Code Style
 
 - Standard Go formatting (`gofmt`)

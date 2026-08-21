@@ -651,10 +651,21 @@
       <!-- Download Behavior -->
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
         <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-4">Download Behavior</h3>
-        <div class="flex items-center justify-between py-2">
+        <div class="py-2">
+          <label class="block text-sm text-slate-300 mb-1">Import mode</label>
+          <select id="setting-import_mode" class="w-full md:w-1/3 bg-slate-900 border border-slate-700 rounded-md px-3 py-2 text-sm text-slate-200" data-action-change="saveImportMode">
+            <option value="">Automatic (follows the setting below)</option>
+            <option value="move">Move (download folder is emptied)</option>
+            <option value="hardlink">Hardlink (keeps seeding, no extra disk)</option>
+            <option value="copy">Copy (keeps seeding, uses twice the disk)</option>
+          </select>
+          <p id="import-mode-effective" class="text-xs text-indigo-300 mt-1"></p>
+          <p class="text-xs text-slate-500 mt-1">How imported files reach the library. <strong>Move</strong> takes the payload out of the download folder, so the torrent can no longer seed even if you keep it. <strong>Hardlink</strong> and <strong>Copy</strong> leave the payload in place so seeding continues; hardlinks need the download folder and the library on the same filesystem, and fall back to a copy when they are not. On <strong>Automatic</strong> you never have to think about it: keeping torrents hardlinks them, removing torrents moves them.</p>
+        </div>
+        <div class="flex items-center justify-between py-2 border-t border-slate-800 mt-2 pt-4">
           <div>
             <p class="text-sm text-slate-300">Remove torrents after import</p>
-            <p class="text-xs text-slate-500 mt-1">When enabled, torrents are removed from qBittorrent after files are imported. Disable to keep seeding.</p>
+            <p class="text-xs text-slate-500 mt-1">When enabled, the torrent's record is removed from the download client after files are imported. Disable to keep the record — which only keeps the torrent <em>seeding</em> if the import mode above is Hardlink or Copy.</p>
           </div>
           <label class="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
             <input type="checkbox" id="remove-torrent-toggle" class="sr-only peer" checked data-action-change="toggleRemoveTorrent">
