@@ -283,32 +283,75 @@ func TestSaveSettings_NormalizesImportMode(t *testing.T) {
 		t.Errorf("runtime ImportMode = %q, want %q", s.cfg.ImportMode, config.ImportModeHardlink)
 	}
 
+	// An unrecognized value clears the override rather than picking a mode,
+	// which returns the setting to automatic.
 	saveSettings(t, s, map[string]interface{}{"import_mode": "hardlnik"})
 
-	if got := readSettingsFile(t, path)["import_mode"]; got != config.ImportModeMove {
-		t.Errorf("stored import_mode = %v, want %q for an unrecognized value", got, config.ImportModeMove)
+	if _, present := readSettingsFile(t, path)["import_mode"]; present {
+		t.Error("an unrecognized import_mode should clear the override")
 	}
-	if s.cfg.ImportMode != config.ImportModeMove {
-		t.Errorf("runtime ImportMode = %q, want %q for an unrecognized value", s.cfg.ImportMode, config.ImportModeMove)
+	if s.cfg.ImportMode != config.ImportModeAuto {
+		t.Errorf("runtime ImportMode = %q, want automatic", s.cfg.ImportMode)
 	}
 }
 
-// The settings UI renders the select from this value, so an unset config must
-// still come back as a valid mode rather than an empty string.
-func TestGetSettings_ExposesNormalizedImportMode(t *testing.T) {
-	s, _ := settingsTestServer(t)
+// Choosing "Automatic" in the UI posts an empty value: the override must be
+// dropped from settings.json AND from the running config, or the two disagree
+// until the next restart.
+func TestSaveSettings_EmptyImportModeRestoresAutomatic(t *testing.T) {
+	s, path := settingsTestServer(t)
+	s.cfg.RemoveTorrentAfterImport = false
 
+	saveSettings(t, s, map[string]interface{}{"import_mode": config.ImportModeMove})
+	if s.cfg.EffectiveImportMode() != config.ImportModeMove {
+		t.Fatalf("setup: effective mode = %q", s.cfg.EffectiveImportMode())
+	}
+
+	saveSettings(t, s, map[string]interface{}{"import_mode": ""})
+
+	if _, present := readSettingsFile(t, path)["import_mode"]; present {
+		t.Error("empty import_mode should delete the override")
+	}
+	if s.cfg.ImportMode != config.ImportModeAuto {
+		t.Errorf("runtime ImportMode = %q, want automatic", s.cfg.ImportMode)
+	}
+	if got := s.cfg.EffectiveImportMode(); got != config.ImportModeHardlink {
+		t.Errorf("effective mode = %q, want %q now that torrents are kept", got, config.ImportModeHardlink)
+	}
+}
+
+// The settings UI renders the select from import_mode and the "this is what
+// will happen" line from effective_import_mode, so both have to be exposed —
+// on Automatic they differ, and that difference is the whole point.
+func TestGetSettings_ExposesImportModeAndItsEffect(t *testing.T) {
+	s, _ := settingsTestServer(t)
+	s.cfg.RemoveTorrentAfterImport = false // keep torrents, nothing else set
+
+	body := getSettings(t, s)
+	if got := body["import_mode"]; got != config.ImportModeAuto {
+		t.Errorf("import_mode = %v, want automatic", got)
+	}
+	if got := body["effective_import_mode"]; got != config.ImportModeHardlink {
+		t.Errorf("effective_import_mode = %v, want %q", got, config.ImportModeHardlink)
+	}
+
+	s.cfg.RemoveTorrentAfterImport = true
+	body = getSettings(t, s)
+	if got := body["effective_import_mode"]; got != config.ImportModeMove {
+		t.Errorf("effective_import_mode = %v, want %q when torrents are removed", got, config.ImportModeMove)
+	}
+}
+
+func getSettings(t *testing.T, s *Server) map[string]interface{} {
+	t.Helper()
 	rr := httptest.NewRecorder()
 	s.handleGetSettings(rr, httptest.NewRequest(http.MethodGet, "/api/settings", nil))
 	if rr.Code != http.StatusOK {
 		t.Fatalf("GET returned %d", rr.Code)
 	}
-
 	var body map[string]interface{}
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	if got := body["import_mode"]; got != config.ImportModeMove {
-		t.Errorf("import_mode = %v, want %q", got, config.ImportModeMove)
-	}
+	return body
 }

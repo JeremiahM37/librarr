@@ -44,7 +44,7 @@ func (o *Organizer) importMode() string {
 	if o.forceMove || o.cfg == nil {
 		return config.ImportModeMove
 	}
-	return config.NormalizeImportMode(o.cfg.ImportMode)
+	return o.cfg.EffectiveImportMode()
 }
 
 // KeepsPayload reports whether imports leave the source files where the

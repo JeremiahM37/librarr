@@ -423,8 +423,8 @@ def test_import_mode_saves_from_settings_ui(ui):
     page = ui["page"]
     page.click('[data-action="switchTab"][data-arg="settings"]')
     page.wait_for_selector("#setting-import_mode")
-    assert page.input_value("#setting-import_mode") == "move", \
-        "default import mode should be move"
+    assert page.input_value("#setting-import_mode") == "", \
+        "import mode should start on Automatic"
 
     page.select_option("#setting-import_mode", "hardlink")
     page.wait_for_timeout(500)
@@ -438,8 +438,42 @@ def test_import_mode_saves_from_settings_ui(ui):
         assert page.input_value("#setting-import_mode") == "hardlink", \
             "saved import mode did not survive a reload"
     finally:
-        page.select_option("#setting-import_mode", "move")
+        page.select_option("#setting-import_mode", "")
         page.wait_for_timeout(500)
+        assert api(page, "/api/settings").get("import_mode") == "", \
+            "Automatic should clear the override"
+
+
+def test_keeping_torrents_alone_switches_imports_to_hardlink(ui):
+    """The one-knob contract: turning off "remove torrents after import" is by
+    itself enough to make imports keep the payload, with no second setting."""
+    page = ui["page"]
+    page.click('[data-action="switchTab"][data-arg="settings"]')
+    page.wait_for_selector("#setting-import_mode")
+    assert page.input_value("#setting-import_mode") == "", "expected Automatic"
+
+    settings = api(page, "/api/settings")
+    assert settings.get("effective_import_mode") == "move", \
+        "with torrents removed, imports should move"
+
+    # The checkbox is sr-only; the visible control is the styled track beside
+    # it, which the wrapping <label> forwards to the input.
+    page.click("#remove-torrent-toggle + div")
+    page.wait_for_timeout(700)
+    assert not page.is_checked("#remove-torrent-toggle"), "toggle did not flip"
+    try:
+        settings = api(page, "/api/settings")
+        assert settings.get("import_mode") == "", "no second setting should be written"
+        assert settings.get("effective_import_mode") == "hardlink", \
+            "keeping torrents must imply a payload-preserving import"
+        assert api(page, "/api/config").get("import_mode") == "hardlink"
+
+        hint = page.inner_text("#import-mode-effective")
+        assert "hardlink" in hint.lower() and "seeding" in hint.lower(), \
+            f"UI should spell out the resolved mode, got: {hint!r}"
+    finally:
+        page.click("#remove-torrent-toggle + div")
+        page.wait_for_timeout(700)
 
 
 def test_direct_download_moves_even_in_hardlink_mode(ui):

@@ -43,7 +43,12 @@ func ebookOrganizer(t *testing.T, mode string) (*Organizer, string, string) {
 	if err := os.MkdirAll(incoming, 0755); err != nil {
 		t.Fatal(err)
 	}
-	cfg := &config.Config{FileOrgEnabled: true, EbookDir: library, ImportMode: mode}
+	cfg := &config.Config{
+		FileOrgEnabled:           true,
+		EbookDir:                 library,
+		ImportMode:               mode,
+		RemoveTorrentAfterImport: true, // the mode under test must win over this
+	}
 	return NewOrganizer(cfg), incoming, library
 }
 
@@ -294,9 +299,41 @@ func TestMovingOverridesConfiguredImportMode(t *testing.T) {
 	}
 }
 
-func TestKeepsPayloadTreatsUnsetModeAsMove(t *testing.T) {
-	o := NewOrganizer(&config.Config{FileOrgEnabled: true})
-	if o.KeepsPayload() {
-		t.Error("an unset ImportMode must behave as move")
+// With no explicit mode the organizer follows the seeding setting: removing
+// torrents means nothing needs the payload, keeping them means it must survive.
+func TestUnsetModeFollowsTheRemoveTorrentSetting(t *testing.T) {
+	removing := NewOrganizer(&config.Config{FileOrgEnabled: true, RemoveTorrentAfterImport: true})
+	if removing.KeepsPayload() {
+		t.Error("removing torrents should resolve to a move")
+	}
+
+	keeping := NewOrganizer(&config.Config{FileOrgEnabled: true, RemoveTorrentAfterImport: false})
+	if !keeping.KeepsPayload() {
+		t.Error("keeping torrents should resolve to a payload-preserving mode")
+	}
+}
+
+// The single-knob path all the way through the organizer: keeping torrents is
+// the only thing configured, and the file still ends up hardlinked.
+func TestKeepingTorrentsAloneHardlinksTheImport(t *testing.T) {
+	root := t.TempDir()
+	incoming := filepath.Join(root, "incoming")
+	cfg := &config.Config{
+		FileOrgEnabled:           true,
+		EbookDir:                 filepath.Join(root, "books"),
+		RemoveTorrentAfterImport: false,
+	}
+	src := filepath.Join(incoming, "book.epub")
+	writeFile(t, src, []byte("single knob"))
+
+	dst, err := NewOrganizer(cfg).OrganizeEbook(src, "Title", "Author")
+	if err != nil {
+		t.Fatalf("OrganizeEbook: %v", err)
+	}
+	if _, err := os.Stat(src); err != nil {
+		t.Fatalf("payload must survive: %v", err)
+	}
+	if !sameData(t, src, dst) {
+		t.Error("library file should be a hardlink of the payload")
 	}
 }

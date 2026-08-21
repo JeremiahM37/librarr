@@ -2,10 +2,12 @@ package download
 
 import (
 	"encoding/json"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/config"
@@ -523,7 +525,7 @@ func newImportFixture(t *testing.T, importMode string, fileOrg, removeAfterImpor
 		EbookDir:                 filepath.Join(root, "books"),
 		IncomingDir:              filepath.Join(root, "incoming"),
 		QBSavePath:               filepath.Join(root, "incoming"),
-		ImportMode:               importMode,
+		ImportMode:               importMode, // config.ImportModeAuto exercises the inferred mode
 		RemoveTorrentAfterImport: removeAfterImport,
 	}
 	client := &fakeTorrentClient{}
@@ -629,5 +631,69 @@ func TestImportTorrentDoesNotDeleteFilesWhenOrganizeFails(t *testing.T) {
 	}
 	if _, err := os.Stat(payload); err != nil {
 		t.Errorf("payload should be untouched: %v", err)
+	}
+}
+
+// The single-knob contract, end to end through the watcher: the operator turns
+// off "remove torrents" and nothing else, and the payload survives the import.
+func TestImportTorrentKeepingTorrentsAloneKeepsThePayload(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeAuto, true, false)
+
+	w.importTorrent(info, "ebook")
+
+	if got := w.cfg.EffectiveImportMode(); got != config.ImportModeHardlink {
+		t.Fatalf("effective import mode = %q, want %q", got, config.ImportModeHardlink)
+	}
+	if len(client.deletes) != 0 {
+		t.Fatalf("DeleteTorrent calls = %d, want 0", len(client.deletes))
+	}
+	payloadStat, err := os.Stat(payload)
+	if err != nil {
+		t.Fatalf("payload must stay in the download folder for seeding: %v", err)
+	}
+	imported := findImportedEbook(t, w.cfg.EbookDir)
+	importedStat, err := os.Stat(imported)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(payloadStat, importedStat) {
+		t.Error("library file should share the payload's data (hardlink)")
+	}
+}
+
+// findImportedEbook returns the single ebook the import placed in the library.
+func findImportedEbook(t *testing.T, libraryDir string) string {
+	t.Helper()
+	var found string
+	err := filepath.WalkDir(libraryDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if !d.IsDir() && strings.HasSuffix(path, ".epub") {
+			found = path
+		}
+		return nil
+	})
+	if err != nil || found == "" {
+		t.Fatalf("no imported ebook under %s (walk err %v)", libraryDir, err)
+	}
+	return found
+}
+
+// And the default deployment — nothing configured at all — still moves, so
+// existing installs see no change.
+func TestImportTorrentDefaultsToMoveWhenTorrentsAreRemoved(t *testing.T) {
+	w, client, payload, info := newImportFixture(t, config.ImportModeAuto, true, true)
+
+	w.importTorrent(info, "ebook")
+
+	if got := w.cfg.EffectiveImportMode(); got != config.ImportModeMove {
+		t.Fatalf("effective import mode = %q, want %q", got, config.ImportModeMove)
+	}
+	if len(client.deletes) != 1 || client.deletes[0].deleteFiles {
+		t.Fatalf("deletes = %+v, want one record-only removal", client.deletes)
+	}
+	if _, err := os.Stat(payload); !os.IsNotExist(err) {
+		t.Errorf("move mode should have consumed the payload, stat err = %v", err)
 	}
 }

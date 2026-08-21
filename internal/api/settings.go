@@ -54,6 +54,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"zlibrary_enabled":            s.cfg.ZLibraryEnabled,
 		"remove_torrent_after_import": s.cfg.RemoveTorrentAfterImport,
 		"import_mode":                 config.NormalizeImportMode(s.cfg.ImportMode),
+		"effective_import_mode":       s.cfg.EffectiveImportMode(),
 
 		// Integration URLs and credentials (sensitive ones are masked below).
 		"qb_url":                  s.cfg.QBUrl,
@@ -119,7 +120,9 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 	if value, ok := data["annas_archive_domain"].(string); ok && value != "" {
 		data["annas_archive_domain"] = sources.NormalizeDomain(value)
 	}
-	if value, ok := data["import_mode"].(string); ok && value != "" {
+	if value, ok := data["import_mode"].(string); ok {
+		// Normalizing to "" for an unrecognized value makes the empty-string
+		// rule below delete the override, which is the automatic mode.
 		data["import_mode"] = config.NormalizeImportMode(value)
 	}
 	normalizeSettingURLs(data)
@@ -183,10 +186,12 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 			slog.Info("remove torrent after import updated", "enabled", b)
 		}
 	}
-	if v, ok := data["import_mode"].(string); ok && v != "" {
-		mode := config.NormalizeImportMode(v)
-		s.cfg.ImportMode = mode
-		slog.Info("import mode updated", "mode", mode)
+	// An empty value is the automatic mode, so it is applied like any other —
+	// the merge above has already dropped the override from settings.json.
+	if v, ok := data["import_mode"].(string); ok {
+		s.cfg.ImportMode = config.NormalizeImportMode(v)
+		slog.Info("import mode updated", "mode", s.cfg.ImportMode,
+			"effective", s.cfg.EffectiveImportMode())
 	}
 	if v, ok := data["annas_archive_domain"].(string); ok && v != "" {
 		s.cfg.AnnasArchiveDomain = sources.NormalizeDomain(v)

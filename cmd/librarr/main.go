@@ -95,6 +95,7 @@ func main() {
 	torrentClient := download.SelectTorrentClient(cfg, qb, transmission)
 	if torrentClient != nil {
 		slog.Info("active torrent client", "client", torrentClient.Name())
+		logImportPolicy(cfg)
 	} else {
 		slog.Info("no torrent client configured")
 	}
@@ -170,4 +171,25 @@ func main() {
 	}
 
 	slog.Info("shutdown complete")
+}
+
+// logImportPolicy states, once at startup, what happens to a torrent's files
+// after import — the thing that decides whether a kept torrent can actually
+// seed. Getting this wrong is invisible until a force-recheck drops the
+// torrent to 0%, so it is worth a line in the log.
+func logImportPolicy(cfg *config.Config) {
+	mode := cfg.EffectiveImportMode()
+	automatic := config.NormalizeImportMode(cfg.ImportMode) == config.ImportModeAuto
+	slog.Info("import policy", "mode", mode, "automatic", automatic,
+		"remove_torrent_after_import", cfg.RemoveTorrentAfterImport,
+		"payload_kept", cfg.KeepsPayload())
+
+	if !cfg.RemoveTorrentAfterImport && !cfg.KeepsPayload() {
+		slog.Warn("kept torrents will not be able to seed: IMPORT_MODE=move takes their files into the library, so a force-recheck drops them to 0%",
+			"fix", "unset IMPORT_MODE (or set it to hardlink) to keep the payload in place")
+	}
+	if !cfg.FileOrgEnabled && mode != config.ImportModeMove {
+		slog.Warn("IMPORT_MODE has no effect while FILE_ORG_ENABLED=false: librarr indexes files where they already are",
+			"mode", mode)
+	}
 }

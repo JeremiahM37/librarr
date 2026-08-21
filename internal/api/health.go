@@ -8,7 +8,6 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/version"
 )
 
@@ -108,7 +107,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"komga":               s.cfg.HasKomga(),
 		"sabnzbd":             configObj(s.cfg.HasSABnzbd(), s.cfg.SABnzbdURL),
 		"file_org_enabled":    s.cfg.FileOrgEnabled,
-		"import_mode":         config.NormalizeImportMode(s.cfg.ImportMode),
+		"import_mode":         s.cfg.EffectiveImportMode(),
 		"torznab_enabled":     s.cfg.TorznabAPIKey != "",
 		"rate_limit_enabled":  s.cfg.RateLimitEnabled,
 		"metrics_enabled":     s.cfg.MetricsEnabled,

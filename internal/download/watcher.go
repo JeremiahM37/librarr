@@ -174,7 +174,7 @@ func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
 		}
 	} else if keepsPayload {
 		slog.Info("torrent left seeding after import", "name", t.Name, "hash", t.Hash,
-			"mode", config.NormalizeImportMode(w.cfg.ImportMode))
+			"mode", w.cfg.EffectiveImportMode())
 	} else {
 		// The record stays, but its files moved into the library, so the
 		// torrent cannot actually seed. Say so instead of implying otherwise.

@@ -241,7 +241,7 @@ which requires Transmission 3.0+).
 | `QB_MANGA_SAVE_PATH` | `/manga-incoming` | Manga download path |
 | `QB_MANGA_CATEGORY` | `manga` | Torrent category for manga |
 | `QB_PRIORITY` | `1` | Download client priority (lower = preferred) |
-| `REMOVE_TORRENT_AFTER_IMPORT` | `true` | Remove the torrent's **record** from the download client after a successful import. Set to `false` to keep the record — on its own that does *not* keep the torrent seeding, see [Seeding after import](#seeding-after-import). |
+| `REMOVE_TORRENT_AFTER_IMPORT` | `true` | Remove the torrent from the download client after a successful import. **Set it to `false` to keep seeding** — librarr then hardlinks imports instead of moving them, so the payload stays where the client can seed it. See [Seeding after import](#seeding-after-import). |
 | `TRANSMISSION_URL` | | Transmission RPC URL (e.g. `http://transmission:9091`) |
 | `TRANSMISSION_USER` | | Transmission RPC username (optional — only if RPC auth is enabled) |
 | `TRANSMISSION_PASS` | | Transmission RPC password (optional) |
@@ -294,7 +294,7 @@ which requires Transmission 3.0+).
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `FILE_ORG_ENABLED` | `true` | Auto-organize downloaded files |
-| `IMPORT_MODE` | `move` | How organized files reach the library: `move` (the download payload is consumed), `hardlink` (a second name for the same data — keeps seeding, no extra disk, same filesystem only), or `copy` (keeps seeding, uses twice the disk). See [Seeding after import](#seeding-after-import). |
+| `IMPORT_MODE` | (automatic) | How organized files reach the library: `move` (the download payload is consumed), `hardlink` (a second name for the same data — keeps seeding, no extra disk, same filesystem only), or `copy` (keeps seeding, uses twice the disk). Leave it unset and it follows `REMOVE_TORRENT_AFTER_IMPORT`: removing torrents moves, keeping them hardlinks. See [Seeding after import](#seeding-after-import). |
 | `EBOOK_DIR` | `/books/ebooks` | Organized ebook destination |
 | `AUDIOBOOK_DIR` | `/books/audiobooks` | Organized audiobook destination |
 | `MANGA_DIR` | `/books/manga` | Organized manga destination |
@@ -303,20 +303,28 @@ which requires Transmission 3.0+).
 
 #### Seeding after import
 
-Two separate things have to survive an import for a torrent to keep seeding, and
-they are controlled by two different settings:
-
-| What has to survive | Setting | Notes |
-|---|---|---|
-| The torrent's **record** in the download client | `REMOVE_TORRENT_AFTER_IMPORT=false` | Without this the torrent is removed after import and there is nothing left to seed. |
-| The torrent's **payload files**, where the client wrote them | `IMPORT_MODE=hardlink` (or `copy`) | The default `move` takes the files out of the download folder. The client keeps showing the torrent at 100%, but the data is gone: the next force-recheck drops it to 0% and re-downloads. |
-
-For private trackers with seed-time minimums, set **both**:
+**One setting.** For private trackers with seed-time minimums:
 
 ```env
-IMPORT_MODE=hardlink
 REMOVE_TORRENT_AFTER_IMPORT=false
 ```
+
+Two separate things have to survive an import for a torrent to keep seeding —
+its **record** in the client, and its **payload files** where the client wrote
+them. Keeping the record is what that setting says; keeping the payload is what
+`IMPORT_MODE` controls. Rather than make you set both, librarr infers the second
+from the first:
+
+| `REMOVE_TORRENT_AFTER_IMPORT` | `IMPORT_MODE` unset resolves to | Result |
+|---|---|---|
+| `true` (default) | `move` | Payload goes into the library; nothing is left to seed, and nothing needs to be. Unchanged from earlier releases. |
+| `false` | `hardlink` | Payload stays in the download folder, the library gets a second name for the same data, and the torrent keeps seeding. |
+
+Setting `IMPORT_MODE` explicitly always wins over that inference — use it to
+force `copy` on a filesystem without hardlinks, or `hardlink` while still
+removing torrents. `IMPORT_MODE=move` together with
+`REMOVE_TORRENT_AFTER_IMPORT=false` is the one combination that cannot seed;
+librarr logs a warning at startup if you configure it.
 
 Notes on the modes:
 
@@ -334,6 +342,11 @@ Notes on the modes:
   library — otherwise the payload would sit in the download folder with nothing
   left to clean it up. The library copy is unaffected (a hardlink keeps the data
   alive). If any file failed to organize, the payload is left alone.
+- **Seed goals belong to your torrent client, not to librarr.** Once imports
+  hardlink, qBittorrent's own share-ratio / seeding-time limits can be set to
+  "remove torrent and its files" when the goal is met: the download folder is
+  cleaned up on the tracker's schedule and the library keeps the book, because
+  the library entry is a link to the same data rather than a second copy.
 - File organization must be on (`FILE_ORG_ENABLED=true`) for any of this; with it
   off, librarr indexes files where they already are and never touches them.
 
