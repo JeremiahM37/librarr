@@ -337,6 +337,11 @@ Notes on the modes:
   without hardlinks such as CIFS/exFAT), librarr logs a warning and copies
   instead, so the import still lands.
 - **`copy`** always works but stores the book twice until you delete the torrent.
+  It is also the mode to pick when something else writes to your library files:
+  a hardlinked file *is* the seeded data, so a tool that rewrites tags in place
+  (some audiobook taggers do) changes the torrent's bytes underneath it and the
+  next recheck fails. Tools that write a new file and rename it are safe, as is
+  librarr itself — it only ever reads imported files or copies them onward.
 - With `hardlink` or `copy`, if you *also* leave `REMOVE_TORRENT_AFTER_IMPORT=true`,
   librarr removes the torrent **and its files** once every file is safely in the
   library — otherwise the payload would sit in the download folder with nothing
@@ -350,8 +355,12 @@ Notes on the modes:
 - File organization must be on (`FILE_ORG_ENABLED=true`) for any of this; with it
   off, librarr indexes files where they already are and never touches them.
 
-`IMPORT_MODE` applies to download-client imports and manual imports. Uploads
-through the web UI always move, since their source is librarr's own temp file.
+**Scope.** `IMPORT_MODE` applies to torrent imports and manual imports — the
+cases where the source may be a live torrent payload. Everything else always
+moves, because nothing is seeding it and leaving a second copy behind would just
+accumulate: SABnzbd/usenet imports (librarr never removes anything from the
+completed folder), web UI uploads, and direct HTTP downloads from sources like
+Anna's Archive, all of which are librarr's own files.
 
 ### Sources Registry
 
