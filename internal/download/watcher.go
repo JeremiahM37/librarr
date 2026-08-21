@@ -417,6 +417,18 @@ func mapTorrentPath(reportedPath, remoteRoot, localRoot string) (string, bool) {
 	return filepath.Join(localRoot, rel), true
 }
 
+// organizerFor returns the organizer to use for a completed download. Only a
+// torrent can seed, so only a torrent honors a payload-preserving IMPORT_MODE.
+// A usenet download has nothing to keep its payload for, and librarr never
+// deletes anything from SABnzbd's completed folder — leaving the payload there
+// would grow that folder without bound.
+func (w *Watcher) organizerFor(source string) *organize.Organizer {
+	if source == "torrent" || w.organizer == nil {
+		return w.organizer
+	}
+	return w.organizer.Moving()
+}
+
 // importEbook organizes every ebook found under savePath. The bool reports
 // whether all of them now live in the library under a path of their own, i.e.
 // whether the download folder still holds the only copy of anything.
@@ -426,12 +438,13 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) (bool, err
 		return false, fmt.Errorf("%w: no ebook files found at %s", errTorrentContentPending, savePath)
 	}
 
+	organizer := w.organizerFor(source)
 	inLibrary := true
 	for _, bf := range bookFiles {
 		metadata := organize.ExtractEbookMetadata(bf)
 		title := firstNonEmpty(metadata.Title, t.Name)
 		author := metadata.Author
-		destPath, err := w.organizer.OrganizeEbook(bf, title, author)
+		destPath, err := organizer.OrganizeEbook(bf, title, author)
 		if err != nil {
 			slog.Warn("organize ebook failed", "file", bf, "error", err)
 			destPath = bf
@@ -483,7 +496,7 @@ func (w *Watcher) importAudiobook(t TorrentInfo, savePath, source string) (bool,
 		author = "Unknown"
 	}
 
-	destPath, err := w.organizer.OrganizeAudiobook(savePath, title, author)
+	destPath, err := w.organizerFor(source).OrganizeAudiobook(savePath, title, author)
 	if err != nil {
 		return false, fmt.Errorf("organize audiobook %q: %w", savePath, err)
 	}
@@ -508,9 +521,10 @@ func (w *Watcher) importManga(t TorrentInfo, savePath, source string) (bool, err
 		return false, fmt.Errorf("%w: no manga files found at %s", errTorrentContentPending, savePath)
 	}
 
+	organizer := w.organizerFor(source)
 	inLibrary := true
 	for _, mf := range mangaFiles {
-		destPath, err := w.organizer.OrganizeManga(mf, t.Name)
+		destPath, err := organizer.OrganizeManga(mf, t.Name)
 		if err != nil {
 			slog.Warn("organize manga failed", "file", mf, "error", err)
 			destPath = mf

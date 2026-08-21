@@ -697,3 +697,59 @@ func TestImportTorrentDefaultsToMoveWhenTorrentsAreRemoved(t *testing.T) {
 		t.Errorf("move mode should have consumed the payload, stat err = %v", err)
 	}
 }
+
+// Usenet cannot seed, and librarr never removes anything from SABnzbd's
+// completed folder — so a payload-preserving import mode must not apply there,
+// or that folder grows forever. Regression guard for the mode leaking out of
+// the torrent path it was built for.
+func TestNZBImportAlwaysMovesEvenInHardlinkMode(t *testing.T) {
+	for _, tc := range []struct {
+		source     string
+		sourceKept bool
+	}{
+		{"torrent", true}, // seedable: hardlink mode keeps the payload
+		{"nzb", false},    // nothing seeds usenet: always a move
+	} {
+		t.Run(tc.source, func(t *testing.T) {
+			root := t.TempDir()
+			incoming := filepath.Join(root, "incoming")
+			if err := os.MkdirAll(incoming, 0755); err != nil {
+				t.Fatal(err)
+			}
+			payload := filepath.Join(incoming, "book.epub")
+			if err := os.WriteFile(payload, []byte("payload"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			database, err := db.New(filepath.Join(root, "library.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer database.Close()
+
+			cfg := &config.Config{
+				FileOrgEnabled: true,
+				EbookDir:       filepath.Join(root, "books"),
+				IncomingDir:    incoming,
+				ImportMode:     config.ImportModeHardlink,
+			}
+			w := NewWatcher(cfg, database, nil, nil, organize.NewOrganizer(cfg), nil, nil)
+
+			info := TorrentInfo{Name: "Some Book", Hash: "hash-" + tc.source}
+			if _, err := w.importEbook(info, incoming, tc.source); err != nil {
+				t.Fatalf("importEbook: %v", err)
+			}
+
+			_, statErr := os.Stat(payload)
+			if tc.sourceKept && statErr != nil {
+				t.Errorf("%s payload should stay in place for seeding: %v", tc.source, statErr)
+			}
+			if !tc.sourceKept && !os.IsNotExist(statErr) {
+				t.Errorf("%s payload should have been moved, stat err = %v", tc.source, statErr)
+			}
+			if _, err := os.Stat(findImportedEbook(t, cfg.EbookDir)); err != nil {
+				t.Errorf("library file missing: %v", err)
+			}
+		})
+	}
+}
