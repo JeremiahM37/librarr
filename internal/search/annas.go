@@ -168,13 +168,24 @@ func (a *AnnasArchive) Search(ctx context.Context, query string) ([]models.Searc
 		{query, ""},
 	}
 
+	// A variant failing on its own is tolerable — the other may still return
+	// hits. Every variant failing is not: returning (nil, nil) there reports a
+	// successful, empty search, so the circuit breaker never trips and the
+	// source's health keeps reading OK while it silently produces nothing.
+	// That is exactly how Anna's going behind a DDoS-Guard challenge showed up:
+	// zero results, score 100, no error anywhere.
+	var lastErr error
 	for _, s := range searches {
 		res, err := a.doSearch(ctx, s.q, s.ext, seenMD5)
 		if err != nil {
+			lastErr = err
 			slog.Warn("anna's archive search variant failed", "query", s.q, "ext", s.ext, "error", err)
 			continue
 		}
 		results = append(results, res...)
+	}
+	if lastErr != nil && len(results) == 0 {
+		return nil, fmt.Errorf("all anna's archive search variants failed: %w", lastErr)
 	}
 
 	// Sort by size descending.
