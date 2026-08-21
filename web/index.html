@@ -665,7 +665,7 @@
         <div class="flex items-center justify-between py-2 border-t border-slate-800 mt-2 pt-4">
           <div>
             <p class="text-sm text-slate-300">Remove torrents after import</p>
-            <p class="text-xs text-slate-500 mt-1">When enabled, the torrent's record is removed from the download client after files are imported. Disable to keep the record — which only keeps the torrent <em>seeding</em> if the import mode above is Hardlink or Copy.</p>
+            <p class="text-xs text-slate-500 mt-1">When enabled, the torrent is removed from the download client after its files are imported. <strong>Disable it to keep seeding</strong>: the torrent's record stays in the client, and on Automatic its files stay in the download folder too — hardlinked into the library rather than moved, which is what seeding actually needs.</p>
           </div>
           <label class="relative inline-flex items-center cursor-pointer ml-4 shrink-0">
             <input type="checkbox" id="remove-torrent-toggle" class="sr-only peer" checked data-action-change="toggleRemoveTorrent">
