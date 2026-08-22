@@ -259,6 +259,31 @@ which requires Transmission 3.0+).
 
 ### Anna's Archive
 
+> **Search is currently blocked upstream (August 2026).** Anna's Archive sits
+> behind DDoS-Guard, which serves an **hCaptcha "I am human" check** on
+> `/search` and `/md5/*`. This blocks a real browser, not just scrapers, so the
+> `annas` source returns no results and will report itself unhealthy. The cause
+> is upstream and legal rather than a librarr bug: after the January 2026
+> lawsuit, Cloudflare disabled the nameservers for several AA domains and the
+> survivors moved to DDoS-Guard, followed by a global domain takedown order.
+>
+> What this means in practice:
+>
+> - **Search: unavailable.** Every surviving domain (`.gl`, `.pk`, `.gd`)
+>   behaves the same, and AA publishes no JSON search API — its own API
+>   self-documentation (`GET /dyn/api/fast_download.json` with no parameters)
+>   lists `fast_download` as the only stable endpoint.
+> - **Downloads: still work** with a membership key. `/dyn/api/fast_download.json`
+>   is *not* behind the challenge, so `ANNAS_ARCHIVE_SECRET_KEY` below still
+>   resolves MD5s to download URLs.
+> - **FlareSolverr does not help.** It solves Cloudflare, not DDoS-Guard, and
+>   times out on the hCaptcha challenge.
+> - `annas-archive.org` and `.se` no longer resolve, and `annas-archive.li` is
+>   an unrelated parked domain — do not point `ANNAS_ARCHIVE_DOMAIN` at it.
+>
+> Other sources (Prowlarr, Gutenberg, Open Library, Standard Ebooks, Z-Library)
+> are unaffected.
+
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `ANNAS_ARCHIVE_DOMAIN` | (from sources registry) | AA mirror hostname (no scheme) |
