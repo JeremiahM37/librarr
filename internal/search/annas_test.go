@@ -462,3 +462,82 @@ func TestAnnasCardLink_IgnoresAmbiguousContainers(t *testing.T) {
 		}
 	}
 }
+
+// TestAnnasArchive_SearchAllVariantsFailReturnsError covers the failure shape
+// that hid a real outage: when Anna's Archive moved behind a DDoS-Guard
+// challenge, every search variant failed, but Search returned (nil, nil). The
+// source therefore reported a successful empty search — its health score stayed
+// at 100 with search_ok climbing — while it produced no results at all. An
+// empty success is indistinguishable from "this query has no matches", so
+// nothing surfaced the breakage.
+func TestAnnasArchive_SearchAllVariantsFailReturnsError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	a := &AnnasArchive{
+		cfg:    &config.Config{AnnasArchiveDomain: "example.com", UserAgent: "test"},
+		client: &http.Client{Transport: &rewriteTransport{serverURL: server.URL}},
+	}
+
+	results, err := a.Search(context.Background(), "dune")
+	if err == nil {
+		t.Fatal("every variant failed but Search reported success — the circuit breaker never trips and the source looks healthy while returning nothing")
+	}
+	if len(results) != 0 {
+		t.Errorf("expected no results alongside the error, got %d", len(results))
+	}
+}
+
+// A genuinely empty result set is still a success: "no matches for this query"
+// must not be reported as a source failure, or the circuit breaker would open
+// on obscure searches.
+func TestAnnasArchive_SearchEmptyButHealthyIsNotAnError(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`<html><body>no results</body></html>`))
+	}))
+	defer server.Close()
+
+	a := &AnnasArchive{
+		cfg:    &config.Config{AnnasArchiveDomain: "example.com", UserAgent: "test"},
+		client: &http.Client{Transport: &rewriteTransport{serverURL: server.URL}},
+	}
+
+	results, err := a.Search(context.Background(), "zzzz-no-such-book")
+	if err != nil {
+		t.Fatalf("an empty but healthy search must not error: %v", err)
+	}
+	if len(results) != 0 {
+		t.Errorf("expected 0 results, got %d", len(results))
+	}
+}
+
+// One variant failing while the other succeeds must still return the hits.
+func TestAnnasArchive_SearchPartialFailureStillReturnsResults(t *testing.T) {
+	var calls int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		if calls == 1 {
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+		_, _ = w.Write([]byte(`<html><body>
+			<a href="/md5/abc123def456789012345678901234ab">Dune</a>
+		</body></html>`))
+	}))
+	defer server.Close()
+
+	a := &AnnasArchive{
+		cfg:    &config.Config{AnnasArchiveDomain: "example.com", UserAgent: "test"},
+		client: &http.Client{Transport: &rewriteTransport{serverURL: server.URL}},
+	}
+
+	results, err := a.Search(context.Background(), "dune")
+	if err != nil {
+		t.Fatalf("a partial failure must not fail the whole search: %v", err)
+	}
+	if len(results) == 0 {
+		t.Error("expected the surviving variant's results to come through")
+	}
+}
