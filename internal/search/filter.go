@@ -72,10 +72,13 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 			continue
 		}
 
-		// Torrent-specific filters.
-		isTorrent := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" ||
+		// Torrent-specific filters. Prowlarr can return usenet results under a
+		// torrent source label (books/manga tabs), so trust the protocol the
+		// driver already resolved rather than the source string alone.
+		isTorrent := (r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" ||
 			r.Source == "tpb" || r.Source == "tpb_audiobook" ||
-			r.Source == "booktracker" || r.Source == "booktracker_audiobook"
+			r.Source == "booktracker" || r.Source == "booktracker_audiobook") &&
+			r.DownloadProtocol != "nzb"
 		isABB := r.Source == "audiobook"
 
 		if isTorrent {
