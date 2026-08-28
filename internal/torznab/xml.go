@@ -55,6 +55,17 @@ func ResultToItem(r models.SearchResult, baseURL string) models.TorznabItem {
 		item.Attrs = append(item.Attrs, models.TorznabAttr{Name: "peers", Value: fmt.Sprintf("%d", r.Leechers)})
 	}
 
+	// A usenet result reaches this feed on the books and manga tabs, where
+	// Prowlarr labels it with a torrent source string. Announcing its .nzb as
+	// application/x-bittorrent would hand a downstream *arr app an NZB to feed
+	// to its torrent client, so the enclosure follows the protocol the driver
+	// resolved rather than the source label. The magnet branches below are
+	// torrents by construction and are left alone.
+	enclosureType := "application/x-bittorrent"
+	if r.DownloadProtocol == "nzb" {
+		enclosureType = "application/x-nzb"
+	}
+
 	// Set the download link.
 	if r.MagnetURL != "" {
 		item.Link = r.MagnetURL
@@ -68,7 +79,7 @@ func ResultToItem(r models.SearchResult, baseURL string) models.TorznabItem {
 		item.Enclosure = &models.TorznabEnclosure{
 			URL:    r.DownloadURL,
 			Length: r.Size,
-			Type:   "application/x-bittorrent",
+			Type:   enclosureType,
 		}
 	} else if r.InfoHash != "" {
 		magnet := fmt.Sprintf("magnet:?xt=urn:btih:%s&dn=%s", r.InfoHash, r.Title)

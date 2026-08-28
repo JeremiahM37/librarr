@@ -72,21 +72,30 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 			continue
 		}
 
-		// Torrent-specific filters. Prowlarr can return usenet results under a
-		// torrent source label (books/manga tabs), so trust the protocol the
-		// driver already resolved rather than the source string alone.
-		isTorrent := (r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" ||
+		// Prowlarr returns usenet results under a torrent source label on the
+		// books and manga tabs, so the source string alone cannot decide which
+		// filters apply. Keep the two questions separate: the source says which
+		// bucket a result belongs to, the protocol says whether the checks that
+		// are genuinely about torrents apply to it.
+		isTorrentSource := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" ||
 			r.Source == "tpb" || r.Source == "tpb_audiobook" ||
-			r.Source == "booktracker" || r.Source == "booktracker_audiobook") &&
-			r.DownloadProtocol != "nzb"
+			r.Source == "booktracker" || r.Source == "booktracker_audiobook"
+		isTorrent := isTorrentSource && r.DownloadProtocol != "nzb"
 		isABB := r.Source == "audiobook"
 
-		if isTorrent {
-			// Seed count threshold (ABB may have 0 seeders with valid magnets).
-			if r.Seeders < 1 {
-				continue
-			}
-			// Size bounds.
+		// Seed count threshold, torrents only (ABB may have 0 seeders with
+		// valid magnets). Usenet has no seeders at all: Prowlarr omits the key,
+		// r.Seeders unmarshals to 0, and applying this to an NZB silently drops
+		// every usenet result the indexers returned.
+		if isTorrent && r.Seeders < 1 {
+			continue
+		}
+
+		// Size bounds. Despite the config names these are a sanity check on
+		// what an indexer returned rather than a torrent property, so they hold
+		// for usenet too - an NZB below MinTorrentSizeBytes is the same junk a
+		// torrent that size would be.
+		if isTorrentSource {
 			size := r.Size
 			if size == 0 {
 				size = int64(parseSizeBytes(r.SizeHuman))
@@ -103,8 +112,11 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 			}
 		}
 
-		// Deduplication by first 60 chars of normalized title, keeping highest seeders.
-		if isTorrent || isABB {
+		// Deduplication by first 60 chars of normalized title, keeping highest
+		// seeders. Usenet results are deduplicated on the same terms: one
+		// release carried by several indexers is the normal case there, and
+		// they all arrive with 0 seeders, so the first copy seen wins.
+		if isTorrentSource || isABB {
 			norm := normalizeForDedup(r.Title)
 			if idx, exists := seenTitles[norm]; exists {
 				if r.Seeders > filtered[idx].Seeders {
@@ -156,7 +168,12 @@ func sourcePriority(r models.SearchResult) int {
 	case "annas", "annas_manga":
 		return 0
 	case "torrent", "audiobook", "prowlarr_manga", "nyaa_manga":
-		if r.Seeders > 0 {
+		// Seeders stand in for "is this still retrievable", which is why a
+		// zero-seeder torrent ranks below a live one. A usenet result carries
+		// no seeders by definition, so reading its 0 the same way would rank
+		// every NZB as if it were a dead torrent. An indexer still listing it
+		// is the usenet equivalent of that signal.
+		if r.Seeders > 0 || r.DownloadProtocol == "nzb" {
 			return 1
 		}
 		return 2

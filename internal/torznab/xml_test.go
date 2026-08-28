@@ -42,6 +42,49 @@ func TestResultToItem(t *testing.T) {
 		}
 	})
 
+	// The books and manga tabs label usenet results with a torrent source
+	// string, so the enclosure has to follow the resolved protocol or a
+	// downstream *arr app hands the .nzb to its torrent client.
+	t.Run("usenet result announces an nzb enclosure", func(t *testing.T) {
+		r := models.SearchResult{
+			Source:           "torrent",
+			Title:            "Test Book Usenet",
+			DownloadURL:      "http://prowlarr/api/v1/indexer/1/download?apikey=x&link=y",
+			Size:             1000000,
+			DownloadProtocol: "nzb",
+			GUID:             "guid-nzb",
+		}
+
+		item := ResultToItem(r, baseURL)
+		if item.Enclosure == nil {
+			t.Fatal("expected enclosure")
+		}
+		if item.Enclosure.Type != "application/x-nzb" {
+			t.Errorf("expected application/x-nzb, got %s", item.Enclosure.Type)
+		}
+	})
+
+	// A magnet is a torrent whatever else the row says, so the protocol must
+	// not be able to relabel one.
+	t.Run("magnet keeps its bittorrent enclosure", func(t *testing.T) {
+		r := models.SearchResult{
+			Source:           "torrent",
+			Title:            "Mislabeled",
+			MagnetURL:        "magnet:?xt=urn:btih:def456",
+			Size:             1000000,
+			DownloadProtocol: "nzb",
+			GUID:             "guid-magnet",
+		}
+
+		item := ResultToItem(r, baseURL)
+		if item.Enclosure == nil {
+			t.Fatal("expected enclosure")
+		}
+		if item.Enclosure.Type != "application/x-bittorrent" {
+			t.Errorf("expected application/x-bittorrent, got %s", item.Enclosure.Type)
+		}
+	})
+
 	t.Run("audiobook result", func(t *testing.T) {
 		r := models.SearchResult{
 			Source:      "audiobook",
