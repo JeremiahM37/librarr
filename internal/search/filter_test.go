@@ -145,6 +145,77 @@ func TestFilterAndSortResults(t *testing.T) {
 		}
 	})
 
+	// Prowlarr labels usenet results with a torrent source string on the books
+	// and manga tabs, and usenet carries no seeders, so the seed threshold used
+	// to discard every one of them while the search still reported success.
+	t.Run("keeps usenet results that carry a torrent source label", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "torrent", Title: "Book On Usenet", Seeders: 0, Size: 50000, DownloadProtocol: "nzb"},
+			{Source: "prowlarr_manga", Title: "Manga On Usenet", Seeders: 0, Size: 50000, DownloadProtocol: "nzb"},
+			{Source: "torrent", Title: "Live Torrent", Seeders: 5, Size: 50000, DownloadProtocol: "torrent"},
+			{Source: "torrent", Title: "Dead Torrent", Seeders: 0, Size: 50000, DownloadProtocol: "torrent"},
+		}
+		filtered := FilterAndSortResults(results, "usenet", 10000, 2000000000)
+		if len(filtered) != 3 {
+			t.Fatalf("expected 3 results, got %d", len(filtered))
+		}
+		for _, r := range filtered {
+			if r.Title == "Dead Torrent" {
+				t.Error("zero-seeder torrent survived the seed threshold")
+			}
+		}
+	})
+
+	// The size bounds are a sanity check on what an indexer returned, not a
+	// torrent property, so exempting usenet from them would open a hole the
+	// torrent path does not have.
+	t.Run("applies size bounds to usenet results", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "torrent", Title: "Tiny NZB", Seeders: 0, Size: 100, DownloadProtocol: "nzb"},
+			{Source: "torrent", Title: "Sane NZB", Seeders: 0, Size: 500000, DownloadProtocol: "nzb"},
+			{Source: "torrent", Title: "Huge NZB", Seeders: 0, Size: 5000000000, DownloadProtocol: "nzb"},
+		}
+		filtered := FilterAndSortResults(results, "nzb", 10000, 2000000000)
+		if len(filtered) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(filtered))
+		}
+		if filtered[0].Title != "Sane NZB" {
+			t.Errorf("expected Sane NZB, got %s", filtered[0].Title)
+		}
+	})
+
+	// One release carried by several usenet indexers is the normal case, so
+	// skipping dedup for them would fill the grid with copies of one book.
+	t.Run("deduplicates usenet results", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "torrent", Title: "Same Book", Seeders: 0, Size: 50000, DownloadProtocol: "nzb", Indexer: "one"},
+			{Source: "torrent", Title: "Same Book", Seeders: 0, Size: 50000, DownloadProtocol: "nzb", Indexer: "two"},
+		}
+		filtered := FilterAndSortResults(results, "same book", 10000, 2000000000)
+		if len(filtered) != 1 {
+			t.Fatalf("expected 1 result after dedup, got %d", len(filtered))
+		}
+		if filtered[0].Indexer != "one" {
+			t.Errorf("expected the first copy seen to win, got %s", filtered[0].Indexer)
+		}
+	})
+
+	// A usenet result outranks a dead torrent: it has no seeders to report, so
+	// reading its 0 as a torrent's would bury it.
+	t.Run("ranks a usenet result above a zero-seeder torrent", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "audiobook", Title: "Some Book B", Seeders: 0, Size: 50000, AbbURL: "/x"},
+			{Source: "torrent", Title: "Some Book A", Seeders: 0, Size: 50000, DownloadProtocol: "nzb"},
+		}
+		filtered := FilterAndSortResults(results, "some book", 10000, 2000000000)
+		if len(filtered) != 2 {
+			t.Fatalf("expected 2 results, got %d", len(filtered))
+		}
+		if filtered[0].Title != "Some Book A" {
+			t.Errorf("expected the usenet result first, got %s", filtered[0].Title)
+		}
+	})
+
 	t.Run("sorts by relevance then source priority", func(t *testing.T) {
 		results := []models.SearchResult{
 			{Source: "gutenberg", Title: "Other Book"},
@@ -190,6 +261,8 @@ func TestSourcePriority(t *testing.T) {
 		{models.SearchResult{Source: "annas_manga"}, 0},
 		{models.SearchResult{Source: "torrent", Seeders: 5}, 1},
 		{models.SearchResult{Source: "torrent", Seeders: 0}, 2},
+		{models.SearchResult{Source: "torrent", Seeders: 0, DownloadProtocol: "nzb"}, 1},
+		{models.SearchResult{Source: "prowlarr_manga", Seeders: 0, DownloadProtocol: "nzb"}, 1},
 		{models.SearchResult{Source: "gutenberg"}, 3},
 		{models.SearchResult{Source: "openlibrary"}, 3},
 		{models.SearchResult{Source: "mangadex"}, 2},
