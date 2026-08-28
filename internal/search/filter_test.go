@@ -145,6 +145,27 @@ func TestFilterAndSortResults(t *testing.T) {
 		}
 	})
 
+	// Prowlarr labels usenet results with a torrent source string on the books
+	// and manga tabs, and usenet carries no seeders, so the seed threshold used
+	// to discard every one of them while the search still reported success.
+	t.Run("keeps usenet results that carry a torrent source label", func(t *testing.T) {
+		results := []models.SearchResult{
+			{Source: "torrent", Title: "Book On Usenet", Seeders: 0, Size: 50000, DownloadProtocol: "nzb"},
+			{Source: "prowlarr_manga", Title: "Manga On Usenet", Seeders: 0, Size: 50000, DownloadProtocol: "nzb"},
+			{Source: "torrent", Title: "Live Torrent", Seeders: 5, Size: 50000, DownloadProtocol: "torrent"},
+			{Source: "torrent", Title: "Dead Torrent", Seeders: 0, Size: 50000, DownloadProtocol: "torrent"},
+		}
+		filtered := FilterAndSortResults(results, "usenet", 10000, 2000000000)
+		if len(filtered) != 3 {
+			t.Fatalf("expected 3 results, got %d", len(filtered))
+		}
+		for _, r := range filtered {
+			if r.Title == "Dead Torrent" {
+				t.Error("zero-seeder torrent survived the seed threshold")
+			}
+		}
+	})
+
 	t.Run("sorts by relevance then source priority", func(t *testing.T) {
 		results := []models.SearchResult{
 			{Source: "gutenberg", Title: "Other Book"},
