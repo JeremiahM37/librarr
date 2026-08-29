@@ -163,6 +163,14 @@ func scoreSeeder(result models.SearchResult) float64 {
 		return 12
 	}
 
+	// Usenet has no seeders by definition (Prowlarr omits the key, so
+	// result.Seeders unmarshals to 0) - scoring it on the torrent scale
+	// would rank every NZB as if it were a dead torrent. An indexer still
+	// listing it is the usenet equivalent of a live, well-seeded torrent.
+	if result.DownloadProtocol == "nzb" {
+		return 15
+	}
+
 	switch {
 	case result.Seeders >= 20:
 		return 15

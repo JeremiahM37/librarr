@@ -6,10 +6,14 @@ services:
     ports:
       - "5050:5050"
     volumes:
-      - librarr-data:/data
-      - /data/media/books/ebooks:/books/ebooks
-      - /data/media/books/audiobooks:/books/audiobooks
-      - /data/media/books/manga:/books/manga
+      # Local dev only: bind mounts instead of a named volume. Docker Desktop's
+      # Windows file-sharing layer grants broad write access regardless of the
+      # container's fixed non-root "librarr" user, unlike a fresh named volume
+      # (owned by root), which crash-loops it on "permission denied".
+      - ./data:/data
+      - ./data/books/ebooks:/books/ebooks
+      - ./data/books/audiobooks:/books/audiobooks
+      - ./data/books/manga:/books/manga
     env_file:
       - .env
     environment:
@@ -20,6 +24,3 @@ services:
       - WISHLIST_CLEANUP_DRY_RUN=true
       # Set to true only when a trusted reverse proxy injects Authentik headers.
       - OIDC_PROXY_HEADERS_ENABLED=false
-
-volumes:
-  librarr-data:

@@ -60,7 +60,11 @@ func (s *Server) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Check if this is an NZB result that should go to SABnzbd.
-	if isNZBResult(req) && s.cfg.HasSABnzbd() {
+	if isNZBResult(req) {
+		// handleNZBDownload itself returns "SABnzbd not configured" when it
+		// isn't set up — gating on HasSABnzbd() here instead let an NZB
+		// result silently fall through to the torrent client, which then
+		// failed with a confusing error instead of the actionable one.
 		s.handleNZBDownload(w, req)
 		return
 	}
@@ -268,7 +272,11 @@ func (s *Server) handleDownloadTorrent(w http.ResponseWriter, r *http.Request) {
 		req.Title = "Unknown"
 	}
 	req.MediaType = "ebook"
-	if isNZBResult(req) && s.cfg.HasSABnzbd() {
+	if isNZBResult(req) {
+		// handleNZBDownload itself returns "SABnzbd not configured" when it
+		// isn't set up — gating on HasSABnzbd() here instead let an NZB
+		// result silently fall through to the torrent client, which then
+		// failed with a confusing error instead of the actionable one.
 		s.handleNZBDownload(w, req)
 		return
 	}
@@ -307,7 +315,11 @@ func (s *Server) handleDownloadAudiobook(w http.ResponseWriter, r *http.Request)
 	req.MediaType = "audiobook"
 	// Usenet audiobook grabs must go to SABnzbd, not the torrent client, which
 	// would silently discard the NZB payload.
-	if isNZBResult(req) && s.cfg.HasSABnzbd() {
+	if isNZBResult(req) {
+		// handleNZBDownload itself returns "SABnzbd not configured" when it
+		// isn't set up — gating on HasSABnzbd() here instead let an NZB
+		// result silently fall through to the torrent client, which then
+		// failed with a confusing error instead of the actionable one.
 		s.handleNZBDownload(w, req)
 		return
 	}

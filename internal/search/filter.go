@@ -77,7 +77,7 @@ func FilterAndSortResults(results []models.SearchResult, query string, minSize, 
 		// filters apply. Keep the two questions separate: the source says which
 		// bucket a result belongs to, the protocol says whether the checks that
 		// are genuinely about torrents apply to it.
-		isTorrentSource := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "nyaa_manga" ||
+		isTorrentSource := r.Source == "torrent" || r.Source == "prowlarr_manga" || r.Source == "prowlarr_audiobooks" || r.Source == "nyaa_manga" ||
 			r.Source == "tpb" || r.Source == "tpb_audiobook" ||
 			r.Source == "booktracker" || r.Source == "booktracker_audiobook"
 		isTorrent := isTorrentSource && r.DownloadProtocol != "nzb"
@@ -167,7 +167,7 @@ func sourcePriority(r models.SearchResult) int {
 	switch r.Source {
 	case "annas", "annas_manga":
 		return 0
-	case "torrent", "audiobook", "prowlarr_manga", "nyaa_manga":
+	case "torrent", "audiobook", "prowlarr_manga", "prowlarr_audiobooks", "nyaa_manga":
 		// Seeders stand in for "is this still retrievable", which is why a
 		// zero-seeder torrent ranks below a live one. A usenet result carries
 		// no seeders by definition, so reading its 0 the same way would rank

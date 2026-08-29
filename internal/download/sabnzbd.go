@@ -65,33 +65,57 @@ type SABnzbdHistoryResponse struct {
 	} `json:"history"`
 }
 
-// AddNZB sends an NZB URL to SABnzbd for download.
-func (s *SABnzbdClient) AddNZB(nzbURL, title string) (string, error) {
+// doRequest issues a GET to the SABnzbd API for the given mode, merging in
+// apikey/output automatically, and returns the raw response body once a 200
+// status is confirmed. Every public method below built its own url.Values,
+// GET, and status check inline; this is the one place that sequence lives
+// now, mirroring the doRequest/doRequestContext helper qbittorrent.go uses
+// for the same purpose (SABnzbd's apikey-per-request auth needs none of
+// that helper's cookie/session/retry handling, so this is its own, simpler
+// equivalent rather than a literal reuse of qBittorrent's).
+func (s *SABnzbdClient) doRequest(mode string, extra url.Values) ([]byte, error) {
 	if !s.cfg.HasSABnzbd() {
-		return "", fmt.Errorf("SABnzbd not configured")
+		return nil, fmt.Errorf("SABnzbd not configured")
 	}
 
 	params := url.Values{
-		"mode":    {"addurl"},
-		"name":    {nzbURL},
-		"nzbname": {title},
-		"apikey":  {s.cfg.SABnzbdAPIKey},
-		"output":  {"json"},
+		"mode":   {mode},
+		"apikey": {s.cfg.SABnzbdAPIKey},
+		"output": {"json"},
 	}
-	if s.cfg.SABnzbdCategory != "" {
-		params.Set("cat", s.cfg.SABnzbdCategory)
+	for k, vs := range extra {
+		for _, v := range vs {
+			params.Add(k, v)
+		}
 	}
 
 	reqURL := fmt.Sprintf("%s/api?%s", s.cfg.SABnzbdURL, params.Encode())
 	resp, err := s.client.Get(reqURL)
 	if err != nil {
-		return "", fmt.Errorf("sabnzbd addurl: %w", err)
+		return nil, fmt.Errorf("sabnzbd %s: %w", mode, err)
 	}
 	defer resp.Body.Close()
 
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("sabnzbd HTTP %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("sabnzbd %s HTTP %d: %s", mode, resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+// AddNZB sends an NZB URL to SABnzbd for download.
+func (s *SABnzbdClient) AddNZB(nzbURL, title string) (string, error) {
+	extra := url.Values{
+		"name":    {nzbURL},
+		"nzbname": {title},
+	}
+	if s.cfg.SABnzbdCategory != "" {
+		extra.Set("cat", s.cfg.SABnzbdCategory)
+	}
+
+	body, err := s.doRequest("addurl", extra)
+	if err != nil {
+		return "", err
 	}
 
 	var result struct {
@@ -118,29 +142,13 @@ func (s *SABnzbdClient) AddNZB(nzbURL, title string) (string, error) {
 
 // GetQueue returns the current download queue.
 func (s *SABnzbdClient) GetQueue() ([]SABnzbdSlot, error) {
-	if !s.cfg.HasSABnzbd() {
-		return nil, fmt.Errorf("SABnzbd not configured")
-	}
-
-	params := url.Values{
-		"mode":   {"queue"},
-		"apikey": {s.cfg.SABnzbdAPIKey},
-		"output": {"json"},
-	}
-
-	reqURL := fmt.Sprintf("%s/api?%s", s.cfg.SABnzbdURL, params.Encode())
-	resp, err := s.client.Get(reqURL)
+	body, err := s.doRequest("queue", nil)
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("sabnzbd queue HTTP %d", resp.StatusCode)
-	}
 
 	var queueResp SABnzbdQueueResponse
-	if err := json.NewDecoder(resp.Body).Decode(&queueResp); err != nil {
+	if err := json.Unmarshal(body, &queueResp); err != nil {
 		return nil, err
 	}
 
@@ -149,82 +157,47 @@ func (s *SABnzbdClient) GetQueue() ([]SABnzbdSlot, error) {
 
 // GetHistory returns recent completed downloads.
 func (s *SABnzbdClient) GetHistory(limit int) ([]SABnzbdHistorySlot, error) {
-	if !s.cfg.HasSABnzbd() {
-		return nil, fmt.Errorf("SABnzbd not configured")
-	}
-
-	params := url.Values{
-		"mode":   {"history"},
-		"apikey": {s.cfg.SABnzbdAPIKey},
-		"output": {"json"},
-		"limit":  {fmt.Sprintf("%d", limit)},
-	}
-
-	reqURL := fmt.Sprintf("%s/api?%s", s.cfg.SABnzbdURL, params.Encode())
-	resp, err := s.client.Get(reqURL)
+	body, err := s.doRequest("history", url.Values{"limit": {fmt.Sprintf("%d", limit)}})
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return nil, fmt.Errorf("sabnzbd history HTTP %d", resp.StatusCode)
-	}
 
 	var histResp SABnzbdHistoryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&histResp); err != nil {
+	if err := json.Unmarshal(body, &histResp); err != nil {
 		return nil, err
 	}
 
 	return histResp.History.Slots, nil
 }
 
-// DeleteNZB removes a download from SABnzbd queue.
+// DeleteNZB removes a download from the SABnzbd queue.
 func (s *SABnzbdClient) DeleteNZB(nzoID string) error {
-	if !s.cfg.HasSABnzbd() {
-		return fmt.Errorf("SABnzbd not configured")
-	}
-
-	params := url.Values{
-		"mode":   {"queue"},
-		"name":   {"delete"},
-		"value":  {nzoID},
-		"apikey": {s.cfg.SABnzbdAPIKey},
-		"output": {"json"},
-	}
-
-	reqURL := fmt.Sprintf("%s/api?%s", s.cfg.SABnzbdURL, params.Encode())
-	resp, err := s.client.Get(reqURL)
+	body, err := s.doRequest("queue", url.Values{"name": {"delete"}, "value": {nzoID}})
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
 
+	var result struct {
+		Status bool   `json:"status"`
+		Error  string `json:"error"`
+	}
+	if err := json.Unmarshal(body, &result); err != nil {
+		// SABnzbd's queue-delete reply shape has drifted before; don't fail
+		// the delete over a body we can't parse, just stop pretending we
+		// verified it.
+		return fmt.Errorf("sabnzbd delete response parse: %w", err)
+	}
+	if !result.Status {
+		return fmt.Errorf("sabnzbd delete failed: %s", result.Error)
+	}
 	return nil
 }
 
 // Diagnose checks SABnzbd connectivity.
 func (s *SABnzbdClient) Diagnose() map[string]interface{} {
-	if !s.cfg.HasSABnzbd() {
-		return map[string]interface{}{"success": false, "error": "SABnzbd not configured"}
-	}
-
-	params := url.Values{
-		"mode":   {"version"},
-		"apikey": {s.cfg.SABnzbdAPIKey},
-		"output": {"json"},
-	}
-
-	reqURL := fmt.Sprintf("%s/api?%s", s.cfg.SABnzbdURL, params.Encode())
-	resp, err := s.client.Get(reqURL)
+	body, err := s.doRequest("version", nil)
 	if err != nil {
 		return map[string]interface{}{"success": false, "error": err.Error()}
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode != 200 {
-		return map[string]interface{}{"success": false, "error": fmt.Sprintf("HTTP %d", resp.StatusCode)}
 	}
 
 	var result struct {

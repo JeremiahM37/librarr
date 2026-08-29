@@ -577,9 +577,30 @@ async function api(path, options = {}) {
   return resp;
 }
 
+// The backend sends a specific reason in the JSON body ("No torrent download
+// client configured", "SABnzbd not configured", etc.) on non-2xx responses.
+// pickErrorMessage/parseErrorMessage are the one shared rule every caller
+// uses for turning that into an Error message, whether it already has the
+// parsed body (pickErrorMessage) or still needs to read it (parseErrorMessage) -
+// falling back to the bare status only when the body isn't JSON or has no
+// error field, rather than always discarding it.
+function pickErrorMessage(data, status) {
+  return (data && data.error) || `API error: ${status}`;
+}
+
+async function parseErrorMessage(resp) {
+  let data = {};
+  try {
+    data = await resp.json();
+  } catch {
+    // Response body wasn't JSON (or already consumed) - data stays {}.
+  }
+  return pickErrorMessage(data, resp.status);
+}
+
 async function apiJson(path, options = {}) {
   const resp = await api(path, options);
-  if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp));
   return resp.json();
 }
 
@@ -1042,7 +1063,8 @@ async function doStreamingSearch(endpoint, query, gen, signal) {
     signal,
     headers: { Accept: 'text/event-stream' },
   });
-  if (!resp.ok || !resp.body) throw new Error(`API error: ${resp.status}`);
+  if (!resp.ok) throw new Error(await parseErrorMessage(resp));
+  if (!resp.body) throw new Error(`API error: ${resp.status}`);
 
   const reader = resp.body.getReader();
   const decoder = new TextDecoder();
@@ -1411,7 +1433,10 @@ async function startDownload(result) {
       showToast(t('already_in_library', {title: data.library_title || result.title}), 'warning');
       return;
     }
-    if (!resp.ok) throw new Error(`API error: ${resp.status}`);
+    // data was already parsed above (falling back to {} if the body wasn't
+    // JSON) - reuse the same rule apiJson uses via pickErrorMessage, since
+    // this call bypasses apiJson itself for the 409 check above.
+    if (!resp.ok) throw new Error(pickErrorMessage(data, resp.status));
 
     if (result.source === 'annas' && data.job_id) {
       setDownloadOutcome(downloadKey, 'loading', true);
@@ -2368,7 +2393,10 @@ async function testConnection(service) {
       statusEl.className = 'text-xs text-red-400';
     }
   } catch (err) {
-    statusEl.textContent = t('conn_error');
+    // apiJson throws the backend's specific reason when it has one - show
+    // it instead of a generic message, same as the success-with-error-body
+    // branch above already does via data.error.
+    statusEl.textContent = err.message !== 'Unauthorized' ? (err.message || t('conn_error')) : t('conn_error');
     statusEl.className = 'text-xs text-red-400';
   }
 }

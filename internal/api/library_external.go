@@ -401,7 +401,7 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 		if err := s.db.DeleteItem(id); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]interface{}{
 				"success": false,
-				"error":   err.Error(),
+				"error":   errString(err),
 			})
 			return
 		}
@@ -448,7 +448,7 @@ func (s *Server) handleGetWishlist(w http.ResponseWriter, _ *http.Request) {
 	items, err := s.db.GetWishlist()
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"error": err.Error(),
+			"error": errString(err),
 		})
 		return
 	}
@@ -494,7 +494,7 @@ func (s *Server) handleAddWishlist(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 			"success": false,
-			"error":   err.Error(),
+			"error":   errString(err),
 		})
 		return
 	}
@@ -519,7 +519,7 @@ func (s *Server) handleDeleteWishlist(w http.ResponseWriter, r *http.Request) {
 	if err := s.db.DeleteWishlistItem(id); err != nil {
 		writeJSON(w, http.StatusNotFound, map[string]interface{}{
 			"success": false,
-			"error":   err.Error(),
+			"error":   errString(err),
 		})
 		return
 	}
