@@ -41,6 +41,7 @@ type Server struct {
 	rateLimiter    *RateLimiter
 	oidc           *OIDCHandler
 	metadataClient *metadata.Client
+	discover       *metadata.DiscoverService
 	organizer      *organize.Organizer
 	targets        *organize.LibraryTargets
 	webhookSender  *webhook.Sender
@@ -121,6 +122,14 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
 	}
+
+	// Discover (browse) reuses the same Open Library client instance as
+	// metadataClient rather than a second one, so both enrichment and
+	// browse search share one HTTP client and cache.
+	s.discover = metadata.NewDiscoverService(
+		metadata.NewGoogleBooksClient(&http.Client{Timeout: 15 * time.Second}, cfg.GoogleBooksAPIKey),
+		s.metadataClient,
+	)
 
 	// Initialize OIDC handler if configured.
 	s.oidc = NewOIDCHandler(cfg, database, sessions)
@@ -278,6 +287,12 @@ func (s *Server) registerSearchRoutes() {
 	s.mux.HandleFunc("GET /api/search/stream", s.handleSearchStream)
 	s.mux.HandleFunc("GET /api/search/audiobooks/stream", s.handleSearchAudiobooksStream)
 	s.mux.HandleFunc("GET /api/search/manga/stream", s.handleSearchMangaStream)
+
+	// Discover (browse) — catalog metadata search, distinct from indexer
+	// search above: these results aren't downloadable releases, they're
+	// what someone browses before deciding what to Request.
+	s.mux.HandleFunc("GET /api/discover/search", s.handleDiscoverSearch)
+	s.mux.HandleFunc("GET /api/discover/book/{source}/{id}", s.handleDiscoverDetail)
 }
 
 // registerDownloadRoutes wires download management and file uploads.

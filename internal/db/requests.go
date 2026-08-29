@@ -17,10 +17,10 @@ func (d *DB) CreateRequest(req *models.Request) error {
 	defer d.mu.Unlock()
 
 	_, err := d.db.Exec(
-		`INSERT INTO requests (id, user_id, username, title, author, book_type, status, cover_url, description, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO requests (id, user_id, username, title, author, book_type, status, cover_url, description, isbn, source, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		req.ID, req.UserID, req.Username, req.Title, req.Author, req.BookType,
-		req.Status, req.CoverURL, req.Description, req.Year,
+		req.Status, req.CoverURL, req.Description, req.ISBN, req.Source, req.Year,
 		req.SeriesName, req.SeriesPosition, req.SearchQuery,
 		req.SelectedResultID, req.DownloadID, req.AttentionNote,
 		boolToInt(req.AutoApproved), req.RetryCount,
@@ -29,10 +29,29 @@ func (d *DB) CreateRequest(req *models.Request) error {
 	return err
 }
 
+// FindActiveRequestByTitle looks up the most recent request matching a
+// title (case-insensitive), regardless of status - used to badge
+// already-requested items in the Discover UI so someone doesn't submit a
+// duplicate without realizing one is already in flight.
+func (d *DB) FindActiveRequestByTitle(title string) (*models.Request, bool, error) {
+	row := d.db.QueryRow(
+		`SELECT id, user_id, username, title, author, book_type, status, cover_url, description, isbn, source, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at
+		 FROM requests WHERE LOWER(title) = LOWER(?) ORDER BY created_at DESC LIMIT 1`, title,
+	)
+	req, err := scanRequest(row)
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return nil, false, nil
+		}
+		return nil, false, err
+	}
+	return req, true, nil
+}
+
 // GetRequest retrieves a request by ID.
 func (d *DB) GetRequest(id string) (*models.Request, error) {
 	row := d.db.QueryRow(
-		`SELECT id, user_id, username, title, author, book_type, status, cover_url, description, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at
+		`SELECT id, user_id, username, title, author, book_type, status, cover_url, description, isbn, source, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at
 		 FROM requests WHERE id = ?`, id,
 	)
 	return scanRequest(row)
@@ -41,7 +60,7 @@ func (d *DB) GetRequest(id string) (*models.Request, error) {
 // ListRequests returns requests filtered by optional user ID and status.
 // If userID is 0, all requests are returned (admin view).
 func (d *DB) ListRequests(userID int64, status string, limit, offset int) ([]models.Request, error) {
-	query := "SELECT id, user_id, username, title, author, book_type, status, cover_url, description, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at FROM requests"
+	query := "SELECT id, user_id, username, title, author, book_type, status, cover_url, description, isbn, source, year, series_name, series_position, search_query, selected_result_id, download_id, attention_note, auto_approved, retry_count, created_at, updated_at FROM requests"
 	var args []interface{}
 	var conditions []string
 
@@ -147,13 +166,13 @@ func (d *DB) DeleteRequest(id string) error {
 func scanRequest(row *sql.Row) (*models.Request, error) {
 	var req models.Request
 	var createdAt, updatedAt float64
-	var author, coverURL, description, year, seriesName, seriesPosition sql.NullString
+	var author, coverURL, description, isbn, source, year, seriesName, seriesPosition sql.NullString
 	var searchQuery, selectedResultID, downloadID, attentionNote sql.NullString
 	var autoApproved int
 
 	err := row.Scan(
 		&req.ID, &req.UserID, &req.Username, &req.Title, &author,
-		&req.BookType, &req.Status, &coverURL, &description, &year,
+		&req.BookType, &req.Status, &coverURL, &description, &isbn, &source, &year,
 		&seriesName, &seriesPosition, &searchQuery, &selectedResultID,
 		&downloadID, &attentionNote, &autoApproved, &req.RetryCount,
 		&createdAt, &updatedAt,
@@ -165,6 +184,8 @@ func scanRequest(row *sql.Row) (*models.Request, error) {
 	req.Author = nullStr(author)
 	req.CoverURL = nullStr(coverURL)
 	req.Description = nullStr(description)
+	req.ISBN = nullStr(isbn)
+	req.Source = nullStr(source)
 	req.Year = nullStr(year)
 	req.SeriesName = nullStr(seriesName)
 	req.SeriesPosition = nullStr(seriesPosition)
@@ -181,13 +202,13 @@ func scanRequest(row *sql.Row) (*models.Request, error) {
 func scanRequestFromRows(rows *sql.Rows) (*models.Request, error) {
 	var req models.Request
 	var createdAt, updatedAt float64
-	var author, coverURL, description, year, seriesName, seriesPosition sql.NullString
+	var author, coverURL, description, isbn, source, year, seriesName, seriesPosition sql.NullString
 	var searchQuery, selectedResultID, downloadID, attentionNote sql.NullString
 	var autoApproved int
 
 	err := rows.Scan(
 		&req.ID, &req.UserID, &req.Username, &req.Title, &author,
-		&req.BookType, &req.Status, &coverURL, &description, &year,
+		&req.BookType, &req.Status, &coverURL, &description, &isbn, &source, &year,
 		&seriesName, &seriesPosition, &searchQuery, &selectedResultID,
 		&downloadID, &attentionNote, &autoApproved, &req.RetryCount,
 		&createdAt, &updatedAt,
@@ -199,6 +220,8 @@ func scanRequestFromRows(rows *sql.Rows) (*models.Request, error) {
 	req.Author = nullStr(author)
 	req.CoverURL = nullStr(coverURL)
 	req.Description = nullStr(description)
+	req.ISBN = nullStr(isbn)
+	req.Source = nullStr(source)
 	req.Year = nullStr(year)
 	req.SeriesName = nullStr(seriesName)
 	req.SeriesPosition = nullStr(seriesPosition)

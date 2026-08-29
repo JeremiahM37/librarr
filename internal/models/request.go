@@ -13,6 +13,8 @@ type Request struct {
 	Status           string    `json:"status"`    // pending, approved, searching, downloading, processing, completed, failed, cancelled
 	CoverURL         string    `json:"cover_url,omitempty"`
 	Description      string    `json:"description,omitempty"`
+	ISBN             string    `json:"isbn,omitempty"`
+	Source           string    `json:"source,omitempty"` // discovery origin: google_books, open_library, or empty for a plain manual request
 	Year             string    `json:"year,omitempty"`
 	SeriesName       string    `json:"series_name,omitempty"`
 	SeriesPosition   string    `json:"series_position,omitempty"`

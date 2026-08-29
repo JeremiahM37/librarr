@@ -96,6 +96,20 @@
   </div>
 </div>
 
+<!-- Discover Book Detail Modal -->
+<div id="discover-modal" class="fixed inset-0 z-40 modal-backdrop hidden items-center justify-center p-4">
+  <div class="bg-slate-900 border border-slate-700 rounded-xl w-full max-w-lg mx-4 shadow-2xl max-h-[90vh] overflow-y-auto">
+    <div class="p-6">
+      <div class="flex items-start justify-between mb-4">
+        <div id="discover-modal-body" class="flex gap-4 flex-1"></div>
+        <button data-action="hideDiscoverModal" class="text-slate-500 hover:text-white text-2xl leading-none ml-3" aria-label="Close">&times;</button>
+      </div>
+      <p id="discover-modal-description" class="text-sm text-slate-400 whitespace-pre-line"></p>
+      <div id="discover-modal-actions" class="mt-5"></div>
+    </div>
+  </div>
+</div>
+
 <!-- Main App -->
 <div id="app" class="min-h-screen flex flex-col">
 
@@ -136,6 +150,9 @@
       <nav class="flex gap-1 -mb-px overflow-x-auto" id="main-nav">
         <button data-action="switchTab" data-arg="search" class="nav-tab active px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="search">
           <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg><span data-i18n="nav_search">Search</span>
+        </button>
+        <button data-action="switchTab" data-arg="discover" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="discover">
+          <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg><span data-i18n="nav_discover">Discover</span>
         </button>
         <button data-action="switchTab" data-arg="library" class="nav-tab px-4 py-2.5 text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors whitespace-nowrap" data-tab="library">
           <svg class="w-4 h-4 inline mr-1.5 -mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"/></svg><span data-i18n="nav_library">Library</span>
@@ -205,6 +222,37 @@
 
       <!-- Search spinner / loading more -->
       <div id="search-loading-more" class="hidden text-center py-4 text-slate-500 text-sm" data-i18n="loading">Loading...</div>
+    </div>
+
+    <!-- ==================== DISCOVER TAB ==================== -->
+    <!-- Browse catalog metadata (Google Books + Open Library) to find and
+         Request books, distinct from the Search tab above (which searches
+         indexers for downloadable releases of a book you already know you
+         want). -->
+    <div id="tab-discover" class="tab-content">
+      <!-- Search Bar -->
+      <div class="relative mb-6">
+        <svg class="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+        <input type="text" id="discover-input" class="w-full bg-slate-900 border border-slate-700 rounded-xl pl-12 pr-4 py-3 text-white placeholder-slate-500 focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 text-base" placeholder="Search for books to discover..." data-i18n-placeholder="discover_placeholder">
+        <div id="discover-spinner" class="absolute right-4 top-1/2 -translate-y-1/2 hidden">
+          <svg class="w-5 h-5 text-indigo-400 spin" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"/><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+        </div>
+      </div>
+
+      <!-- Empty state -->
+      <div id="discover-empty" class="text-center py-16">
+        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="discover_empty_title">Find your next read</h2>
+        <p class="text-slate-400" data-i18n="discover_empty_hint">Search by title or author to browse and request books</p>
+      </div>
+
+      <!-- No results -->
+      <div id="discover-no-results" class="hidden text-center py-16">
+        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="no_results">No results found</h2>
+        <p class="text-slate-400" data-i18n="no_results_hint">Try different keywords or check your spelling</p>
+      </div>
+
+      <!-- Results grid -->
+      <div id="discover-results" class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 mb-6"></div>
     </div>
 
     <!-- ==================== LIBRARY TAB ==================== -->

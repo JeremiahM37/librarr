@@ -35,6 +35,8 @@ func (s *Server) handleCreateRequest(w http.ResponseWriter, r *http.Request) {
 		BookType       string `json:"book_type"`
 		CoverURL       string `json:"cover_url"`
 		Description    string `json:"description"`
+		ISBN           string `json:"isbn"`
+		Source         string `json:"source"`
 		Year           string `json:"year"`
 		SeriesName     string `json:"series_name"`
 		SeriesPosition string `json:"series_position"`
@@ -90,6 +92,8 @@ func (s *Server) handleCreateRequest(w http.ResponseWriter, r *http.Request) {
 		Status:         "pending",
 		CoverURL:       req.CoverURL,
 		Description:    req.Description,
+		ISBN:           req.ISBN,
+		Source:         req.Source,
 		Year:           req.Year,
 		SeriesName:     req.SeriesName,
 		SeriesPosition: req.SeriesPosition,

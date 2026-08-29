@@ -187,6 +187,12 @@ func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookM
 		return
 	}
 
+	// Backfill title when the caller only had a work key to start from (the
+	// Discover detail lookup) rather than an already-known title from search.
+	if meta.Title == "" {
+		meta.Title = work.Title
+	}
+
 	// Description can be a string or an object with "value" key.
 	meta.Description = work.descriptionText()
 
@@ -240,6 +246,7 @@ type olSearchDoc struct {
 }
 
 type olWork struct {
+	Title       string      `json:"title"`
 	Description interface{} `json:"description"`
 	Subjects    []string    `json:"subjects"`
 	Links       []olLink    `json:"links"`

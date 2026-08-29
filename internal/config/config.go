@@ -53,6 +53,11 @@ type Config struct {
 	AnnasArchiveDomain    string
 	AnnasArchiveSecretKey string // AA account secret key for /dyn/api/fast_download.json
 
+	// Google Books (Discover/browse). Optional: unauthenticated volume search
+	// works without a key, just at a lower rate limit - this raises it, it
+	// does not gate the feature.
+	GoogleBooksAPIKey string
+
 	// Sources is the runtime indexer-endpoint registry. Drivers read URLs,
 	// mirrors, and per-site config from here instead of from hardcoded
 	// constants. Always non-nil after Load() returns.
@@ -318,6 +323,8 @@ func buildFromEnv() *Config {
 
 		AnnasArchiveDomain:    annasDomain,
 		AnnasArchiveSecretKey: firstNonEmpty(getEnv("ANNAS_ARCHIVE_SECRET_KEY", ""), getEnv("AA_DONATOR_KEY", "")),
+
+		GoogleBooksAPIKey: getEnv("GOOGLE_BOOKS_API_KEY", ""),
 
 		CircuitBreakerThreshold: getEnvInt("CIRCUIT_BREAKER_THRESHOLD", 3),
 		CircuitBreakerTimeout:   getEnvInt("CIRCUIT_BREAKER_TIMEOUT", 300),
@@ -599,6 +606,7 @@ func (c *Config) applySettingsFileOverrides() {
 		"calibre_library_path":      &c.CalibreLibraryPath,
 		"annas_archive_domain":      &c.AnnasArchiveDomain,
 		"annas_archive_secret_key":  &c.AnnasArchiveSecretKey,
+		"google_books_api_key":      &c.GoogleBooksAPIKey,
 		"ebook_dir":                 &c.EbookDir,
 		"audiobook_dir":             &c.AudiobookDir,
 		"manga_dir":                 &c.MangaDir,

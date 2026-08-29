@@ -309,6 +309,8 @@ func (d *DB) migrate() error {
 		`ALTER TABLE download_jobs ADD COLUMN source_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE activity_log ADD COLUMN user TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reading_history ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE requests ADD COLUMN isbn TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE requests ADD COLUMN source TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := d.db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {

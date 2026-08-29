@@ -64,6 +64,17 @@ const I18N = {
     search_empty_hint: 'Try searching by title, author, or ISBN',
     no_results: 'No results found',
     no_results_hint: 'Try different keywords or check your spelling',
+    nav_discover: 'Discover',
+    discover_placeholder: 'Search for books to discover...',
+    discover_empty_title: 'Find your next read',
+    discover_empty_hint: 'Search by title or author to browse and request books',
+    request_button: 'Request',
+    requesting: 'Requesting...',
+    requested_badge: 'Requested',
+    request_sent: '"{title}" requested',
+    request_failed: 'Request failed: {msg}',
+    already_requested: '"{title}" has already been requested',
+    discover_detail_error: 'Failed to load book details',
     download: 'Download',
     download_added: 'Added',
     download_failed_state: 'Failed',
@@ -272,6 +283,17 @@ const I18N = {
     search_empty_hint: 'Попробуйте искать по названию, автору или ISBN',
     no_results: 'Ничего не найдено',
     no_results_hint: 'Попробуйте другие ключевые слова или проверьте написание',
+    nav_discover: 'Обзор',
+    discover_placeholder: 'Найти книги для просмотра...',
+    discover_empty_title: 'Найдите свою следующую книгу',
+    discover_empty_hint: 'Ищите по названию или автору, чтобы просматривать и запрашивать книги',
+    request_button: 'Запросить',
+    requesting: 'Запрос...',
+    requested_badge: 'Запрошено',
+    request_sent: '«{title}» запрошено',
+    request_failed: 'Ошибка запроса: {msg}',
+    already_requested: '«{title}» уже запрошено',
+    discover_detail_error: 'Не удалось загрузить информацию о книге',
     download: 'Скачать',
     download_added: 'Добавлено',
     download_failed_state: 'Ошибка',
@@ -1697,6 +1719,210 @@ function stopDownloadPolling() {
 }
 
 // ============================================================
+// DISCOVER — browse catalog metadata (Google Books + Open Library) and
+// Request a book, distinct from the Search tab above (indexer search for
+// a book you already know you want).
+// ============================================================
+let discoverTimeout = null;
+let discoverAbort = null;
+let discoverGeneration = 0;
+state.discoverResults = [];
+state.discoverRequesting = new Set(); // source_id currently being requested
+
+document.getElementById('discover-input').addEventListener('input', (e) => {
+  clearTimeout(discoverTimeout);
+  const q = e.target.value.trim();
+  if (q.length < 2) return;
+  discoverTimeout = setTimeout(() => doDiscoverSearch(q), 300);
+});
+
+document.getElementById('discover-input').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    clearTimeout(discoverTimeout);
+    const q = e.target.value.trim();
+    if (q.length >= 1) doDiscoverSearch(q);
+  }
+});
+
+async function doDiscoverSearch(query) {
+  if (discoverAbort) discoverAbort.abort();
+  discoverAbort = new AbortController();
+  const gen = ++discoverGeneration;
+
+  document.getElementById('discover-spinner').classList.remove('hidden');
+  document.getElementById('discover-empty').classList.add('hidden');
+  document.getElementById('discover-no-results').classList.add('hidden');
+
+  try {
+    const data = await apiJson(`/api/discover/search?q=${encodeURIComponent(query)}`, { signal: discoverAbort.signal });
+    if (gen !== discoverGeneration) return; // a newer search superseded this one
+    state.discoverResults = data.results || [];
+    renderDiscoverResults();
+    document.getElementById('discover-no-results').classList.toggle('hidden', state.discoverResults.length > 0);
+  } catch (err) {
+    if (err.name === 'AbortError') return;
+    if (err.message !== 'Unauthorized') {
+      showToast(t('search_failed', { msg: err.message }), 'error');
+    }
+  } finally {
+    if (gen === discoverGeneration) {
+      document.getElementById('discover-spinner').classList.add('hidden');
+    }
+  }
+}
+
+function renderDiscoverResults() {
+  const container = document.getElementById('discover-results');
+  container.innerHTML = state.discoverResults.map((r, i) => renderDiscoverCard(r, i)).join('');
+}
+
+function renderDiscoverCard(result, index) {
+  const coverHtml = result.cover_url
+    ? `<img src="${escapeHtml(result.cover_url)}" alt="" class="w-full h-48 object-cover" loading="lazy">`
+    : makePlaceholderHtml(result.title || '?', index);
+
+  const ownedBadge = result.in_library
+    ? `<span class="absolute top-2 right-2 px-2 py-0.5 rounded text-xs font-medium bg-emerald-600 text-white">${escapeHtml(t('in_library'))}</span>`
+    : (result.requested
+      ? `<span class="absolute top-2 right-2 px-2 py-0.5 rounded text-xs font-medium bg-amber-600 text-white">${escapeHtml(t('requested_badge'))}</span>`
+      : '');
+
+  const srcLabel = result.source === 'google_books' ? 'Google Books' : 'Open Library';
+
+  return `
+    <div class="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 hover:border-slate-600 flex flex-col cursor-pointer" data-action="openDiscoverDetail" data-idx="${index}">
+      <div class="relative">
+        ${coverHtml}
+        <span class="absolute top-2 left-2 px-2 py-0.5 rounded text-xs font-medium bg-slate-700 text-slate-200">${escapeHtml(srcLabel)}</span>
+        ${ownedBadge}
+      </div>
+      <div class="p-3 flex-1 flex flex-col">
+        <h3 class="text-sm font-semibold text-white line-clamp-2 mb-1" title="${escapeHtml(result.title || '')}">${escapeHtml(result.title || 'Unknown')}</h3>
+        <p class="text-xs text-slate-400 line-clamp-1">${escapeHtml(result.author || '')}</p>
+      </div>
+    </div>`;
+}
+
+let discoverDetailAbort = null;
+
+function openDiscoverDetail(index) {
+  const result = state.discoverResults[index];
+  if (!result) return;
+  state.discoverDetailResult = result;
+  showDiscoverModal(result);
+
+  // The search result carries only summary fields (no description) - fetch
+  // the full detail in the background and merge it in once it lands, so the
+  // modal opens instantly instead of blocking on a network round-trip.
+  if (discoverDetailAbort) discoverDetailAbort.abort();
+  discoverDetailAbort = new AbortController();
+  const signal = discoverDetailAbort.signal;
+
+  apiJson(`/api/discover/book/${encodeURIComponent(result.source)}/${encodeURIComponent(result.source_id)}`, { signal })
+    .then(detail => {
+      if (signal.aborted || state.discoverDetailResult !== result) return; // modal moved on
+      Object.assign(result, detail);
+      showDiscoverModal(result);
+    })
+    .catch(err => {
+      if (err.name === 'AbortError') return;
+      if (err.message !== 'Unauthorized') {
+        showToast(t('discover_detail_error'), 'error');
+      }
+    });
+}
+
+function showDiscoverModal(result) {
+  const modal = document.getElementById('discover-modal');
+  modal.classList.remove('hidden');
+  modal.classList.add('flex');
+
+  const coverHtml = result.cover_url
+    ? `<img src="${escapeHtml(result.cover_url)}" alt="" class="w-24 h-36 object-cover rounded-lg shrink-0">`
+    : `<div class="w-24 h-36 rounded-lg shrink-0 bg-gradient-to-br from-indigo-600 to-purple-700 flex items-center justify-center text-2xl font-bold text-white">${escapeHtml((result.title || '?').charAt(0).toUpperCase())}</div>`;
+
+  const metaBits = [result.published_date, result.page_count ? `${result.page_count}p` : '', (result.categories || [])[0]]
+    .filter(Boolean).map(escapeHtml).join(' · ');
+
+  document.getElementById('discover-modal-body').innerHTML = `
+    ${coverHtml}
+    <div class="min-w-0">
+      <h2 class="text-lg font-bold text-white leading-tight mb-1">${escapeHtml(result.title || 'Unknown')}</h2>
+      <p class="text-sm text-slate-400 mb-1">${escapeHtml(result.author || '')}</p>
+      <p class="text-xs text-slate-500">${metaBits}</p>
+    </div>`;
+  document.getElementById('discover-modal-description').textContent = result.description || '';
+  renderDiscoverModalActions(result);
+}
+
+function renderDiscoverModalActions(result) {
+  const el = document.getElementById('discover-modal-actions');
+  if (result.in_library) {
+    el.innerHTML = `<span class="inline-block px-3 py-1.5 rounded-lg bg-emerald-600/20 text-emerald-400 text-sm font-medium">${escapeHtml(t('in_library'))}</span>`;
+    return;
+  }
+  if (result.requested) {
+    el.innerHTML = `<span class="inline-block px-3 py-1.5 rounded-lg bg-amber-600/20 text-amber-400 text-sm font-medium">${escapeHtml(t('requested_badge'))}</span>`;
+    return;
+  }
+  const key = `${result.source}:${result.source_id}`;
+  const requesting = state.discoverRequesting.has(key);
+  el.innerHTML = `
+    <button data-action="requestDiscoverBook" ${requesting ? 'disabled aria-busy="true"' : ''} class="w-full sm:w-auto px-4 py-2 rounded-lg text-sm font-medium transition-colors ${requesting ? 'bg-indigo-500/70 text-white cursor-not-allowed' : 'bg-indigo-600 hover:bg-indigo-500 text-white'}">
+      ${requesting ? escapeHtml(t('requesting')) : escapeHtml(t('request_button'))}
+    </button>`;
+}
+
+function hideDiscoverModal() {
+  if (discoverDetailAbort) discoverDetailAbort.abort();
+  const modal = document.getElementById('discover-modal');
+  modal.classList.add('hidden');
+  modal.classList.remove('flex');
+}
+
+async function requestDiscoverBook() {
+  const result = state.discoverDetailResult;
+  if (!result) return;
+  const key = `${result.source}:${result.source_id}`;
+  state.discoverRequesting.add(key);
+  renderDiscoverModalActions(result);
+
+  try {
+    const data = await apiJson('/api/requests', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: result.title,
+        author: result.author || '',
+        book_type: 'ebook',
+        cover_url: result.cover_url || '',
+        description: result.description || '',
+        isbn: result.isbn || '',
+        source: result.source,
+        year: result.published_date || '',
+      }),
+    });
+    if (data.success) {
+      result.requested = true;
+      result.request_id = data.request?.id;
+      showToast(t('request_sent', { title: result.title }), 'success');
+      // Reflect on the grid card too, not just the modal, without a re-search.
+      const idx = state.discoverResults.findIndex(r => r.source === result.source && r.source_id === result.source_id);
+      if (idx !== -1) {
+        state.discoverResults[idx].requested = true;
+        renderDiscoverResults();
+      }
+    }
+  } catch (err) {
+    if (err.message !== 'Unauthorized') {
+      showToast(t('request_failed', { msg: err.message }), 'error');
+    }
+  } finally {
+    state.discoverRequesting.delete(key);
+    renderDiscoverModalActions(result);
+  }
+}
+
+// ============================================================
 // LIBRARY
 // ============================================================
 let librarySearchTimeout = null;
@@ -2834,6 +3060,9 @@ const CLICK_ACTIONS = {
     if (r) startDownload(r);
   },
   retryDownload: el => retryDownload(el.dataset.jobId),
+  openDiscoverDetail: el => openDiscoverDetail(+el.dataset.idx),
+  hideDiscoverModal: () => hideDiscoverModal(),
+  requestDiscoverBook: () => requestDiscoverBook(),
   deleteLibraryItem: el => deleteLibraryItem(el.dataset.id, el.dataset.type, el.dataset.title),
   goLibraryPage: el => goLibraryPage(+el.dataset.page),
   searchWishlistItem: el => searchWishlistItem(el.dataset.title, el.dataset.mediaType),
