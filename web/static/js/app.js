@@ -717,7 +717,13 @@ function showLoginModal() {
     // First user creates admin (no invite needed). After that, invite code required.
     const regLink = document.getElementById('login-register-link');
     regLink.classList.remove('hidden');
-    if (!data.has_users) {
+    // has_users alone used to decide this, which meant a legacy
+    // AUTH_USERNAME/AUTH_PASSWORD operator (intentionally zero DB users)
+    // saw only the "create admin account" screen and had no way to reach a
+    // login form for the credentials they'd actually configured. Only
+    // default to first-run registration when there's truly nothing to log
+    // into yet.
+    if (!data.has_users && !data.legacy_auth_enabled) {
       // First-run: default to the register form with a welcome banner. The
       // login form has nothing to log into yet, so showing it first wastes a
       // click and hides the actual setup step behind a "Register" link.

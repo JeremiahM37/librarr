@@ -368,6 +368,13 @@ func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStor
 			"has_users":     userCount > 0,
 			"authenticated": false,
 			"oidc_enabled":  false,
+			// The frontend used has_users alone to decide between the
+			// first-run "create admin account" screen and a login form -
+			// with zero DB users, a legacy AUTH_USERNAME/AUTH_PASSWORD
+			// operator had no way to reach a login form at all, only ever
+			// seeing the registration screen. Exposing this lets it show
+			// the right one.
+			"legacy_auth_enabled": cfg != nil && cfg.HasAuth(),
 		}
 
 		// OIDC hints
