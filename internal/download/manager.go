@@ -83,9 +83,16 @@ func isActiveJobStatus(status string) bool {
 
 // StartAnnasDownload starts a background download from Anna's Archive.
 func (m *Manager) StartAnnasDownload(md5, title string) (*models.DownloadJob, error) {
+	return m.StartAnnasDownloadFor(md5, title, 0)
+}
+
+// StartAnnasDownloadFor is StartAnnasDownload for a grab that satisfies a
+// wanted-list row: the finished import links the row to the new file.
+func (m *Manager) StartAnnasDownloadFor(md5, title string, wantedID int64) (*models.DownloadJob, error) {
 	job := m.createJob(title, "annas", fmt.Sprintf("https://%s/md5/%s", m.cfg.AnnasArchiveDomain, md5))
 	job.MD5 = md5
 	job.MediaType = "ebook"
+	job.WantedID = wantedID
 
 	if err := m.db.SaveJob(job); err != nil {
 		return nil, err
@@ -152,6 +159,12 @@ func (m *Manager) StartNZBDownload(nzbURL, title, mediaType string) (string, err
 
 // StartDirectDownload starts a background download from a direct URL.
 func (m *Manager) StartDirectDownload(fileURL, title, source, sourceID, author string) (*models.DownloadJob, error) {
+	return m.StartDirectDownloadFor(fileURL, title, source, sourceID, author, 0)
+}
+
+// StartDirectDownloadFor is StartDirectDownload for a grab that satisfies a
+// wanted-list row (wantedID 0 means none).
+func (m *Manager) StartDirectDownloadFor(fileURL, title, source, sourceID, author string, wantedID int64) (*models.DownloadJob, error) {
 	// Validate at the single entry point shared by every caller (API download
 	// handler, request fulfillment, CSV import) so none can bypass the SSRF
 	// guard. Redirect hops and HTML-scraped follow-up URLs are re-validated
@@ -163,6 +176,7 @@ func (m *Manager) StartDirectDownload(fileURL, title, source, sourceID, author s
 	job := m.createJob(title, source, fileURL)
 	job.MediaType = "ebook"
 	job.SourceID = sourceID
+	job.WantedID = wantedID
 
 	if err := m.db.SaveJob(job); err != nil {
 		return nil, err
@@ -238,7 +252,15 @@ func (m *Manager) updateJob(job *models.DownloadJob, status, detail, errMsg stri
 	job.Detail = detail
 	job.Error = errMsg
 	job.UpdatedAt = time.Now()
-	_ = m.db.UpdateJobStatus(job.ID, status, detail, errMsg)
+	if err := m.db.UpdateJobStatus(job.ID, status, detail, errMsg); err != nil {
+		slog.Error("job status not persisted", "job_id", job.ID, "status", status, "error", err)
+	}
+
+	// A grab that failed for good no longer counts as "in flight" for the
+	// wanted row it served, so the next scheduler pass can try again.
+	if job.WantedID != 0 && (status == "error" || status == "dead_letter") {
+		_ = m.db.SetWishlistActiveJob(job.WantedID, "")
+	}
 }
 
 // setJobProgress updates a job's progress detail under the manager lock. The
@@ -352,17 +374,21 @@ func (m *Manager) runAnnasDownload(job *models.DownloadJob) {
 	}
 
 	// Record in library.
-	_, _ = m.db.AddItem(&models.LibraryItem{
+	outcome, err := m.db.AddItemWithOutcome(&models.LibraryItem{
 		Title:        job.Title,
 		Author:       author,
 		FilePath:     destPath,
 		OriginalPath: filePath,
 		FileSize:     fileSize,
-		FileFormat:   "epub",
+		FileFormat:   importedFormat(destPath),
 		MediaType:    "ebook",
 		Source:       "annas",
 		SourceID:     downloadedMD5,
 	})
+	if err != nil {
+		slog.Error("library record failed after import", "job_id", job.ID, "title", job.Title, "path", destPath, "error", err)
+	}
+	m.wantedImported(job, outcome)
 
 	// Trigger library imports.
 	if m.targets != nil {
@@ -442,17 +468,21 @@ func (m *Manager) runDirectDownload(job *models.DownloadJob, fileURL, sourceID, 
 		destPath = filePath
 	}
 
-	_, _ = m.db.AddItem(&models.LibraryItem{
+	outcome, err := m.db.AddItemWithOutcome(&models.LibraryItem{
 		Title:        job.Title,
 		Author:       author,
 		FilePath:     destPath,
 		OriginalPath: filePath,
 		FileSize:     fileSize,
-		FileFormat:   "epub",
+		FileFormat:   importedFormat(destPath),
 		MediaType:    "ebook",
 		Source:       job.Source,
 		SourceID:     job.SourceID,
 	})
+	if err != nil {
+		slog.Error("library record failed after import", "job_id", job.ID, "title", job.Title, "path", destPath, "error", err)
+	}
+	m.wantedImported(job, outcome)
 
 	// Trigger library imports.
 	if m.targets != nil {

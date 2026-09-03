@@ -359,6 +359,23 @@ func (d *DB) FindByTitle(title string) ([]models.LibraryItem, error) {
 	return scanLibraryItems(rows)
 }
 
+// GetItem returns one library item by ID, or sql.ErrNoRows.
+func (d *DB) GetItem(id int64) (*models.LibraryItem, error) {
+	rows, err := d.db.Query("SELECT "+libraryItemColumns+" FROM library_items WHERE id = ?", id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items, err := scanLibraryItems(rows)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, sql.ErrNoRows
+	}
+	return &items[0], nil
+}
+
 // GetItems returns a paginated list of library items, newest first.
 func (d *DB) GetItems(mediaType string, limit, offset int) ([]models.LibraryItem, error) {
 	var rows *sql.Rows

@@ -2,12 +2,18 @@
   "openapi": "3.1.0",
   "info": {
     "title": "Librarr API",
-    "description": "Self-hosted book, audiobook, and manga search and download manager — the *arr for books. The HTTP/JSON API powers both the SPA and any external tooling (CLI scripts, AI agents, *arr-family integrations).",
+    "description": "Self-hosted book, audiobook, and manga search and download manager \u2014 the *arr for books. The HTTP/JSON API powers both the SPA and any external tooling (CLI scripts, AI agents, *arr-family integrations).",
     "version": "1.x",
-    "license": {"name": "MIT", "identifier": "MIT"}
+    "license": {
+      "name": "MIT",
+      "identifier": "MIT"
+    }
   },
   "servers": [
-    {"url": "http://localhost:5050", "description": "Default local install"}
+    {
+      "url": "http://localhost:5050",
+      "description": "Default local install"
+    }
   ],
   "components": {
     "securitySchemes": {
@@ -27,64 +33,156 @@
     "schemas": {
       "Error": {
         "type": "object",
-        "required": ["success", "error"],
+        "required": [
+          "success",
+          "error"
+        ],
         "properties": {
-          "success": {"type": "boolean", "enum": [false]},
-          "error":   {"type": "string"}
+          "success": {
+            "type": "boolean",
+            "enum": [
+              false
+            ]
+          },
+          "error": {
+            "type": "string"
+          }
         }
       },
       "SearchResult": {
         "type": "object",
-        "description": "A single search hit. Fields are populated per driver — direct-download drivers omit seeders/leechers; torrent drivers usually omit MD5.",
+        "description": "A single search hit. Fields are populated per driver \u2014 direct-download drivers omit seeders/leechers; torrent drivers usually omit MD5.",
         "properties": {
-          "title":        {"type": "string"},
-          "author":       {"type": "string"},
-          "source":       {"type": "string", "description": "Driver identifier (e.g. annas, gutenberg, prowlarr)."},
-          "size":         {"type": "integer", "format": "int64"},
-          "size_human":   {"type": "string"},
-          "seeders":      {"type": "integer"},
-          "leechers":     {"type": "integer"},
-          "magnet_url":   {"type": "string"},
-          "download_url": {"type": "string", "format": "uri"},
-          "md5":          {"type": "string"},
-          "info_hash":    {"type": "string"},
-          "url":          {"type": "string", "format": "uri"},
-          "cover_url":    {"type": "string", "format": "uri"},
-          "format":       {"type": "string", "description": "epub, pdf, mobi, mp3, m4b, cbz, etc."},
-          "score":        {"type": "integer", "description": "0-100 confidence score."},
-          "media_type":   {"type": "string", "enum": ["ebook", "audiobook", "manga"]}
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "source": {
+            "type": "string",
+            "description": "Driver identifier (e.g. annas, gutenberg, prowlarr)."
+          },
+          "size": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "size_human": {
+            "type": "string"
+          },
+          "seeders": {
+            "type": "integer"
+          },
+          "leechers": {
+            "type": "integer"
+          },
+          "magnet_url": {
+            "type": "string"
+          },
+          "download_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "md5": {
+            "type": "string"
+          },
+          "info_hash": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "cover_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "format": {
+            "type": "string",
+            "description": "epub, pdf, mobi, mp3, m4b, cbz, etc."
+          },
+          "score": {
+            "type": "integer",
+            "description": "0-100 confidence score."
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ebook",
+              "audiobook",
+              "manga"
+            ]
+          }
         }
       },
       "WishlistItem": {
         "type": "object",
-        "required": ["title"],
+        "required": [
+          "title"
+        ],
         "properties": {
-          "id":         {"type": "integer", "format": "int64"},
-          "title":      {"type": "string"},
-          "author":     {"type": "string"},
-          "media_type": {"type": "string", "enum": ["ebook", "audiobook", "manga"]}
+          "id": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "title": {
+            "type": "string"
+          },
+          "author": {
+            "type": "string"
+          },
+          "media_type": {
+            "type": "string",
+            "enum": [
+              "ebook",
+              "audiobook",
+              "manga"
+            ]
+          }
         }
       },
       "PaginatedList": {
         "type": "object",
         "description": "Standard list response shape used across /api/library, /api/activity, etc.",
         "properties": {
-          "items":  {"type": "array", "items": {"type": "object"}},
-          "total":  {"type": "integer"},
-          "limit":  {"type": "integer"},
-          "offset": {"type": "integer"}
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            }
+          },
+          "total": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          }
         }
       }
     }
   },
-  "security": [{"apiKey": []}, {"session": []}],
+  "security": [
+    {
+      "apiKey": []
+    },
+    {
+      "session": []
+    }
+  ],
   "paths": {
     "/api/health": {
       "get": {
         "summary": "Health check",
         "description": "Liveness probe. Returns 200 if the binary is running. No auth required.",
         "security": [],
-        "responses": {"200": {"description": "OK"}}
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
       }
     },
     "/api/openapi.json": {
@@ -95,25 +193,66 @@
         "responses": {
           "200": {
             "description": "OpenAPI 3.1 document",
-            "content": {"application/json": {"schema": {"type": "object"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object"
+                }
+              }
+            }
           }
         }
       }
     },
     "/api/auth/status": {
-      "get": {"summary": "Current auth state"}
+      "get": {
+        "summary": "Current auth state"
+      }
     },
-    "/api/login":  {"post": {"summary": "Session login", "security": []}},
-    "/api/login/totp": {"post": {"summary": "TOTP 2FA verification step", "security": []}},
-    "/api/logout": {"post": {"summary": "End session"}},
-    "/api/register": {"post": {"summary": "Register new user (requires invite code when configured)", "security": []}},
-
+    "/api/login": {
+      "post": {
+        "summary": "Session login",
+        "security": []
+      }
+    },
+    "/api/login/totp": {
+      "post": {
+        "summary": "TOTP 2FA verification step",
+        "security": []
+      }
+    },
+    "/api/logout": {
+      "post": {
+        "summary": "End session"
+      }
+    },
+    "/api/register": {
+      "post": {
+        "summary": "Register new user (requires invite code when configured)",
+        "security": []
+      }
+    },
     "/api/search": {
       "get": {
         "summary": "Search ebooks across all configured sources",
         "parameters": [
-          {"name": "q",      "in": "query", "required": true,  "schema": {"type": "string"}, "description": "Search query."},
-          {"name": "author", "in": "query", "required": false, "schema": {"type": "string"}}
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            },
+            "description": "Search query."
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ],
         "responses": {
           "200": {
@@ -123,9 +262,21 @@
                 "schema": {
                   "type": "object",
                   "properties": {
-                    "results":        {"type": "array", "items": {"$ref": "#/components/schemas/SearchResult"}},
-                    "search_time_ms": {"type": "integer"},
-                    "sources":        {"type": "array", "items": {"type": "object"}}
+                    "results": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/SearchResult"
+                      }
+                    },
+                    "search_time_ms": {
+                      "type": "integer"
+                    },
+                    "sources": {
+                      "type": "array",
+                      "items": {
+                        "type": "object"
+                      }
+                    }
                   }
                 }
               }
@@ -138,162 +289,649 @@
       "get": {
         "summary": "Search audiobooks",
         "parameters": [
-          {"name": "q",      "in": "query", "required": true,  "schema": {"type": "string"}},
-          {"name": "author", "in": "query", "required": false, "schema": {"type": "string"}}
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
         ]
       }
     },
     "/api/search/manga": {
       "get": {
         "summary": "Search manga",
-        "parameters": [{"name": "q", "in": "query", "required": true, "schema": {"type": "string"}}]
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ]
       }
     },
-
     "/api/sources": {
       "get": {
         "summary": "List configured search sources + health",
         "description": "Returns each registered driver with enabled state, circuit-breaker status, last success/fail counters. Useful for AI agents debugging why a source isn't returning results."
       }
     },
-
     "/api/library": {
       "get": {
         "summary": "List ebooks in the library",
         "parameters": [
-          {"name": "limit",  "in": "query", "schema": {"type": "integer", "minimum": 1, "maximum": 500, "default": 50}},
-          {"name": "offset", "in": "query", "schema": {"type": "integer", "minimum": 0, "default": 0}},
-          {"name": "type",   "in": "query", "schema": {"type": "string", "enum": ["ebook", "audiobook", "manga"]}},
-          {"name": "tag",    "in": "query", "schema": {"type": "string"}, "description": "Filter by tag name."}
+          {
+            "name": "limit",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 500,
+              "default": 50
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "default": 0
+            }
+          },
+          {
+            "name": "type",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "ebook",
+                "audiobook",
+                "manga"
+              ]
+            }
+          },
+          {
+            "name": "tag",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Filter by tag name."
+          }
         ],
         "responses": {
           "200": {
             "description": "Paginated library items",
-            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/PaginatedList"}}}
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PaginatedList"
+                }
+              }
+            }
           }
         }
       }
     },
-    "/api/library/audiobooks": {"get": {"summary": "List audiobooks (proxied from Audiobookshelf when configured)"}},
-    "/api/library/manga":      {"get": {"summary": "List manga"}},
-    "/api/library/book/{id}":      {"delete": {"summary": "Remove an ebook from the library", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]}},
-    "/api/library/audiobook/{id}": {"delete": {"summary": "Remove an audiobook", "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]}},
-    "/api/library/{id}/tags":      {"get":  {"summary": "List tags for a library item"}, "post": {"summary": "Add a tag to a library item"}},
-    "/api/library/{id}/tags/{tagId}": {"delete": {"summary": "Remove a tag from a library item"}},
-
+    "/api/library/audiobooks": {
+      "get": {
+        "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
+      }
+    },
+    "/api/library/manga": {
+      "get": {
+        "summary": "List manga"
+      }
+    },
+    "/api/library/book/{id}": {
+      "delete": {
+        "summary": "Remove an ebook from the library",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/library/audiobook/{id}": {
+      "delete": {
+        "summary": "Remove an audiobook",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/library/{id}/tags": {
+      "get": {
+        "summary": "List tags for a library item"
+      },
+      "post": {
+        "summary": "Add a tag to a library item"
+      }
+    },
+    "/api/library/{id}/tags/{tagId}": {
+      "delete": {
+        "summary": "Remove a tag from a library item"
+      }
+    },
     "/api/wishlist": {
-      "get":  {"summary": "List wishlist items"},
+      "get": {
+        "summary": "List wishlist items"
+      },
       "post": {
         "summary": "Add a wishlist item",
         "requestBody": {
           "required": true,
-          "content": {"application/json": {"schema": {"$ref": "#/components/schemas/WishlistItem"}}}
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WishlistItem"
+              }
+            }
+          }
         },
         "responses": {
-          "201": {"description": "Created"},
-          "400": {"description": "Validation error", "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}}}
+          "201": {
+            "description": "Created"
+          },
+          "400": {
+            "description": "Validation error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Error"
+                }
+              }
+            }
+          }
         }
       }
     },
     "/api/wishlist/{id}": {
       "delete": {
         "summary": "Delete a wishlist item",
-        "parameters": [{"name": "id", "in": "path", "required": true, "schema": {"type": "integer"}}]
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      },
+      "patch": {
+        "summary": "Update a wanted item (monitored flag, quality profile)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "monitored": {
+                    "type": "boolean"
+                  },
+                  "quality_profile_id": {
+                    "type": "integer",
+                    "description": "0 selects the built-in default for the item's media type"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated item with derived state"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
       }
     },
-
     "/api/requests": {
-      "get":  {"summary": "List requests"},
-      "post": {"summary": "Create a request"}
+      "get": {
+        "summary": "List requests"
+      },
+      "post": {
+        "summary": "Create a request"
+      }
     },
-    "/api/requests/{id}":          {"get": {"summary": "Get a request"}, "delete": {"summary": "Delete a request"}},
-    "/api/requests/{id}/search":   {"post": {"summary": "Trigger a search for a request"}},
-    "/api/requests/{id}/download": {"post": {"summary": "Trigger a download for a request"}},
-
+    "/api/requests/{id}": {
+      "get": {
+        "summary": "Get a request"
+      },
+      "delete": {
+        "summary": "Delete a request"
+      }
+    },
+    "/api/requests/{id}/search": {
+      "post": {
+        "summary": "Trigger a search for a request"
+      }
+    },
+    "/api/requests/{id}/download": {
+      "post": {
+        "summary": "Trigger a download for a request"
+      }
+    },
     "/api/downloads": {
-      "get": {"summary": "List active and recent downloads"}
+      "get": {
+        "summary": "List active and recent downloads"
+      }
     },
-    "/api/downloads/torrent/{hash}": {"delete": {"summary": "Remove a torrent download"}},
-    "/api/downloads/novel/{jobID}":  {"delete": {"summary": "Remove a novel download job"}},
-    "/api/downloads/jobs/{id}/retry": {"post": {"summary": "Retry a failed download"}},
-    "/api/downloads/clear":           {"post": {"summary": "Clear finished downloads"}},
-
-    "/api/quality-profiles":       {"get": {"summary": "List quality profiles"}, "post": {"summary": "Create quality profile"}},
-    "/api/quality-profiles/{id}":  {"delete": {"summary": "Delete quality profile"}},
-    "/api/quality-profiles/default": {"get": {"summary": "Default profile"}},
-    "/api/release-profiles":       {"get": {"summary": "List release profiles"}, "post": {"summary": "Create"}},
-    "/api/release-profiles/{id}":  {"delete": {"summary": "Delete release profile"}},
-    "/api/blocklist":              {"get": {"summary": "List blocklist entries"}, "post": {"summary": "Add an entry"}},
-    "/api/blocklist/{id}":         {"delete": {"summary": "Remove an entry"}},
-    "/api/tags":                   {"get": {"summary": "List tags"}, "post": {"summary": "Create a tag"}},
-    "/api/tags/{id}":              {"delete": {"summary": "Delete a tag"}},
-
-    "/api/users":                  {"get": {"summary": "List users (admin only)"}},
-    "/api/users/{id}":             {
-      "patch":  {"summary": "Update user role/status (admin only)"},
-      "delete": {"summary": "Delete user (admin only). Refuses to delete the last admin (HTTP 409)."}
+    "/api/downloads/torrent/{hash}": {
+      "delete": {
+        "summary": "Remove a torrent download"
+      }
     },
-    "/api/invites":                {"get": {"summary": "List invites (admin)"}, "post": {"summary": "Create invite (admin)"}},
-    "/api/invites/{id}":           {"delete": {"summary": "Revoke invite (admin)"}},
-
-    "/api/totp/setup":   {"post": {"summary": "Generate TOTP secret + QR code"}},
-    "/api/totp/verify":  {"post": {"summary": "Verify TOTP code and enable 2FA"}},
-    "/api/totp/disable": {"post": {"summary": "Disable TOTP"}},
-    "/api/totp/status":  {"get":  {"summary": "Check if TOTP is enabled"}},
-
-    "/api/notifications":              {"get": {"summary": "List notifications"}},
-    "/api/notifications/{id}":         {"delete": {"summary": "Delete notification"}},
-    "/api/notifications/{id}/read":    {"put": {"summary": "Mark as read"}},
-    "/api/notifications/read-all":     {"put": {"summary": "Mark all as read"}},
-    "/api/notifications/unread":       {"get": {"summary": "Unread count"}},
-
-    "/api/webhooks":      {"get": {"summary": "List webhooks"}, "post": {"summary": "Create webhook"}},
-    "/api/webhooks/{id}": {"delete": {"summary": "Delete webhook"}},
-    "/api/webhooks/test": {"post": {"summary": "Send a test payload"}},
-
-    "/api/stats":    {"get": {"summary": "Library statistics"}},
-    "/api/activity": {"get": {"summary": "Recent activity log"}},
-    "/api/history":  {"get": {"summary": "Reading history"}},
-    "/api/history/{id}":   {"delete": {"summary": "Delete history entry"}},
-    "/api/history/stats":  {"get": {"summary": "Reading-history statistics"}},
-
-    "/api/authors":         {"get": {"summary": "List monitored authors"}},
-    "/api/authors/{id}":    {"delete": {"summary": "Unmonitor an author"}},
-    "/api/series":          {"get": {"summary": "List series with completeness"}},
-    "/api/series/{name}/missing": {"get": {"summary": "Missing volumes in a series"}},
-
-    "/api/settings":           {"get": {"summary": "Get configuration"}, "post": {"summary": "Update configuration (admin)"}},
-    "/api/config":             {"get": {"summary": "Public-safe config subset"}},
-    "/api/scheduler/status":   {"get": {"summary": "Wishlist scheduler status"}},
-    "/api/admin/dashboard":    {"get": {"summary": "Admin dashboard data"}},
-    "/api/admin/health":       {"get": {"summary": "Admin health summary"}},
-    "/api/admin/activity":     {"get": {"summary": "Admin-level activity log"}},
-    "/api/admin/bulk/retry":   {"post": {"summary": "Bulk retry failed downloads"}},
-    "/api/admin/bulk/cancel":  {"post": {"summary": "Bulk cancel active downloads"}},
-    "/api/backup":             {"get": {"summary": "Download a database backup"}},
-    "/api/backup/list":        {"get": {"summary": "List existing backups"}},
-    "/api/restore":            {"post": {"summary": "Restore from a backup file (admin)"}},
-
-    "/api/import/csv":         {"post": {"summary": "Import wishlist from a Goodreads/StoryGraph CSV"}},
-    "/api/import/goodreads":   {"post": {"summary": "Import Goodreads shelves"}},
-    "/api/import/storygraph":  {"post": {"summary": "Import StoryGraph reading list"}},
-    "/api/export/library":     {"get": {"summary": "Export library as JSON/CSV"}},
-    "/api/export/wishlist":    {"get": {"summary": "Export wishlist as JSON/CSV"}},
-    "/api/export/requests":    {"get": {"summary": "Export requests as JSON/CSV"}},
-
+    "/api/downloads/novel/{jobID}": {
+      "delete": {
+        "summary": "Remove a novel download job"
+      }
+    },
+    "/api/downloads/jobs/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed download"
+      }
+    },
+    "/api/downloads/clear": {
+      "post": {
+        "summary": "Clear finished downloads"
+      }
+    },
+    "/api/quality-profiles": {
+      "get": {
+        "summary": "List quality profiles"
+      },
+      "post": {
+        "summary": "Create quality profile"
+      }
+    },
+    "/api/quality-profiles/{id}": {
+      "delete": {
+        "summary": "Delete quality profile"
+      }
+    },
+    "/api/quality-profiles/default": {
+      "get": {
+        "summary": "Default profile"
+      }
+    },
+    "/api/release-profiles": {
+      "get": {
+        "summary": "List release profiles"
+      },
+      "post": {
+        "summary": "Create"
+      }
+    },
+    "/api/release-profiles/{id}": {
+      "delete": {
+        "summary": "Delete release profile"
+      }
+    },
+    "/api/blocklist": {
+      "get": {
+        "summary": "List blocklist entries"
+      },
+      "post": {
+        "summary": "Add an entry"
+      }
+    },
+    "/api/blocklist/{id}": {
+      "delete": {
+        "summary": "Remove an entry"
+      }
+    },
+    "/api/tags": {
+      "get": {
+        "summary": "List tags"
+      },
+      "post": {
+        "summary": "Create a tag"
+      }
+    },
+    "/api/tags/{id}": {
+      "delete": {
+        "summary": "Delete a tag"
+      }
+    },
+    "/api/users": {
+      "get": {
+        "summary": "List users (admin only)"
+      }
+    },
+    "/api/users/{id}": {
+      "patch": {
+        "summary": "Update user role/status (admin only)"
+      },
+      "delete": {
+        "summary": "Delete user (admin only). Refuses to delete the last admin (HTTP 409)."
+      }
+    },
+    "/api/invites": {
+      "get": {
+        "summary": "List invites (admin)"
+      },
+      "post": {
+        "summary": "Create invite (admin)"
+      }
+    },
+    "/api/invites/{id}": {
+      "delete": {
+        "summary": "Revoke invite (admin)"
+      }
+    },
+    "/api/totp/setup": {
+      "post": {
+        "summary": "Generate TOTP secret + QR code"
+      }
+    },
+    "/api/totp/verify": {
+      "post": {
+        "summary": "Verify TOTP code and enable 2FA"
+      }
+    },
+    "/api/totp/disable": {
+      "post": {
+        "summary": "Disable TOTP"
+      }
+    },
+    "/api/totp/status": {
+      "get": {
+        "summary": "Check if TOTP is enabled"
+      }
+    },
+    "/api/notifications": {
+      "get": {
+        "summary": "List notifications"
+      }
+    },
+    "/api/notifications/{id}": {
+      "delete": {
+        "summary": "Delete notification"
+      }
+    },
+    "/api/notifications/{id}/read": {
+      "put": {
+        "summary": "Mark as read"
+      }
+    },
+    "/api/notifications/read-all": {
+      "put": {
+        "summary": "Mark all as read"
+      }
+    },
+    "/api/notifications/unread": {
+      "get": {
+        "summary": "Unread count"
+      }
+    },
+    "/api/webhooks": {
+      "get": {
+        "summary": "List webhooks"
+      },
+      "post": {
+        "summary": "Create webhook"
+      }
+    },
+    "/api/webhooks/{id}": {
+      "delete": {
+        "summary": "Delete webhook"
+      }
+    },
+    "/api/webhooks/test": {
+      "post": {
+        "summary": "Send a test payload"
+      }
+    },
+    "/api/stats": {
+      "get": {
+        "summary": "Library statistics"
+      }
+    },
+    "/api/activity": {
+      "get": {
+        "summary": "Recent activity log"
+      }
+    },
+    "/api/history": {
+      "get": {
+        "summary": "Reading history"
+      }
+    },
+    "/api/history/{id}": {
+      "delete": {
+        "summary": "Delete history entry"
+      }
+    },
+    "/api/history/stats": {
+      "get": {
+        "summary": "Reading-history statistics"
+      }
+    },
+    "/api/authors": {
+      "get": {
+        "summary": "List monitored authors"
+      }
+    },
+    "/api/authors/{id}": {
+      "delete": {
+        "summary": "Unmonitor an author"
+      },
+      "patch": {
+        "summary": "Update a monitored author (check interval, auto-add to wanted list) (admin)",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "check_interval_days": {
+                    "type": "integer"
+                  },
+                  "auto_add": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated author"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/series": {
+      "get": {
+        "summary": "List series with completeness"
+      }
+    },
+    "/api/series/{name}/missing": {
+      "get": {
+        "summary": "Missing volumes in a series"
+      }
+    },
+    "/api/settings": {
+      "get": {
+        "summary": "Get configuration"
+      },
+      "post": {
+        "summary": "Update configuration (admin)"
+      }
+    },
+    "/api/config": {
+      "get": {
+        "summary": "Public-safe config subset"
+      }
+    },
+    "/api/scheduler/status": {
+      "get": {
+        "summary": "Wishlist scheduler status"
+      }
+    },
+    "/api/admin/dashboard": {
+      "get": {
+        "summary": "Admin dashboard data"
+      }
+    },
+    "/api/admin/health": {
+      "get": {
+        "summary": "Admin health summary"
+      }
+    },
+    "/api/admin/activity": {
+      "get": {
+        "summary": "Admin-level activity log"
+      }
+    },
+    "/api/admin/bulk/retry": {
+      "post": {
+        "summary": "Bulk retry failed downloads"
+      }
+    },
+    "/api/admin/bulk/cancel": {
+      "post": {
+        "summary": "Bulk cancel active downloads"
+      }
+    },
+    "/api/backup": {
+      "get": {
+        "summary": "Download a database backup"
+      }
+    },
+    "/api/backup/list": {
+      "get": {
+        "summary": "List existing backups"
+      }
+    },
+    "/api/restore": {
+      "post": {
+        "summary": "Restore from a backup file (admin)"
+      }
+    },
+    "/api/import/csv": {
+      "post": {
+        "summary": "Import wishlist from a Goodreads/StoryGraph CSV"
+      }
+    },
+    "/api/import/goodreads": {
+      "post": {
+        "summary": "Import Goodreads shelves"
+      }
+    },
+    "/api/import/storygraph": {
+      "post": {
+        "summary": "Import StoryGraph reading list"
+      }
+    },
+    "/api/export/library": {
+      "get": {
+        "summary": "Export library as JSON/CSV"
+      }
+    },
+    "/api/export/wishlist": {
+      "get": {
+        "summary": "Export wishlist as JSON/CSV"
+      }
+    },
+    "/api/export/requests": {
+      "get": {
+        "summary": "Export requests as JSON/CSV"
+      }
+    },
     "/torznab/api": {
       "get": {
         "summary": "Torznab indexer API",
         "description": "Lets Prowlarr / Readarr / other *arr apps use Librarr as a Torznab indexer.",
         "parameters": [
-          {"name": "t",      "in": "query", "schema": {"type": "string", "enum": ["caps", "search", "book", "audio"]}},
-          {"name": "q",      "in": "query", "schema": {"type": "string"}},
-          {"name": "title",  "in": "query", "schema": {"type": "string"}},
-          {"name": "author", "in": "query", "schema": {"type": "string"}},
-          {"name": "apikey", "in": "query", "schema": {"type": "string"}, "description": "Required when TORZNAB_API_KEY is set."}
+          {
+            "name": "t",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "caps",
+                "search",
+                "book",
+                "audio"
+              ]
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "title",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "author",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "apikey",
+            "in": "query",
+            "schema": {
+              "type": "string"
+            },
+            "description": "Required when TORZNAB_API_KEY is set."
+          }
         ],
         "responses": {
-          "200": {"description": "Torznab XML (RSS feed or caps document)", "content": {"application/xml": {}}}
+          "200": {
+            "description": "Torznab XML (RSS feed or caps document)",
+            "content": {
+              "application/xml": {}
+            }
+          }
         }
       }
     },
@@ -308,11 +946,72 @@
         "summary": "OPDS 1.2 catalog root",
         "description": "Browse your library from e-reader apps (KOReader, Moon+ Reader, Librera).",
         "security": [],
-        "responses": {"200": {"description": "Atom feed", "content": {"application/atom+xml": {}}}}
+        "responses": {
+          "200": {
+            "description": "Atom feed",
+            "content": {
+              "application/atom+xml": {}
+            }
+          }
+        }
       }
     },
     "/metrics": {
-      "get": {"summary": "Prometheus metrics", "security": []}
+      "get": {
+        "summary": "Prometheus metrics",
+        "security": []
+      }
+    },
+    "/api/wishlist/{id}/search": {
+      "post": {
+        "summary": "Run the quality-profile decision for one wanted item now (admin). Body {\"dry_run\": true} explains every candidate without grabbing.",
+        "requestBody": {
+          "required": false,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "dry_run": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Outcome: action (skipped|searched|matched|grabbed|upgrade|error), reason, candidate decisions"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
+    },
+    "/api/quality-profiles/formats": {
+      "get": {
+        "summary": "Known file formats per media type, for the profile editor",
+        "responses": {
+          "200": {
+            "description": "OK"
+          }
+        }
+      }
+    },
+    "/api/authors/{id}/check": {
+      "post": {
+        "summary": "Check one monitored author against Open Library now (admin). The first check records a baseline; later checks add new works to the wanted list when auto_add is on.",
+        "responses": {
+          "200": {
+            "description": "Check result: baseline, new titles, added count"
+          },
+          "404": {
+            "description": "Not found"
+          }
+        }
+      }
     }
   }
 }

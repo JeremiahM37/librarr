@@ -239,6 +239,16 @@ func extractContentWords(s string) []string {
 
 var formatTokenRe = regexp.MustCompile(`(?i)(?:^|[^a-z0-9])(epub|mobi|pdf|azw3|cbz|cbr|djvu|fb2|m4b|mp3|m4a|aac|flac|ogg|zip)(?:$|[^a-z0-9])`)
 
+// DetectFormat returns the release's file format in lower case: the source's
+// explicit Format field when present, otherwise a standalone token in the
+// title ("[EPUB]", ".pdf"). It returns "" when neither says.
+func DetectFormat(result models.SearchResult) string {
+	if f := strings.ToLower(strings.TrimPrefix(strings.TrimSpace(result.Format), ".")); f != "" {
+		return f
+	}
+	return extractFormatFromTitle(result.Title)
+}
+
 // extractFormatFromTitle finds a standalone file format token in a release title.
 func extractFormatFromTitle(title string) string {
 	match := formatTokenRe.FindStringSubmatch(title)

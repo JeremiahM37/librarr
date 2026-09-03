@@ -11,8 +11,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/JeremiahM37/librarr/internal/models"
 )
 
 // --- Audiobookshelf Library ---
@@ -398,6 +396,8 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 
 	// Try as integer (internal DB item) first.
 	if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
+		// Wanted rows pointing at this file go back to "missing".
+		_ = s.db.UnlinkLibraryItemFromWishlist(id)
 		if err := s.db.DeleteItem(id); err != nil {
 			writeJSON(w, http.StatusNotFound, map[string]interface{}{
 				"success": false,
@@ -440,89 +440,4 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleDeleteAudiobook(w http.ResponseWriter, r *http.Request) {
 	// Same as delete book — handles both integer and UUID IDs.
 	s.handleDeleteBook(w, r)
-}
-
-// --- Wishlist ---
-
-func (s *Server) handleGetWishlist(w http.ResponseWriter, _ *http.Request) {
-	items, err := s.db.GetWishlist()
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"error": err.Error(),
-		})
-		return
-	}
-	if items == nil {
-		items = []models.WishlistItem{}
-	}
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items": items,
-	})
-}
-
-func (s *Server) handleAddWishlist(w http.ResponseWriter, r *http.Request) {
-	var req struct {
-		Title     string `json:"title"`
-		Author    string `json:"author"`
-		MediaType string `json:"media_type"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Invalid request body",
-		})
-		return
-	}
-
-	if req.Title == "" {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Title is required",
-		})
-		return
-	}
-	// Cap user-supplied strings so a misbehaving client can't bloat the DB.
-	if len(req.Title) > 500 || len(req.Author) > 500 || len(req.MediaType) > 50 {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Field exceeds maximum length",
-		})
-		return
-	}
-
-	id, err := s.db.AddWishlistItem(req.Title, req.Author, req.MediaType)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusCreated, map[string]interface{}{
-		"success": true,
-		"id":      id,
-	})
-}
-
-func (s *Server) handleDeleteWishlist(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
-	if err != nil {
-		writeJSON(w, http.StatusBadRequest, map[string]interface{}{
-			"success": false,
-			"error":   "Invalid ID",
-		})
-		return
-	}
-
-	if err := s.db.DeleteWishlistItem(id); err != nil {
-		writeJSON(w, http.StatusNotFound, map[string]interface{}{
-			"success": false,
-			"error":   err.Error(),
-		})
-		return
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
 }

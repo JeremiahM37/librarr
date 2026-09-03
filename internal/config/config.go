@@ -188,11 +188,14 @@ type Config struct {
 	WebhookURL  string
 	WebhookType string // "discord" or "generic"
 
-	// Scheduler
+	// Scheduler (the wanted-list search loop)
 	SchedulerEnabled       bool
 	SchedulerIntervalHours int
 	SchedulerAutoDownload  bool
 	SchedulerMinScore      int
+	// SchedulerItemDelaySeconds is the pause between two wanted items in one
+	// pass, to stay polite to the sources.
+	SchedulerItemDelaySeconds int
 
 	// Wishlist cleanup removes wishlist rows that are already present in the
 	// library. It is intentionally opt-in and dry-run by default.
@@ -200,16 +203,25 @@ type Config struct {
 	WishlistCleanupIntervalHours int
 	WishlistCleanupDryRun        bool
 
-	// Quality Profiles
-	AutoUpgradeEnabled bool
+	// Quality Profiles. AutoUpgradeEnabled is the global switch for replacing
+	// an existing file with a better format; each profile has its own
+	// upgrade flag under it. UpgradeKeepOldFiles leaves the superseded file
+	// (and its library row) in place instead of deleting it.
+	AutoUpgradeEnabled  bool
+	UpgradeKeepOldFiles bool
 
 	// Rename on Import
 	RenameEnabled bool
 	RenamePattern string
 
-	// Author Monitoring
+	// Author Monitoring. AuthorMonitorAutoAdd is the default for new
+	// monitored authors: put newly found works on the wanted list.
 	AuthorMonitorEnabled    bool
 	AuthorCheckIntervalDays int
+	AuthorMonitorAutoAdd    bool
+	// OpenLibraryURL is the Open Library origin the author monitor queries
+	// (override for a local mirror or a test stub).
+	OpenLibraryURL string
 }
 
 // Load reads configuration from environment variables with sensible defaults,
@@ -422,17 +434,22 @@ func buildFromEnv() *Config {
 		SchedulerAutoDownload:  getEnvBool("SCHEDULER_AUTO_DOWNLOAD", false),
 		SchedulerMinScore:      getEnvInt("SCHEDULER_MIN_SCORE", 70),
 
+		SchedulerItemDelaySeconds: getEnvInt("SCHEDULER_ITEM_DELAY_SECONDS", 5),
+
 		WishlistCleanupEnabled:       getEnvBool("WISHLIST_CLEANUP_ENABLED", false),
 		WishlistCleanupIntervalHours: getEnvInt("WISHLIST_CLEANUP_INTERVAL_HOURS", 12),
 		WishlistCleanupDryRun:        getEnvBool("WISHLIST_CLEANUP_DRY_RUN", true),
 
-		AutoUpgradeEnabled: getEnvBool("AUTO_UPGRADE_ENABLED", false),
+		AutoUpgradeEnabled:  getEnvBool("AUTO_UPGRADE_ENABLED", false),
+		UpgradeKeepOldFiles: getEnvBool("UPGRADE_KEEP_OLD_FILES", false),
 
 		RenameEnabled: getEnvBool("RENAME_ENABLED", false),
 		RenamePattern: getEnv("RENAME_PATTERN", "{author} - {title} ({year}).{ext}"),
 
 		AuthorMonitorEnabled:    getEnvBool("AUTHOR_MONITOR_ENABLED", false),
 		AuthorCheckIntervalDays: getEnvInt("AUTHOR_CHECK_INTERVAL_DAYS", 7),
+		AuthorMonitorAutoAdd:    getEnvBool("AUTHOR_MONITOR_AUTO_ADD", true),
+		OpenLibraryURL:          getEnv("OPENLIBRARY_URL", "https://openlibrary.org"),
 	}
 }
 
@@ -642,6 +659,12 @@ func (c *Config) applySettingsFileOverrides() {
 		"foreign_lang_filter":         &c.ForeignLangFilter,
 		"wishlist_cleanup_enabled":    &c.WishlistCleanupEnabled,
 		"wishlist_cleanup_dry_run":    &c.WishlistCleanupDryRun,
+		"scheduler_enabled":           &c.SchedulerEnabled,
+		"scheduler_auto_download":     &c.SchedulerAutoDownload,
+		"auto_upgrade_enabled":        &c.AutoUpgradeEnabled,
+		"upgrade_keep_old_files":      &c.UpgradeKeepOldFiles,
+		"author_monitor_enabled":      &c.AuthorMonitorEnabled,
+		"author_monitor_auto_add":     &c.AuthorMonitorAutoAdd,
 	}
 	for key, fieldPtr := range boolPtrs {
 		v, ok := raw[key]
@@ -657,6 +680,26 @@ func (c *Config) applySettingsFileOverrides() {
 
 	intPtrs := map[string]*int{
 		"wishlist_cleanup_interval_hours": &c.WishlistCleanupIntervalHours,
+		"scheduler_interval_hours":        &c.SchedulerIntervalHours,
+		"author_check_interval_days":      &c.AuthorCheckIntervalDays,
+	}
+	// Zero is meaningful for these two (no confidence gate, no pause), so
+	// they bypass the >= 1 rule the other integers use.
+	zeroOKInts := map[string]*int{
+		"scheduler_min_score":          &c.SchedulerMinScore,
+		"scheduler_item_delay_seconds": &c.SchedulerItemDelaySeconds,
+	}
+	for key, fieldPtr := range zeroOKInts {
+		switch n := raw[key].(type) {
+		case float64:
+			if n >= 0 {
+				*fieldPtr = int(n)
+			}
+		case int:
+			if n >= 0 {
+				*fieldPtr = n
+			}
+		}
 	}
 	for key, fieldPtr := range intPtrs {
 		v, ok := raw[key]
@@ -743,4 +786,11 @@ func getEnvBool(key string, fallback bool) bool {
 		return false
 	}
 	return fallback
+}
+
+// ReloadSettingsFile re-applies the overrides stored in SettingsFile on top of
+// the current values. It is what a fresh process does at start-up, exposed so
+// tests (and tooling) can prove a persisted setting survives a restart.
+func (c *Config) ReloadSettingsFile() {
+	c.applySettingsFileOverrides()
 }

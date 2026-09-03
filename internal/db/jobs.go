@@ -21,11 +21,11 @@ func (d *DB) SaveJob(job *models.DownloadJob) error {
 	}
 
 	_, err := d.db.Exec(
-		`INSERT OR REPLACE INTO download_jobs (id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, created_at, updated_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT OR REPLACE INTO download_jobs (id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, wanted_id, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		job.ID, job.Title, job.Source, job.Status, job.Detail, job.Error,
 		job.URL, job.MD5, job.SourceID, job.MediaType,
-		job.RetryCount, job.MaxRetries, string(historyJSON),
+		job.RetryCount, job.MaxRetries, string(historyJSON), job.WantedID,
 		float64(job.CreatedAt.Unix()), float64(job.UpdatedAt.Unix()),
 	)
 	return err
@@ -45,13 +45,13 @@ func (d *DB) UpdateJobStatus(id, status, detail, errMsg string) error {
 
 // GetJob retrieves a download job by ID.
 func (d *DB) GetJob(id string) (*models.DownloadJob, error) {
-	row := d.db.QueryRow("SELECT id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, created_at, updated_at FROM download_jobs WHERE id = ?", id)
+	row := d.db.QueryRow("SELECT id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, wanted_id, created_at, updated_at FROM download_jobs WHERE id = ?", id)
 	return scanJob(row)
 }
 
 // GetJobs returns all download jobs.
 func (d *DB) GetJobs() ([]models.DownloadJob, error) {
-	rows, err := d.db.Query("SELECT id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, created_at, updated_at FROM download_jobs ORDER BY created_at DESC")
+	rows, err := d.db.Query("SELECT id, title, source, status, detail, error, url, md5, source_id, media_type, retry_count, max_retries, status_history, wanted_id, created_at, updated_at FROM download_jobs ORDER BY created_at DESC")
 	if err != nil {
 		return nil, err
 	}
@@ -97,7 +97,7 @@ func scanJob(row *sql.Row) (*models.DownloadJob, error) {
 	var historyJSON string
 	err := row.Scan(&j.ID, &j.Title, &j.Source, &j.Status, &j.Detail, &j.Error,
 		&j.URL, &j.MD5, &j.SourceID, &j.MediaType,
-		&j.RetryCount, &j.MaxRetries, &historyJSON, &createdAt, &updatedAt)
+		&j.RetryCount, &j.MaxRetries, &historyJSON, &j.WantedID, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -115,7 +115,7 @@ func scanJobFromRows(rows *sql.Rows) (*models.DownloadJob, error) {
 	var historyJSON string
 	err := rows.Scan(&j.ID, &j.Title, &j.Source, &j.Status, &j.Detail, &j.Error,
 		&j.URL, &j.MD5, &j.SourceID, &j.MediaType,
-		&j.RetryCount, &j.MaxRetries, &historyJSON, &createdAt, &updatedAt)
+		&j.RetryCount, &j.MaxRetries, &historyJSON, &j.WantedID, &createdAt, &updatedAt)
 	if err != nil {
 		return nil, err
 	}

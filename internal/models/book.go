@@ -95,6 +95,7 @@ type DownloadJob struct {
 	MediaType     string             `json:"media_type,omitempty"`
 	RetryCount    int                `json:"retry_count"`
 	MaxRetries    int                `json:"max_retries"`
+	WantedID      int64              `json:"wanted_id,omitempty"` // wishlist row this grab satisfies, or 0
 	CreatedAt     time.Time          `json:"created_at"`
 	UpdatedAt     time.Time          `json:"updated_at"`
 	StatusHistory []StatusTransition `json:"status_history,omitempty"`
@@ -140,13 +141,41 @@ type NZBJob struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// WishlistItem represents a user's wish for a book/audiobook/manga.
+// WishlistItem is one entry in the wanted list: a book the user wants
+// librarr to acquire and keep at the quality its profile asks for. The stored
+// facts are whether it is monitored, which library file currently satisfies
+// it, and whether a grab is in flight; the API derives a State from those.
 type WishlistItem struct {
 	ID        int64     `json:"id"`
 	Title     string    `json:"title"`
 	Author    string    `json:"author"`
 	MediaType string    `json:"media_type"`
 	AddedAt   time.Time `json:"added_at"`
+
+	// Monitored items are searched by the scheduler; unmonitored ones are
+	// kept for reference but never grabbed.
+	Monitored bool `json:"monitored"`
+	// QualityProfileID selects the profile; 0 means the built-in default for
+	// the item's media type.
+	QualityProfileID int64 `json:"quality_profile_id"`
+	// LibraryItemID is the library row currently satisfying this item, or 0.
+	LibraryItemID int64 `json:"library_item_id,omitempty"`
+	// CurrentFormat and CurrentPath are read from the linked library item.
+	CurrentFormat string `json:"current_format,omitempty"`
+	CurrentPath   string `json:"-"`
+	// ActiveJobID is the download job (or "torrent:<hash>") in flight for
+	// this item, so the scheduler does not grab it twice.
+	ActiveJobID string `json:"active_job_id,omitempty"`
+	// LastSearched / LastResult record what the scheduler last decided.
+	LastSearched time.Time `json:"last_searched,omitempty"`
+	LastResult   string    `json:"last_result,omitempty"`
+	// Source records who added the item: "manual", "author:<id>", "import".
+	Source string `json:"source,omitempty"`
+
+	// Derived at response time, never stored.
+	State       string `json:"state,omitempty"`
+	ProfileName string `json:"profile_name,omitempty"`
+	CutoffMet   bool   `json:"cutoff_met"`
 }
 
 // ActivityEntry represents an entry in the enhanced activity log.
