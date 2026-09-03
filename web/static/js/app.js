@@ -9,7 +9,7 @@ const I18N = {
     nav_search: 'Search',
     nav_library: 'Library',
     nav_downloads: 'Downloads',
-    nav_wishlist: 'Wishlist',
+    nav_wishlist: 'Wanted',
     nav_settings: 'Settings',
     sign_out: 'Sign out',
     // Header
@@ -121,7 +121,7 @@ const I18N = {
     cleared_completed: 'Cleared completed downloads',
     failed_clear: 'Failed to clear',
     // Wishlist
-    wishlist_title: 'Wishlist',
+    wishlist_title: 'Wanted',
     wishlist_add_book: 'Add Book',
     ph_wishlist_title: 'Title',
     ph_wishlist_author: 'Author (optional)',
@@ -130,14 +130,68 @@ const I18N = {
     opt_manga: 'Manga',
     add: 'Add',
     cancel: 'Cancel',
-    wishlist_empty: 'Wishlist is empty',
-    wishlist_empty_hint: 'Add books you want to find later',
+    wishlist_empty: 'Nothing wanted yet',
+    wishlist_empty_hint: 'Add books you want librarr to find and keep up to date',
     wishlist_search: 'Search',
     failed_load_wishlist: 'Failed to load wishlist',
     err_title_required: 'Title is required',
     added_to_wishlist: 'Added to wishlist',
     failed_add_wishlist: 'Failed to add to wishlist',
     removed_from_wishlist: 'Removed from wishlist',
+    searching: 'Searching…',
+    failed_save: 'Failed to save',
+    save: 'Save',
+    delete: 'Delete',
+    confirm_delete: 'Delete this?',
+    wanted_intro: 'Books librarr keeps looking for, and keeps at the quality their profile asks for.',
+    s_author_auto_add: 'Add new works to wanted',
+    s_author_follow: 'Follow',
+    s_author_interval: 'Check every (days)',
+    s_author_name: 'Author',
+    s_authors_desc: 'Followed authors are checked against Open Library on their interval. The first check records the existing catalogue silently; from then on each new work is added to the wanted list (or only announced, per author).',
+    s_authors_enabled: 'Check monitored authors automatically',
+    s_authors_title: 'Monitored authors',
+    s_auto_upgrade: 'Upgrade existing files when a better format appears',
+    s_keep_old: 'Keep the old file after an upgrade (default: replace it)',
+    s_profiles_desc: 'Tick the formats a profile may grab and order them best-first. The cutoff is where upgrading stops: once a file at or above it is on disk the item is satisfied. Formats left unticked are never grabbed automatically. The built-in profile for each media type is what items use unless you pick another.',
+    s_profiles_title: 'Quality profiles',
+    s_sched_auto_download: 'Grab automatically (otherwise only notify)',
+    s_sched_delay: 'Pause between items (seconds)',
+    s_sched_enabled: 'Search wanted items automatically',
+    s_sched_interval: 'Interval (hours)',
+    s_sched_min_score: 'Minimum match score (0–100)',
+    s_wanted_desc: 'The scheduler searches every monitored wanted item on an interval, runs its quality profile over the results, and grabs the best acceptable release — a first copy when the book is missing, an upgrade when the file on disk is below the profile\'s cutoff.',
+    s_wanted_title: 'Wanted List & Quality',
+    wanted_filter_all: 'All',
+    wanted_state_missing: 'Missing',
+    wanted_state_upgrade: 'Upgrade wanted',
+    wanted_state_downloading: 'Downloading',
+    wanted_state_satisfied: 'Satisfied',
+    wanted_state_unmonitored: 'Unmonitored',
+    wanted_search_all: 'Search all now',
+    wanted_search_now: 'Search now',
+    wanted_explain: 'Why?',
+    wanted_profile_default: 'Default profile',
+    wanted_upgrades_off: 'Automatic upgrades are off: items that already have a file will not be replaced by a better format.',
+    wanted_monitored: 'Monitored',
+    wanted_on_disk: '{format} on disk',
+    wanted_last: 'Last: {result}',
+    wanted_updated: 'Wanted item updated',
+    wanted_search_started: 'Search finished: {reason}',
+    wanted_scheduler_started: 'Searching all wanted items…',
+    wanted_scheduler_done: 'Searched {searched} of {scanned} items, grabbed {grabbed} ({upgrades} upgrades)',
+    settings_saved: 'Settings saved',
+    profile_saved: 'Profile saved',
+    profile_deleted: 'Profile deleted',
+    profile_builtin: 'Built-in',
+    profile_cutoff: 'Cutoff',
+    profile_upgrades: 'Upgrade until cutoff',
+    profile_size: 'Preferred size (MB, 0 = any)',
+    author_followed: 'Author followed',
+    author_removed: 'Author removed',
+    author_checked: 'Checked {author}: {summary}',
+    author_baseline: 'baseline recorded ({seen} works), new releases will be picked up from now on',
+    author_new: '{count} new',
     failed_delete: 'Failed to delete',
     // Settings
     s_user_mgmt_title: 'User Management',
@@ -346,6 +400,19 @@ const I18N = {
     added_to_wishlist: 'Добавлено в список желаемого',
     failed_add_wishlist: 'Не удалось добавить в список желаемого',
     removed_from_wishlist: 'Удалено из списка желаемого',
+    searching: 'Поиск…',
+    failed_save: 'Не удалось сохранить',
+    save: 'Сохранить',
+    delete: 'Удалить',
+    confirm_delete: 'Удалить?',
+    wanted_state_missing: 'Нет файла',
+    wanted_state_upgrade: 'Нужно улучшение',
+    wanted_state_downloading: 'Загружается',
+    wanted_state_satisfied: 'Готово',
+    wanted_state_unmonitored: 'Не отслеживается',
+    wanted_search_all: 'Искать всё сейчас',
+    wanted_search_now: 'Искать',
+    wanted_monitored: 'Отслеживать',
     failed_delete: 'Не удалось удалить',
     // Settings
     s_user_mgmt_title: 'Управление пользователями',
@@ -1917,21 +1984,36 @@ function goLibraryPage(page) {
 // ============================================================
 // WISHLIST
 // ============================================================
+// ============================================================
+// WANTED LIST (wishlist with state + quality profiles)
+// ============================================================
+// state.wanted holds the last /api/wishlist payload; state.qualityProfiles
+// the profile list (also edited in place by the settings editor).
+
+const WANTED_STATE_STYLE = {
+  missing: 'bg-amber-500/20 text-amber-300',
+  upgrade: 'bg-sky-500/20 text-sky-300',
+  downloading: 'bg-indigo-500/20 text-indigo-300',
+  satisfied: 'bg-emerald-500/20 text-emerald-300',
+  unmonitored: 'bg-slate-700 text-slate-400',
+};
+
+function wantedStateLabel(st) {
+  return t('wanted_state_' + st) === 'wanted_state_' + st ? st : t('wanted_state_' + st);
+}
+
 async function loadWishlist() {
   try {
-    const data = await apiJson('/api/wishlist');
-    const items = data.items || [];
-    const container = document.getElementById('wishlist-list');
-    const emptyEl = document.getElementById('wishlist-empty');
-
-    if (items.length === 0) {
-      container.innerHTML = '';
-      emptyEl.classList.remove('hidden');
-      return;
-    }
-
-    emptyEl.classList.add('hidden');
-    container.innerHTML = items.map(renderWishlistItem).join('');
+    // Profiles are re-fetched with the list: a profile created or deleted
+    // in Settings (or by another client) must show up in the row selects.
+    const [data, profiles] = await Promise.all([
+      apiJson('/api/wishlist'),
+      fetchQualityProfiles(),
+    ]);
+    state.qualityProfiles = profiles;
+    state.wanted = data;
+    renderWanted();
+    fillWantedProfileSelect();
   } catch (err) {
     if (err.message !== 'Unauthorized') {
       showToast(t('failed_load_wishlist'), 'error');
@@ -1939,33 +2021,113 @@ async function loadWishlist() {
   }
 }
 
+async function fetchQualityProfiles() {
+  try {
+    const list = await apiJson('/api/quality-profiles');
+    return Array.isArray(list) ? list : [];
+  } catch (err) {
+    return [];
+  }
+}
+
+function renderWanted() {
+  const data = state.wanted || { items: [], counts: {} };
+  const items = data.items || [];
+  const container = document.getElementById('wishlist-list');
+  const emptyEl = document.getElementById('wishlist-empty');
+  const filter = document.getElementById('wanted-filter')?.value || '';
+  const banner = document.getElementById('wanted-upgrades-off');
+  if (banner) banner.classList.toggle('hidden', data.upgrades_enabled !== false || items.length === 0);
+  document.querySelectorAll('#tab-wishlist .admin-only').forEach(el => {
+    el.classList.toggle('hidden', state.currentRole !== 'admin' && state.currentRole !== null);
+  });
+
+  const summary = document.getElementById('wanted-summary');
+  if (summary && items.length) {
+    const c = data.counts || {};
+    summary.textContent = ['missing', 'upgrade', 'downloading', 'satisfied', 'unmonitored']
+      .filter(k => c[k]).map(k => `${c[k]} ${wantedStateLabel(k).toLowerCase()}`).join(' · ');
+  } else if (summary) {
+    summary.textContent = t('wanted_intro');
+  }
+
+  if (items.length === 0) {
+    container.innerHTML = '';
+    emptyEl.classList.remove('hidden');
+    return;
+  }
+  emptyEl.classList.add('hidden');
+  const shown = filter ? items.filter(i => i.state === filter) : items;
+  container.innerHTML = shown.map(renderWishlistItem).join('') ||
+    `<p class="text-sm text-slate-500 text-center py-8">${escapeHtml(t('wanted_filter_all'))}: 0</p>`;
+}
+
+function profileOptionsFor(mediaType, selectedID) {
+  const profiles = (state.qualityProfiles || []).filter(p => p.media_type === mediaType);
+  const opts = [`<option value="0" ${!selectedID ? 'selected' : ''}>${escapeHtml(t('wanted_profile_default'))}</option>`];
+  for (const p of profiles) {
+    opts.push(`<option value="${p.id}" ${p.id === selectedID ? 'selected' : ''}>${escapeHtml(p.name)}${p.builtin ? ' ★' : ''}</option>`);
+  }
+  return opts.join('');
+}
+
 function renderWishlistItem(item) {
   const typeColors = { ebook: 'bg-indigo-500/20 text-indigo-400', audiobook: 'bg-purple-500/20 text-purple-400', manga: 'bg-pink-500/20 text-pink-400' };
-  const tc = typeColors[item.media_type] || typeColors.ebook;
-  const date = item.created_at ? new Date(item.created_at).toLocaleDateString() : '';
+  const mediaType = item.media_type || 'ebook';
+  const tc = typeColors[mediaType] || typeColors.ebook;
+  const st = item.state || 'missing';
+  const stateChip = `<span class="px-2 py-0.5 rounded text-xs font-medium ${WANTED_STATE_STYLE[st] || WANTED_STATE_STYLE.missing}" data-wanted-state="${escapeHtml(st)}">${escapeHtml(wantedStateLabel(st))}</span>`;
+  const onDisk = item.current_format
+    ? `<span class="px-2 py-0.5 rounded text-xs bg-slate-800 text-slate-300 font-mono" title="${escapeHtml(item.profile_name || '')}">${escapeHtml(t('wanted_on_disk', { format: item.current_format.toUpperCase() }))}</span>`
+    : '';
+  const last = item.last_result
+    ? `<p class="text-xs text-slate-500 mt-1 truncate" title="${escapeHtml(item.last_result)}">${escapeHtml(t('wanted_last', { result: item.last_result }))}</p>`
+    : '';
+  const isAdmin = state.currentRole === 'admin' || state.currentRole === null;
+  const adminButtons = isAdmin ? `
+        <button data-action="searchWantedNow" data-id="${item.id}" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors">${escapeHtml(t('wanted_search_now'))}</button>
+        <button data-action="explainWanted" data-id="${item.id}" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 rounded transition-colors" title="Dry run: show what the profile would choose and why">${escapeHtml(t('wanted_explain'))}</button>` : '';
 
   return `
-    <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3 flex items-center gap-4">
-      <div class="flex-1 min-w-0">
-        <div class="flex items-center gap-2 mb-0.5">
-          <span class="px-2 py-0.5 rounded text-xs font-medium ${tc}">${escapeHtml(item.media_type || 'ebook')}</span>
-          ${date ? `<span class="text-xs text-slate-600">${date}</span>` : ''}
+    <div class="bg-slate-900 border border-slate-800 rounded-xl px-4 py-3" data-wanted-id="${item.id}">
+      <div class="flex items-center gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+            ${stateChip}
+            <span class="px-2 py-0.5 rounded text-xs font-medium ${tc}">${escapeHtml(mediaType)}</span>
+            ${onDisk}
+          </div>
+          <h4 class="text-sm font-medium text-white truncate">${escapeHtml(item.title || '')}</h4>
+          ${item.author ? `<p class="text-xs text-slate-400">${escapeHtml(item.author)}</p>` : ''}
+          ${last}
         </div>
-        <h4 class="text-sm font-medium text-white truncate">${escapeHtml(item.title || '')}</h4>
-        ${item.author ? `<p class="text-xs text-slate-400">${escapeHtml(item.author)}</p>` : ''}
+        <div class="flex items-center gap-2 flex-shrink-0 flex-wrap justify-end">
+          <label class="flex items-center gap-1.5 text-xs text-slate-400" title="${escapeHtml(t('wanted_monitored'))}">
+            <input type="checkbox" data-action-change="toggleWantedMonitored" data-id="${item.id}" ${item.monitored ? 'checked' : ''} class="h-3.5 w-3.5 accent-indigo-500">
+            <span>${escapeHtml(t('wanted_monitored'))}</span>
+          </label>
+          <select data-action-change="setWantedProfile" data-id="${item.id}" class="bg-slate-800 border border-slate-700 rounded px-2 py-1 text-xs text-slate-200 max-w-[10rem]" title="Quality profile">${profileOptionsFor(mediaType, item.quality_profile_id)}</select>
+          ${adminButtons}
+          <button data-action="searchWishlistItem" data-title="${escapeHtml(item.title)}" data-media-type="${escapeHtml(mediaType)}" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-200 rounded transition-colors" title="${t('wishlist_search')}">${t('wishlist_search')}</button>
+          <button data-action="deleteWishlistItem" data-id="${item.id}" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded transition-colors" title="Remove">
+            <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+          </button>
+        </div>
       </div>
-      <div class="flex items-center gap-2 flex-shrink-0">
-        <button data-action="searchWishlistItem" data-title="${escapeHtml(item.title)}" data-media-type="${escapeHtml(item.media_type || 'ebook')}" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded transition-colors" title="${t('wishlist_search')}">${t('wishlist_search')}</button>
-        <button data-action="deleteWishlistItem" data-id="${item.id}" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded transition-colors" title="Remove">
-          <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-        </button>
-      </div>
+      <div id="wanted-detail-${item.id}" class="hidden mt-3 border-t border-slate-800 pt-3"></div>
     </div>
   `;
 }
 
+function fillWantedProfileSelect() {
+  const sel = document.getElementById('wl-profile');
+  const type = document.getElementById('wl-type')?.value || 'ebook';
+  if (sel) sel.innerHTML = profileOptionsFor(type, 0);
+}
+
 function showWishlistForm() {
   document.getElementById('wishlist-form').classList.remove('hidden');
+  fillWantedProfileSelect();
   document.getElementById('wl-title').focus();
 }
 
@@ -1979,6 +2141,7 @@ async function addWishlistItem() {
   const title = document.getElementById('wl-title').value.trim();
   const author = document.getElementById('wl-author').value.trim();
   const mediaType = document.getElementById('wl-type').value;
+  const profileID = +(document.getElementById('wl-profile')?.value || 0);
 
   if (!title) {
     showToast(t('err_title_required'), 'warning');
@@ -1988,7 +2151,7 @@ async function addWishlistItem() {
   try {
     await apiJson('/api/wishlist', {
       method: 'POST',
-      body: JSON.stringify({ title, author, media_type: mediaType }),
+      body: JSON.stringify({ title, author, media_type: mediaType, quality_profile_id: profileID }),
     });
     showToast(t('added_to_wishlist'), 'success');
     hideWishlistForm();
@@ -2008,12 +2171,442 @@ async function deleteWishlistItem(id) {
   }
 }
 
+async function updateWanted(id, patch) {
+  try {
+    const data = await apiJson(`/api/wishlist/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    if (data.item && state.wanted) {
+      state.wanted.items = state.wanted.items.map(i => (i.id === id ? data.item : i));
+      const counts = {};
+      for (const i of state.wanted.items) counts[i.state] = (counts[i.state] || 0) + 1;
+      state.wanted.counts = counts;
+      renderWanted();
+    }
+    showToast(t('wanted_updated'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+    loadWishlist();
+  }
+}
+
+// searchWantedNow runs the scheduler's decision for one item. dryRun explains
+// every candidate without grabbing; a real search grabs the best acceptable one.
+async function searchWantedNow(id, dryRun) {
+  const detail = document.getElementById(`wanted-detail-${id}`);
+  if (detail) {
+    detail.classList.remove('hidden');
+    detail.innerHTML = `<p class="text-xs text-slate-500">${escapeHtml(t('searching'))}</p>`;
+  }
+  try {
+    const data = await apiJson(`/api/wishlist/${id}/search`, { method: 'POST', body: JSON.stringify({ dry_run: !!dryRun }) });
+    const o = data.outcome || {};
+    if (state.wanted && data.item) {
+      state.wanted.items = state.wanted.items.map(i => (i.id === id ? data.item : i));
+      renderWanted();
+    }
+    const box = document.getElementById(`wanted-detail-${id}`);
+    if (box) {
+      box.classList.remove('hidden');
+      box.innerHTML = renderWantedOutcome(o, dryRun);
+    }
+    showToast(t('wanted_search_started', { reason: o.reason || o.action || '' }), o.action === 'error' ? 'error' : 'info');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+    if (detail) detail.classList.add('hidden');
+  }
+}
+
+function renderWantedOutcome(o, dryRun) {
+  const head = `<p class="text-xs text-slate-300"><span class="font-medium">${escapeHtml(o.action || '')}</span> — ${escapeHtml(o.reason || '')}${o.candidate ? ` <span class="text-slate-400">(${escapeHtml(o.candidate)})</span>` : ''}${dryRun ? ' <span class="text-slate-500">[dry run]</span>' : ''}</p>`;
+  const decisions = o.decisions || [];
+  if (!decisions.length) return head;
+  const rows = decisions.map(d => `
+      <tr class="${d.accepted ? 'text-emerald-300' : 'text-slate-400'}">
+        <td class="pr-3 py-0.5">${d.accepted ? (d.upgrade ? '↑' : '✓') : '✗'}</td>
+        <td class="pr-3 py-0.5 font-mono">${escapeHtml((d.format || '?').toUpperCase())}</td>
+        <td class="pr-3 py-0.5">${escapeHtml(String(Math.round(d.score || 0)))}</td>
+        <td class="pr-3 py-0.5 truncate max-w-[16rem]" title="${escapeHtml(d.title || '')}">${escapeHtml(d.title || '')} <span class="text-slate-600">${escapeHtml(d.source || '')}</span></td>
+        <td class="py-0.5">${escapeHtml(d.reason || '')}</td>
+      </tr>`).join('');
+  return `${head}<div class="overflow-x-auto mt-2"><table class="text-xs w-full" data-wanted-decisions="${decisions.length}"><thead class="text-slate-500"><tr><th></th><th class="text-left pr-3">Format</th><th class="text-left pr-3">Score</th><th class="text-left pr-3">Release</th><th class="text-left">Decision</th></tr></thead><tbody>${rows}</tbody></table></div>`;
+}
+
+async function runSchedulerNow() {
+  const status = document.getElementById('scheduler-status');
+  showToast(t('wanted_scheduler_started'), 'info');
+  if (status) status.textContent = t('wanted_scheduler_started');
+  try {
+    const data = await apiJson('/api/scheduler/run?wait=1', { method: 'POST' });
+    const st = data.stats || {};
+    const msg = t('wanted_scheduler_done', { searched: st.searched || 0, scanned: st.scanned || 0, grabbed: st.grabbed || 0, upgrades: st.upgrades || 0 });
+    showToast(msg, 'success');
+    if (status) status.textContent = msg;
+    if (state.currentTab === 'wishlist') loadWishlist();
+    if (state.currentTab === 'settings') loadWantedSettings();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
 function searchWishlistItem(title, mediaType) {
   const tabMap = { ebook: 'ebooks', audiobook: 'audiobooks', manga: 'manga' };
   switchTab('search');
   switchSearchTab(tabMap[mediaType] || 'ebooks');
   document.getElementById('search-input').value = title;
   doSearch(title);
+}
+
+// ---------- Settings: scheduler / upgrades ----------
+
+const WANTED_SETTING_KEYS = [
+  'scheduler_enabled', 'scheduler_auto_download', 'scheduler_interval_hours',
+  'scheduler_min_score', 'scheduler_item_delay_seconds', 'auto_upgrade_enabled',
+  'upgrade_keep_old_files', 'author_monitor_enabled',
+];
+
+async function loadWantedSettings() {
+  const card = document.getElementById('wanted-settings');
+  if (!card) return;
+  try {
+    const data = await apiJson('/api/settings');
+    for (const key of WANTED_SETTING_KEYS) {
+      const el = document.getElementById(`setting-${key}`);
+      if (!el || data[key] === undefined) continue;
+      if (el.type === 'checkbox') el.checked = !!data[key];
+      else el.value = data[key];
+    }
+    card.classList.remove('hidden');
+  } catch (err) {
+    // Non-admins cannot read settings; the card stays but shows nothing.
+    if (state.currentRole !== 'admin' && state.currentRole !== null) card.classList.add('hidden');
+  }
+  try {
+    const st = (await apiJson('/api/scheduler/status')).status || {};
+    const el = document.getElementById('scheduler-status');
+    if (el) el.textContent = st.last_run ? `${new Date(st.last_run).toLocaleString()} — ${st.last_result || ''}` : '';
+  } catch (err) {}
+}
+
+async function saveWantedSettings() {
+  const payload = {};
+  for (const key of WANTED_SETTING_KEYS) {
+    const el = document.getElementById(`setting-${key}`);
+    if (!el) continue;
+    payload[key] = el.type === 'checkbox' ? el.checked : Number(el.value);
+  }
+  try {
+    await apiJson('/api/settings', { method: 'POST', body: JSON.stringify(payload) });
+    showToast(t('settings_saved'), 'success');
+    loadWantedSettings();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
+async function saveAuthorMonitorEnabled(enabled) {
+  try {
+    await apiJson('/api/settings', { method: 'POST', body: JSON.stringify({ author_monitor_enabled: enabled }) });
+    showToast(t('settings_saved'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
+// ---------- Settings: quality profile editor ----------
+
+async function loadQualityProfiles() {
+  const list = document.getElementById('quality-profiles-list');
+  if (!list) return;
+  try {
+    const [profiles, formats] = await Promise.all([
+      fetchQualityProfiles(),
+      state.knownFormats ? Promise.resolve(state.knownFormats) : apiJson('/api/quality-profiles/formats').then(d => d.formats || {}),
+    ]);
+    state.knownFormats = formats;
+    state.qualityProfiles = profiles;
+    state.qpDrafts = {};
+    renderQualityProfiles();
+  } catch (err) {
+    list.innerHTML = '';
+  }
+}
+
+// A draft is the editable copy of a profile; "new-<type>" ids are unsaved.
+function qpDraft(pid) {
+  state.qpDrafts = state.qpDrafts || {};
+  if (!state.qpDrafts[pid]) {
+    const src = (state.qualityProfiles || []).find(p => String(p.id) === String(pid));
+    if (!src) return null;
+    state.qpDrafts[pid] = JSON.parse(JSON.stringify(src));
+  }
+  return state.qpDrafts[pid];
+}
+
+function renderQualityProfiles() {
+  const list = document.getElementById('quality-profiles-list');
+  if (!list) return;
+  const profiles = state.qualityProfiles || [];
+  list.innerHTML = profiles.map(p => renderQualityProfile(qpDraft(p.id) || p)).join('');
+}
+
+function renderQualityProfile(p) {
+  const pid = String(p.id);
+  const known = (state.knownFormats || {})[p.media_type] || [];
+  const ranking = (p.format_ranking || []).map(f => f.toLowerCase());
+  const unranked = known.filter(f => !ranking.includes(f));
+  const cutoff = (p.cutoff_format || ranking[0] || '').toLowerCase();
+  const rankedRows = ranking.map((f, i) => `
+      <div class="flex items-center gap-2 py-0.5" data-qp-row="${escapeHtml(f)}">
+        <input type="checkbox" checked data-action-change="qpToggleFormat" data-pid="${pid}" data-format="${escapeHtml(f)}" class="h-3.5 w-3.5 accent-indigo-500">
+        <span class="font-mono text-xs text-slate-200 w-14">${escapeHtml(f.toUpperCase())}</span>
+        <span class="text-[10px] text-slate-600 w-6">#${i + 1}</span>
+        <button data-action="qpMove" data-pid="${pid}" data-format="${escapeHtml(f)}" data-dir="-1" class="px-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded ${i === 0 ? 'opacity-30' : ''}" title="Better">▲</button>
+        <button data-action="qpMove" data-pid="${pid}" data-format="${escapeHtml(f)}" data-dir="1" class="px-1.5 text-xs bg-slate-800 hover:bg-slate-700 rounded ${i === ranking.length - 1 ? 'opacity-30' : ''}" title="Worse">▼</button>
+        ${f === cutoff ? `<span class="text-[10px] text-emerald-400">${escapeHtml(t('profile_cutoff'))}</span>` : ''}
+      </div>`).join('');
+  const unrankedRows = unranked.map(f => `
+      <label class="flex items-center gap-2 py-0.5 text-slate-500">
+        <input type="checkbox" data-action-change="qpToggleFormat" data-pid="${pid}" data-format="${escapeHtml(f)}" class="h-3.5 w-3.5 accent-indigo-500">
+        <span class="font-mono text-xs w-14">${escapeHtml(f.toUpperCase())}</span>
+        <span class="text-[10px]">not grabbed</span>
+      </label>`).join('');
+  const cutoffOptions = ranking.map(f => `<option value="${escapeHtml(f)}" ${f === cutoff ? 'selected' : ''}>${escapeHtml(f.toUpperCase())}</option>`).join('');
+  const mb = v => Math.round((v || 0) / 1048576);
+  return `
+    <div class="bg-slate-800/50 rounded-lg p-4" data-qp="${pid}">
+      <div class="flex items-center gap-3 flex-wrap mb-3">
+        <input type="text" value="${escapeHtml(p.name || '')}" data-action-change="qpField" data-pid="${pid}" data-field="name" class="bg-slate-900 border border-slate-700 rounded-lg px-3 py-1.5 text-sm text-white min-w-[12rem]" placeholder="Profile name">
+        <span class="px-2 py-0.5 rounded text-xs bg-slate-700 text-slate-300">${escapeHtml(p.media_type)}</span>
+        ${p.builtin ? `<span class="px-2 py-0.5 rounded text-xs bg-indigo-500/20 text-indigo-300">${escapeHtml(t('profile_builtin'))}</span>` : ''}
+        ${String(pid).startsWith('new-') ? '<span class="px-2 py-0.5 rounded text-xs bg-amber-500/20 text-amber-300">unsaved</span>' : ''}
+        <span class="flex-1"></span>
+        <button data-action="qpSave" data-pid="${pid}" class="px-3 py-1.5 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg">${escapeHtml(t('save'))}</button>
+        ${p.builtin ? '' : `<button data-action="qpDelete" data-pid="${pid}" class="px-3 py-1.5 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded-lg">${escapeHtml(t('delete'))}</button>`}
+      </div>
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div>
+          <p class="text-[11px] uppercase tracking-wider text-slate-500 mb-1">Formats, best first</p>
+          <div data-qp-ranking="${pid}">${rankedRows || '<p class="text-xs text-amber-400">Tick at least one format</p>'}</div>
+          ${unrankedRows ? `<div class="mt-2 border-t border-slate-800 pt-2">${unrankedRows}</div>` : ''}
+        </div>
+        <div class="space-y-3">
+          <label class="block">
+            <span class="text-xs text-slate-400">${escapeHtml(t('profile_cutoff'))}</span>
+            <select data-action-change="qpField" data-pid="${pid}" data-field="cutoff_format" class="mt-1 w-full bg-slate-900 border border-slate-700 rounded-lg px-2 py-1.5 text-sm text-white">${cutoffOptions}</select>
+            <span class="text-[11px] text-slate-500">Upgrading stops once a file at or above this format is on disk.</span>
+          </label>
+          <label class="flex items-center justify-between gap-3">
+            <span class="text-xs text-slate-400">${escapeHtml(t('profile_upgrades'))}</span>
+            <input type="checkbox" ${p.upgrade_allowed ? 'checked' : ''} data-action-change="qpField" data-pid="${pid}" data-field="upgrade_allowed" class="h-4 w-4 accent-indigo-500">
+          </label>
+          <div>
+            <span class="text-xs text-slate-400">${escapeHtml(t('profile_size'))}</span>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="number" min="0" value="${mb(p.preferred_size_min)}" data-action-change="qpField" data-pid="${pid}" data-field="preferred_size_min" class="w-24 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white">
+              <span class="text-xs text-slate-500">to</span>
+              <input type="number" min="0" value="${mb(p.preferred_size_max)}" data-action-change="qpField" data-pid="${pid}" data-field="preferred_size_max" class="w-24 bg-slate-900 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>`;
+}
+
+function qpToggleFormat(pid, format, on) {
+  const d = qpDraft(pid);
+  if (!d) return;
+  const ranking = d.format_ranking.map(f => f.toLowerCase());
+  if (on && !ranking.includes(format)) ranking.push(format);
+  if (!on) {
+    const idx = ranking.indexOf(format);
+    if (idx >= 0) ranking.splice(idx, 1);
+  }
+  d.format_ranking = ranking;
+  if (!ranking.includes((d.cutoff_format || '').toLowerCase())) d.cutoff_format = ranking[0] || '';
+  renderQualityProfiles();
+}
+
+function qpMove(pid, format, dir) {
+  const d = qpDraft(pid);
+  if (!d) return;
+  const r = d.format_ranking.map(f => f.toLowerCase());
+  const i = r.indexOf(format);
+  const j = i + dir;
+  if (i < 0 || j < 0 || j >= r.length) return;
+  [r[i], r[j]] = [r[j], r[i]];
+  d.format_ranking = r;
+  renderQualityProfiles();
+}
+
+function qpField(pid, field, el) {
+  const d = qpDraft(pid);
+  if (!d) return;
+  if (field === 'upgrade_allowed') d.upgrade_allowed = el.checked;
+  else if (field === 'preferred_size_min' || field === 'preferred_size_max') d[field] = Math.max(0, Number(el.value) || 0) * 1048576;
+  else d[field] = el.value;
+  if (field === 'cutoff_format') renderQualityProfiles();
+}
+
+function qpNew(mediaType) {
+  state.qualityProfiles = state.qualityProfiles || [];
+  const id = `new-${mediaType}-${Date.now()}`;
+  const known = (state.knownFormats || {})[mediaType] || [];
+  const draft = {
+    id, name: '', media_type: mediaType, builtin: false,
+    format_ranking: known.slice(0, 2), cutoff_format: known[0] || '',
+    upgrade_allowed: true, preferred_size_min: 0, preferred_size_max: 0,
+  };
+  state.qualityProfiles.push(draft);
+  state.qpDrafts = state.qpDrafts || {};
+  state.qpDrafts[id] = draft;
+  renderQualityProfiles();
+  document.querySelector(`[data-qp="${id}"] input[data-field="name"]`)?.focus();
+}
+
+async function qpSave(pid) {
+  const d = qpDraft(pid);
+  if (!d) return;
+  const isNew = String(pid).startsWith('new-');
+  const body = {
+    name: d.name, media_type: d.media_type, format_ranking: d.format_ranking,
+    cutoff_format: d.cutoff_format, upgrade_allowed: !!d.upgrade_allowed,
+    preferred_size_min: d.preferred_size_min || 0, preferred_size_max: d.preferred_size_max || 0,
+  };
+  try {
+    const resp = await api(isNew ? '/api/quality-profiles' : `/api/quality-profiles/${pid}`, {
+      method: isNew ? 'POST' : 'PUT', body: JSON.stringify(body),
+    });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      showToast(data.error || t('failed_save'), 'error');
+      return;
+    }
+    showToast(t('profile_saved'), 'success');
+    await loadQualityProfiles();
+    if (state.wanted) loadWishlist();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
+async function qpDelete(pid) {
+  if (String(pid).startsWith('new-')) {
+    state.qualityProfiles = (state.qualityProfiles || []).filter(p => String(p.id) !== String(pid));
+    delete state.qpDrafts[pid];
+    renderQualityProfiles();
+    return;
+  }
+  if (!confirm(t('confirm_delete'))) return;
+  try {
+    const resp = await api(`/api/quality-profiles/${pid}`, { method: 'DELETE' });
+    const data = await resp.json().catch(() => ({}));
+    if (!resp.ok) {
+      showToast(data.error || t('failed_delete'), 'error');
+      return;
+    }
+    showToast(t('profile_deleted'), 'success');
+    await loadQualityProfiles();
+    if (state.wanted) loadWishlist();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_delete'), 'error');
+  }
+}
+
+// ---------- Settings: monitored authors ----------
+
+async function loadAuthors() {
+  const list = document.getElementById('authors-list');
+  if (!list) return;
+  try {
+    const data = await apiJson('/api/authors');
+    const authors = data.authors || [];
+    const enabled = document.getElementById('setting-author_monitor_enabled');
+    if (enabled && data.enabled !== undefined) enabled.checked = !!data.enabled;
+    if (!authors.length) {
+      list.innerHTML = '<p class="text-xs text-slate-500">No authors followed yet.</p>';
+      return;
+    }
+    list.innerHTML = authors.map(a => {
+      const checked = a.last_checked && !a.last_checked.startsWith('0001') ? new Date(a.last_checked).toLocaleDateString() : t('never');
+      const baseline = a.seen_works ? `${a.seen_works} works known` : 'not checked yet';
+      return `
+        <div class="flex items-center justify-between gap-3 bg-slate-800/50 rounded-lg px-4 py-3 flex-wrap" data-author-id="${a.id}">
+          <div class="min-w-0">
+            <p class="text-sm font-medium text-white truncate">${escapeHtml(a.name)}</p>
+            <p class="text-xs text-slate-500">${escapeHtml(baseline)} · last checked ${escapeHtml(checked)}${a.last_book_found ? ` · newest: ${escapeHtml(a.last_book_found)}` : ''}</p>
+          </div>
+          <div class="flex items-center gap-2 flex-wrap">
+            <label class="flex items-center gap-1.5 text-xs text-slate-400">
+              <span>every</span>
+              <input type="number" min="1" value="${a.check_interval_days}" data-action-change="authorInterval" data-id="${a.id}" class="w-16 bg-slate-900 border border-slate-700 rounded px-2 py-1 text-xs text-white">
+              <span>d</span>
+            </label>
+            <label class="flex items-center gap-1.5 text-xs text-slate-400" title="${escapeHtml(t('s_author_auto_add'))}">
+              <input type="checkbox" ${a.auto_add ? 'checked' : ''} data-action-change="authorAutoAdd" data-id="${a.id}" class="h-3.5 w-3.5 accent-indigo-500">
+              <span>auto-add</span>
+            </label>
+            <button data-action="checkAuthor" data-id="${a.id}" class="px-2.5 py-1 text-xs bg-indigo-600 hover:bg-indigo-500 text-white rounded">Check now</button>
+            <button data-action="deleteAuthor" data-id="${a.id}" data-name="${escapeHtml(a.name)}" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-red-600 text-slate-300 hover:text-white rounded">Unfollow</button>
+          </div>
+        </div>`;
+    }).join('');
+  } catch (err) {
+    list.innerHTML = '';
+  }
+}
+
+async function addAuthor() {
+  const name = document.getElementById('author-name').value.trim();
+  const interval = +document.getElementById('author-interval').value || 7;
+  const autoAdd = document.getElementById('author-auto-add').checked;
+  if (!name) {
+    showToast(t('err_title_required'), 'warning');
+    return;
+  }
+  try {
+    await apiJson('/api/authors/monitor', { method: 'POST', body: JSON.stringify({ name, check_interval_days: interval, auto_add: autoAdd }) });
+    document.getElementById('author-name').value = '';
+    showToast(t('author_followed'), 'success');
+    loadAuthors();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
+async function patchAuthor(id, patch) {
+  try {
+    await apiJson(`/api/authors/${id}`, { method: 'PATCH', body: JSON.stringify(patch) });
+    showToast(t('settings_saved'), 'success');
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+    loadAuthors();
+  }
+}
+
+async function checkAuthor(id) {
+  try {
+    const data = await apiJson(`/api/authors/${id}/check`, { method: 'POST' });
+    const r = data.result || {};
+    let summary;
+    if (r.error) summary = r.error;
+    else if (r.baseline) summary = t('author_baseline', { seen: r.seen || 0 });
+    else summary = `${t('author_new', { count: (r.new || []).length })}${r.added ? `, ${r.added} added to wanted` : ''}`;
+    showToast(t('author_checked', { author: r.author || '', summary }), r.error ? 'error' : 'success');
+    loadAuthors();
+    if (r.added && state.wanted) loadWishlist();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_save'), 'error');
+  }
+}
+
+async function deleteAuthor(id, name) {
+  if (!confirm(`${t('confirm_delete')} ${name || ''}`.trim())) return;
+  try {
+    await api(`/api/authors/${id}`, { method: 'DELETE' });
+    showToast(t('author_removed'), 'success');
+    loadAuthors();
+  } catch (err) {
+    if (err.message !== 'Unauthorized') showToast(t('failed_delete'), 'error');
+  }
 }
 
 // ============================================================
@@ -2025,6 +2618,9 @@ async function loadSettings() {
   loadTOTPStatus();
   loadSettingToggles();
   showChangePasswordIfMultiUser();
+  loadWantedSettings();
+  loadQualityProfiles();
+  loadAuthors();
   if (state.currentRole === 'admin') {
     loadUsers();
     loadInviteCodes();
@@ -2804,6 +3400,17 @@ const CLICK_ACTIONS = {
   goLibraryPage: el => goLibraryPage(+el.dataset.page),
   searchWishlistItem: el => searchWishlistItem(el.dataset.title, el.dataset.mediaType),
   deleteWishlistItem: el => deleteWishlistItem(+el.dataset.id),
+  searchWantedNow: el => searchWantedNow(+el.dataset.id, false),
+  explainWanted: el => searchWantedNow(+el.dataset.id, true),
+  runSchedulerNow: () => runSchedulerNow(),
+  saveWantedSettings: () => saveWantedSettings(),
+  qpNew: el => qpNew(el.dataset.arg),
+  qpMove: el => qpMove(el.dataset.pid, el.dataset.format, +el.dataset.dir),
+  qpSave: el => qpSave(el.dataset.pid),
+  qpDelete: el => qpDelete(el.dataset.pid),
+  addAuthor: () => addAuthor(),
+  checkAuthor: el => checkAuthor(+el.dataset.id),
+  deleteAuthor: el => deleteAuthor(+el.dataset.id, el.dataset.name),
   deleteUser: el => deleteUser(+el.dataset.id, el.dataset.username),
   copyInviteCode: el => copyInviteCode(el.dataset.code),
   revokeInviteCode: el => revokeInviteCode(+el.dataset.id),
@@ -2821,6 +3428,15 @@ document.addEventListener('click', e => {
 
 const CHANGE_ACTIONS = {
   changeUserRole: el => changeUserRole(+el.dataset.id, el.value),
+  filterWanted: () => renderWanted(),
+  wantedFormTypeChanged: () => fillWantedProfileSelect(),
+  toggleWantedMonitored: el => updateWanted(+el.dataset.id, { monitored: el.checked }),
+  setWantedProfile: el => updateWanted(+el.dataset.id, { quality_profile_id: +el.value }),
+  qpToggleFormat: el => qpToggleFormat(el.dataset.pid, el.dataset.format, el.checked),
+  qpField: el => qpField(el.dataset.pid, el.dataset.field, el),
+  saveAuthorMonitorEnabled: el => saveAuthorMonitorEnabled(el.checked),
+  authorAutoAdd: el => patchAuthor(+el.dataset.id, { auto_add: el.checked }),
+  authorInterval: el => patchAuthor(+el.dataset.id, { check_interval_days: +el.value }),
   toggleForeignLangFilter: () => toggleForeignLangFilter(),
   toggleRemoveTorrent: () => toggleRemoveTorrent(),
   saveImportMode: () => saveImportMode(),

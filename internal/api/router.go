@@ -100,6 +100,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	wishlistClean := scheduler.NewWishlistCleaner(cfg, database)
 	seriesDet := scheduler.NewSeriesDetector(database, searchMgr, ws)
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
+	authorMon.SetOpenLibraryURL(cfg.OpenLibraryURL)
 
 	s := &Server{
 		cfg:            cfg,
@@ -316,6 +317,8 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("GET /api/wishlist", s.handleGetWishlist)
 	s.mux.HandleFunc("POST /api/wishlist", s.handleAddWishlist)
 	s.mux.HandleFunc("DELETE /api/wishlist/{id}", s.handleDeleteWishlist)
+	s.mux.HandleFunc("PATCH /api/wishlist/{id}", s.handleUpdateWishlist)
+	s.mux.HandleFunc("POST /api/wishlist/{id}/search", requireAdmin(s.handleSearchWishlistItem))
 
 	// Reading history.
 	s.mux.HandleFunc("POST /api/history", s.handleAddHistory)
@@ -341,6 +344,8 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("GET /api/authors", s.handleListMonitoredAuthors)
 	s.mux.HandleFunc("POST /api/authors/monitor", requireAdmin(s.handleAddMonitoredAuthor))
 	s.mux.HandleFunc("DELETE /api/authors/{id}", requireAdmin(s.handleDeleteMonitoredAuthor))
+	s.mux.HandleFunc("PATCH /api/authors/{id}", requireAdmin(s.handleUpdateMonitoredAuthor))
+	s.mux.HandleFunc("POST /api/authors/{id}/check", requireAdmin(s.handleCheckMonitoredAuthor))
 }
 
 // registerRequestRoutes wires the book request workflow and notifications.
@@ -369,6 +374,7 @@ func (s *Server) registerCurationRoutes() {
 	// Quality Profiles.
 	s.mux.HandleFunc("GET /api/quality-profiles", s.handleGetQualityProfiles)
 	s.mux.HandleFunc("GET /api/quality-profiles/default", s.handleGetDefaultQualityProfile)
+	s.mux.HandleFunc("GET /api/quality-profiles/formats", s.handleQualityFormats)
 	s.mux.HandleFunc("POST /api/quality-profiles", requireAdmin(s.handleCreateQualityProfile))
 	s.mux.HandleFunc("PUT /api/quality-profiles/{id}", requireAdmin(s.handleUpdateQualityProfile))
 	s.mux.HandleFunc("DELETE /api/quality-profiles/{id}", requireAdmin(s.handleDeleteQualityProfile))

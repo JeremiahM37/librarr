@@ -17,16 +17,16 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 |---|---|
 | ![Parallel indexer search with confidence scoring](docs/screenshots/search.png) | ![Unified library view across ebooks, audiobooks, and manga](docs/screenshots/library.png) |
 
-| Wishlist | Settings |
+| Wanted | Settings |
 |---|---|
-| ![Wishlist with auto-search scheduler](docs/screenshots/wishlist.png) | ![Settings with 2FA, user management, and connection tests](docs/screenshots/settings.png) |
+| ![Wanted list: every book has a state, a quality profile and the last scheduler decision](docs/screenshots/wishlist.png) | ![Settings: scheduler, quality profile editor with cutoff, and monitored authors](docs/screenshots/settings.png) |
 
 ## Why Librarr?
 
 - **Import your Goodreads or StoryGraph library** via CSV and bulk-download everything
 - **Request workflow** -- users request books, admins approve, downloads happen automatically (like Jellyseerr for books)
-- **Quality profiles** -- rank formats (EPUB > PDF > MOBI), auto-upgrade when a better version appears
-- **Author monitoring** -- follow authors and get notified when new releases are found
+- **Wanted list with quality profiles** -- every wanted book is a monitored entity with a state (missing, downloading, upgrade wanted, satisfied); rank formats (EPUB > AZW3 > MOBI > PDF), set a cutoff, and librarr grabs a first copy, then upgrades it until the cutoff is met and retires the old file
+- **Author monitoring that acts** -- follow authors; new works (tracked by Open Library work key, so reissues don't fire) land on the wanted list automatically
 - **Series auto-complete** -- detects gaps in series and searches for missing volumes
 - **Torznab API** -- add Librarr as an indexer in Prowlarr or Readarr (it works both ways)
 - **OPDS 1.2 feed** -- browse your library from any e-reader app
@@ -38,9 +38,9 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 
 - **Pluggable indexer registry** -- driver kinds listed below; default endpoints are fetched at startup from the `librarr-sources` companion repo and overrideable at runtime via `LIBRARR_SOURCES_URL` / `LIBRARR_SOURCES_PATH`
 - **Confidence scoring** -- 0-100 score with breakdown (title match, author match, format, seeders, file size)
-- **Quality profiles** -- define format ranking and preferred attributes, auto-upgrade existing downloads
+- **Quality profiles** -- per media type, best-first format ranking with a cutoff; formats left out are never grabbed automatically; built-in defaults for ebook / audiobook / manga
 - **Release profiles** -- preferred and excluded words for fine-grained filtering
-- **Blocklist** -- failed downloads are auto-blocked to prevent retries; manual entries supported
+- **Blocklist** -- failed downloads are auto-blocked to prevent retries; a release that claimed a better format but delivered the same or a worse one is rejected after import and blocklisted; manual entries supported
 - **Already-in-library detection** -- results you already own are flagged with `in_library` / `library_item_id` and badged in the UI; matching normalizes punctuation, author prefixes and parenthetical alternate titles, so `Agatha Christie - 4.50 From Paddington` finds `4:50 from Paddington`
 
 ### Download Management
@@ -48,7 +48,7 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 - **Multiple download clients** -- qBittorrent or Transmission for torrents, plus SABnzbd for Usenet
 - **Anna's Archive membership fast download** -- optional account secret key uses `/dyn/api/fast_download.json`, with LibGen mirror fallback
 - **Request/approval workflow** -- pending, approved, searching, downloading, completed states with per-request notifications
-- **Scheduled wishlist searches** -- background scheduler auto-searches and downloads wishlist items on a configurable interval
+- **Scheduled wanted-list searches** -- the scheduler searches every monitored wanted item on an interval, runs its quality profile over the results (match score gates, format rank decides) and grabs the best acceptable release; `POST /api/scheduler/run?wait=1` runs a pass synchronously
 - **Torrent completion watcher** -- polls download client, auto-imports completed downloads
 - **Dead letter retry** -- failed jobs can be retried individually or in bulk
 
@@ -56,7 +56,7 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 
 - **Auto-import pipeline** -- organize files by author/title, rename on import (configurable pattern), scan into Calibre/Audiobookshelf/Kavita/Komga
 - **Series auto-complete** -- detect gaps in series, search for and download missing books
-- **Author monitoring** -- follow authors, periodically check for new releases, auto-notify
+- **Author monitoring** -- follow authors; the first check records their catalogue as a baseline, later checks add each new work to the wanted list (or only notify, per author)
 - **Reading history** -- track what you've read with stats (books per month, pages, completion rate)
 - **Tags** -- organize library items with custom tags for filtering and grouping
 - **Series grouping** -- groups related books/volumes in the library view
@@ -421,6 +421,24 @@ Legacy per-source env vars (e.g. `PROWLARR_URL` and other per-driver overrides) 
 | `WISHLIST_CLEANUP_DRY_RUN` | `true` | Log conservative wishlist cleanup matches without deleting |
 | `MANGADEX_ENABLED` | `true` | MangaDex search |
 | `AUTHOR_MONITOR_ENABLED` | `false` | Background author monitoring |
+| `AUTHOR_CHECK_INTERVAL_DAYS` | `7` | Default check interval for newly followed authors |
+| `AUTHOR_MONITOR_AUTO_ADD` | `true` | Put newly found works on the wanted list (otherwise only notify) |
+| `OPENLIBRARY_URL` | `https://openlibrary.org` | Open Library origin used by the author monitor |
+
+### Wanted List & Quality Profiles
+
+These are also editable at runtime under **Settings → Wanted List & Quality**;
+values saved there persist in `settings.json` and override the environment.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `SCHEDULER_ENABLED` | `false` | Search monitored wanted items in the background |
+| `SCHEDULER_INTERVAL_HOURS` | `24` | Hours between passes |
+| `SCHEDULER_AUTO_DOWNLOAD` | `false` | Grab the best acceptable release (otherwise only notify) |
+| `SCHEDULER_MIN_SCORE` | `70` | Minimum match confidence (0-100); the profile ranks what passes |
+| `SCHEDULER_ITEM_DELAY_SECONDS` | `5` | Pause between two items that hit the sources |
+| `AUTO_UPGRADE_ENABLED` | `false` | Global switch: replace an existing file when a better-ranked format appears (each profile also has its own flag) |
+| `UPGRADE_KEEP_OLD_FILES` | `false` | Keep the superseded file and its library row after an upgrade instead of deleting it |
 
 ### Torznab
 
@@ -516,9 +534,17 @@ different format); that is what the UI's **Download anyway** button sends.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/api/wishlist` | List wishlist items |
-| POST | `/api/wishlist` | Add item to wishlist |
-| DELETE | `/api/wishlist/{id}` | Remove from wishlist |
+| GET | `/api/wishlist` | List wanted items with derived `state`, `current_format`, `profile_name`, `cutoff_met` |
+| POST | `/api/wishlist` | Add a wanted item (`title`, `author`, `media_type`, `quality_profile_id`, `monitored`) |
+| PATCH | `/api/wishlist/{id}` | Change `monitored` / `quality_profile_id` |
+| POST | `/api/wishlist/{id}/search` | Run the profile decision now (admin); `{"dry_run": true}` explains every candidate without grabbing |
+| DELETE | `/api/wishlist/{id}` | Remove from the wanted list |
+
+A wanted item is never deleted by a grab. It remembers the library file that
+satisfies it; the scheduler skips it once the file meets the profile's cutoff
+(or when upgrades are off) and otherwise keeps looking for a strictly better
+format. Deleting the library file sends the item back to *missing*; files that
+arrive by other routes are linked on the next pass by title and author.
 
 ### Notifications
 
@@ -535,7 +561,8 @@ different format); that is what the UI's **Download anyway** button sends.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/quality-profiles` | List quality profiles |
-| GET | `/api/quality-profiles/default` | Get default profile |
+| GET | `/api/quality-profiles/default` | Built-in profile per media type + global upgrade switches |
+| GET | `/api/quality-profiles/formats` | Known formats per media type (for editors) |
 | POST | `/api/quality-profiles` | Create profile (admin) |
 | PUT | `/api/quality-profiles/{id}` | Update profile (admin) |
 | DELETE | `/api/quality-profiles/{id}` | Delete profile (admin) |
@@ -573,6 +600,8 @@ different format); that is what the UI's **Download anyway** button sends.
 | GET | `/api/authors` | List monitored authors |
 | POST | `/api/authors/monitor` | Add author (admin) |
 | DELETE | `/api/authors/{id}` | Remove author (admin) |
+| PATCH | `/api/authors/{id}` | Change check interval / auto-add (admin) |
+| POST | `/api/authors/{id}/check` | Check one author now (admin); first check records a baseline |
 
 ### Reading History
 
@@ -624,8 +653,8 @@ different format); that is what the UI's **Download anyway** button sends.
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/scheduler/status` | Scheduler status and next run |
-| POST | `/api/scheduler/run` | Trigger manual run (admin) |
-| PUT | `/api/scheduler/config` | Update scheduler config (admin) |
+| POST | `/api/scheduler/run` | Trigger a pass (admin); `?wait=1` runs it synchronously and returns the statistics |
+| PUT | `/api/scheduler/config` | Update and persist scheduler / upgrade settings (admin) |
 
 ### Webhooks (admin)
 

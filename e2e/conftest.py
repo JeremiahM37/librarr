@@ -37,7 +37,12 @@ BOOKS = [
     {"id": 101, "title": "Test Adventure", "author": "Alice Author"},
     {"id": 102, "title": "The Grand Test Adventure Compendium", "author": "Bob Writer"},
     {"id": 103, "title": "Adventure of the Test Case", "author": "Carol Coder"},
+    # Served as a PDF until the test flips the "ladder" to epub — the wanted
+    # list's upgrade path (PDF on disk → EPUB grabbed, PDF retired) runs
+    # against this one book.
+    {"id": 104, "title": "Format Ladder", "author": "Dana Ranker"},
 ]
+LADDER_ID = 104
 
 # A deliberately broken cover on one book exercises the delegated
 # capture-phase error handler (gradient placeholder fallback).
@@ -82,6 +87,12 @@ def _minimal_epub(title: str) -> bytes:
     return buf.getvalue()
 
 
+def _minimal_pdf(title: str) -> bytes:
+    """Bytes the downloader sniffs as a PDF; padded past its minimum-size guard."""
+    body = f"%PDF-1.4\n% {title}\n".encode() + b"% padding\n" * 8192
+    return body + b"%%EOF\n"
+
+
 # 1x1 PNG — a valid cover image for the books that should NOT hit the
 # placeholder fallback path (browsers sniff content, not extensions).
 import base64
@@ -91,7 +102,34 @@ TINY_IMG = base64.b64decode(
 
 
 class _StubHandler(BaseHTTPRequestHandler):
-    """gutendex-compatible search endpoint + epub/cover file hosting."""
+    """gutendex-compatible search endpoint + epub/cover file hosting, plus a
+    tiny Open Library stand-in for the author monitor and two admin knobs the
+    tests use to change what the stub serves mid-run."""
+
+    # Mutable stub state (module-level so every handler thread shares it).
+    state = {"ladder_format": "pdf", "ol_docs": []}
+
+    def do_POST(self):  # noqa: N802 (http.server API)
+        path, _, query = self.path.partition("?")
+        params = dict(p.split("=", 1) for p in query.split("&") if "=" in p)
+        if path == "/admin/ladder":
+            self.state["ladder_format"] = params.get("fmt", "pdf")
+        elif path == "/admin/ol":
+            import urllib.parse
+            title = urllib.parse.unquote_plus(params.get("add", ""))
+            if title:
+                self.state["ol_docs"].append({
+                    "key": f"/works/OL{len(self.state['ol_docs']) + 1}W",
+                    "title": title,
+                    "first_publish_year": 2000 + len(self.state["ol_docs"]),
+                    "author_name": [urllib.parse.unquote_plus(params.get("author", "Stub Author"))],
+                })
+            else:
+                self.state["ol_docs"].clear()
+        else:
+            self._send(404, b"not found", "text/plain")
+            return
+        self._send(200, b"ok", "text/plain")
 
     def _send(self, code: int, body: bytes, ctype: str):
         self.send_response(code)
@@ -115,22 +153,36 @@ class _StubHandler(BaseHTTPRequestHandler):
                 cover = ("https://127.0.0.1:1/broken.jpg"
                          if b["id"] == BROKEN_COVER_ID
                          else data_uri)
+                epub_url = f"{base}/files/{b['id']}.epub"
+                if b["id"] == LADDER_ID:
+                    # A distinct URL per served format models "a new release
+                    # appeared": a release that delivered the wrong format is
+                    # blocklisted by URL, and must not shadow the real one.
+                    epub_url += f"?rel={self.state['ladder_format']}"
                 results.append({
                     "id": b["id"],
                     "title": b["title"],
                     "authors": [{"name": b["author"]}],
                     "languages": ["en"],
                     "formats": {
-                        "application/epub+zip": f"{base}/files/{b['id']}.epub",
+                        "application/epub+zip": epub_url,
                         "image/jpeg": cover,
                     },
                 })
             self._send(200, json.dumps({"count": len(results), "results": results}).encode(),
                        "application/json")
+        elif path == "/search.json":
+            # Open Library search: every doc, regardless of the author asked
+            # for (the monitor filters by author_name itself).
+            self._send(200, json.dumps({"docs": list(self.state["ol_docs"])}).encode(),
+                       "application/json")
         elif path.startswith("/files/"):
             book_id = int(path.split("/")[-1].split(".")[0])
             title = next(b["title"] for b in BOOKS if b["id"] == book_id)
-            self._send(200, _minimal_epub(title), "application/epub+zip")
+            if book_id == LADDER_ID and self.state["ladder_format"] == "pdf":
+                self._send(200, _minimal_pdf(title), "application/pdf")
+            else:
+                self._send(200, _minimal_epub(title), "application/epub+zip")
         elif path.startswith("/covers/broken-"):
             self._send(404, b"no such cover", "text/plain")
         elif path.startswith("/covers/"):
@@ -253,6 +305,13 @@ def app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
         # rightly blocks by default. This opt-out exists for LAN mirrors and
         # for exactly this kind of hermetic test.
         "LIBRARR_INSECURE_ALLOW_PRIVATE_URLS": "1",
+        # Wanted list: grab automatically, allow upgrades, no polite pause.
+        # The background loop stays off; tests drive passes through the API.
+        "SCHEDULER_AUTO_DOWNLOAD": "1",
+        "AUTO_UPGRADE_ENABLED": "1",
+        "SCHEDULER_ITEM_DELAY_SECONDS": "0",
+        "AUTHOR_MONITOR_ENABLED": "1",
+        "OPENLIBRARY_URL": stub_server,
     }
     log = open(data / "librarr.log", "w")
     proc = subprocess.Popen([str(librarr_binary)], env=env, stdout=log, stderr=log)
@@ -277,6 +336,7 @@ def app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
         "data": data,
         "books_dir": books,
         "kavita_scans": kavita_stub["scan_calls"],
+        "stub": stub_server,
     }
 
     proc.terminate()

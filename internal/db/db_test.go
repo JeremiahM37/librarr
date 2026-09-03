@@ -925,6 +925,18 @@ func TestBlocklist_CRUD(t *testing.T) {
 	})
 }
 
+// customProfiles drops the seeded built-in defaults so CRUD assertions see
+// only what the test itself created.
+func customProfiles(all []QualityProfile) []QualityProfile {
+	var out []QualityProfile
+	for _, p := range all {
+		if !p.Builtin {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
 func TestQualityProfile_CRUD(t *testing.T) {
 	d := newTestDB(t)
 
@@ -972,14 +984,15 @@ func TestQualityProfile_CRUD(t *testing.T) {
 		if err != nil {
 			t.Fatalf("GetQualityProfiles failed: %v", err)
 		}
-		if len(profiles) != 1 {
-			t.Errorf("expected 1 profile, got %d", len(profiles))
+		// Three built-in defaults (one per media type) plus the custom one.
+		if len(customProfiles(profiles)) != 1 || len(profiles) != 4 {
+			t.Errorf("expected 1 custom + 3 builtin profiles, got %d total", len(profiles))
 		}
 	})
 
 	t.Run("update profile", func(t *testing.T) {
 		profiles, _ := d.GetQualityProfiles()
-		qp := profiles[0]
+		qp := customProfiles(profiles)[0]
 		qp.Name = "Updated Quality"
 		qp.UpgradeAllowed = false
 
@@ -999,14 +1012,14 @@ func TestQualityProfile_CRUD(t *testing.T) {
 
 	t.Run("delete profile", func(t *testing.T) {
 		profiles, _ := d.GetQualityProfiles()
-		err := d.DeleteQualityProfile(profiles[0].ID)
+		err := d.DeleteQualityProfile(customProfiles(profiles)[0].ID)
 		if err != nil {
 			t.Fatalf("DeleteQualityProfile failed: %v", err)
 		}
 
 		result, _ := d.GetQualityProfiles()
-		if len(result) != 0 {
-			t.Errorf("expected 0 profiles after delete, got %d", len(result))
+		if len(customProfiles(result)) != 0 {
+			t.Errorf("expected 0 custom profiles after delete, got %d", len(customProfiles(result)))
 		}
 	})
 

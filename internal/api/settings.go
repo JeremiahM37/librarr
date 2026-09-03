@@ -56,6 +56,18 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"import_mode":                 config.NormalizeImportMode(s.cfg.ImportMode),
 		"effective_import_mode":       s.cfg.EffectiveImportMode(),
 
+		// Wanted list / quality upgrades / author monitoring.
+		"scheduler_enabled":            s.cfg.SchedulerEnabled,
+		"scheduler_interval_hours":     s.cfg.SchedulerIntervalHours,
+		"scheduler_auto_download":      s.cfg.SchedulerAutoDownload,
+		"scheduler_min_score":          s.cfg.SchedulerMinScore,
+		"scheduler_item_delay_seconds": s.cfg.SchedulerItemDelaySeconds,
+		"auto_upgrade_enabled":         s.cfg.AutoUpgradeEnabled,
+		"upgrade_keep_old_files":       s.cfg.UpgradeKeepOldFiles,
+		"author_monitor_enabled":       s.cfg.AuthorMonitorEnabled,
+		"author_check_interval_days":   s.cfg.AuthorCheckIntervalDays,
+		"author_monitor_auto_add":      s.cfg.AuthorMonitorAutoAdd,
+
 		// Integration URLs and credentials (sensitive ones are masked below).
 		"qb_url":                  s.cfg.QBUrl,
 		"qb_user":                 s.cfg.QBUser,
@@ -200,8 +212,58 @@ func (s *Server) handleSaveSettings(w http.ResponseWriter, r *http.Request) {
 		s.cfg.AnnasArchiveSecretKey = v
 		slog.Info("annas archive secret key updated")
 	}
+	s.applyWantedSettings(data)
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+}
+
+// applyWantedSettings pushes scheduler / upgrade / author-monitor keys from
+// a settings payload into the live config.
+func (s *Server) applyWantedSettings(data map[string]interface{}) {
+	boolKeys := map[string]*bool{
+		"scheduler_enabled":       &s.cfg.SchedulerEnabled,
+		"scheduler_auto_download": &s.cfg.SchedulerAutoDownload,
+		"auto_upgrade_enabled":    &s.cfg.AutoUpgradeEnabled,
+		"upgrade_keep_old_files":  &s.cfg.UpgradeKeepOldFiles,
+		"author_monitor_enabled":  &s.cfg.AuthorMonitorEnabled,
+		"author_monitor_auto_add": &s.cfg.AuthorMonitorAutoAdd,
+	}
+	for k, ptr := range boolKeys {
+		if v, ok := data[k].(bool); ok {
+			*ptr = v
+		}
+	}
+	intKeys := map[string]struct {
+		ptr      *int
+		min, max int
+	}{
+		"scheduler_interval_hours":     {&s.cfg.SchedulerIntervalHours, 1, 24 * 365},
+		"scheduler_min_score":          {&s.cfg.SchedulerMinScore, 0, 100},
+		"scheduler_item_delay_seconds": {&s.cfg.SchedulerItemDelaySeconds, 0, 3600},
+		"author_check_interval_days":   {&s.cfg.AuthorCheckIntervalDays, 1, 3650},
+	}
+	for k, spec := range intKeys {
+		if v, ok := data[k].(float64); ok {
+			n := int(v)
+			if n >= spec.min && n <= spec.max {
+				*spec.ptr = n
+			}
+		}
+	}
+}
+
+// persistSettings merges values into settings.json without touching the
+// live config (callers apply what they need themselves).
+func (s *Server) persistSettings(values map[string]interface{}) error {
+	existing := s.loadSettings()
+	for k, v := range values {
+		existing[k] = v
+	}
+	jsonBytes, err := json.MarshalIndent(existing, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(s.cfg.SettingsFile, jsonBytes, 0600)
 }
 
 // normalizeSettingURLs repairs service base URLs in an incoming settings

@@ -249,23 +249,44 @@
 
     <!-- ==================== WISHLIST TAB ==================== -->
     <div id="tab-wishlist" class="tab-content">
-      <div class="flex items-center justify-between mb-4 gap-2 flex-wrap">
-        <h2 class="text-xl font-bold text-white" data-i18n="wishlist_title">Wishlist</h2>
-        <button data-action="showWishlistForm" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="wishlist_add_book">Add Book</button>
+      <div class="flex items-start justify-between mb-4 gap-3 flex-wrap">
+        <div>
+          <h2 class="text-xl font-bold text-white" data-i18n="wishlist_title">Wanted</h2>
+          <p id="wanted-summary" class="text-xs text-slate-500 mt-1" data-i18n="wanted_intro">Books librarr keeps looking for, and keeps at the quality their profile asks for.</p>
+        </div>
+        <div class="flex items-center gap-2 flex-wrap">
+          <select id="wanted-filter" data-action-change="filterWanted" class="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1.5 text-sm text-slate-200">
+            <option value="" data-i18n="wanted_filter_all">All</option>
+            <option value="missing" data-i18n="wanted_state_missing">Missing</option>
+            <option value="upgrade" data-i18n="wanted_state_upgrade">Upgrade wanted</option>
+            <option value="downloading" data-i18n="wanted_state_downloading">Downloading</option>
+            <option value="satisfied" data-i18n="wanted_state_satisfied">Satisfied</option>
+            <option value="unmonitored" data-i18n="wanted_state_unmonitored">Unmonitored</option>
+          </select>
+          <button data-action="runSchedulerNow" id="wanted-search-all" class="admin-only hidden px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors" data-i18n="wanted_search_all">Search all now</button>
+          <button data-action="showWishlistForm" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="wishlist_add_book">Add Book</button>
+        </div>
+      </div>
+      <div id="wanted-upgrades-off" class="hidden mb-4 rounded-lg border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+        <span data-i18n="wanted_upgrades_off">Automatic upgrades are off: items that already have a file will not be replaced by a better format.</span>
+        <button data-action="switchTab" data-arg="settings" class="ml-2 underline text-amber-100" data-i18n="nav_settings">Settings</button>
       </div>
       <div id="wishlist-empty" class="hidden text-center py-16">
-        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="wishlist_empty">Wishlist is empty</h2>
-        <p class="text-slate-400" data-i18n="wishlist_empty_hint">Add books you want to find later</p>
+        <h2 class="text-2xl font-bold text-white mb-2" data-i18n="wishlist_empty">Nothing wanted yet</h2>
+        <p class="text-slate-400" data-i18n="wishlist_empty_hint">Add books you want librarr to find and keep up to date</p>
       </div>
       <div id="wishlist-list" class="space-y-3"></div>
       <div id="wishlist-form" class="hidden mt-6 bg-slate-900 border border-slate-800 rounded-xl p-4">
-        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 sm:grid-cols-4 gap-3">
           <input id="wl-title" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="Title" data-i18n-placeholder="ph_wishlist_title">
           <input id="wl-author" type="text" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500" placeholder="Author (optional)" data-i18n-placeholder="ph_wishlist_author">
-          <select id="wl-type" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
+          <select id="wl-type" data-action-change="wantedFormTypeChanged" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white">
             <option value="ebook" data-i18n="opt_ebook">Ebook</option>
             <option value="audiobook" data-i18n="opt_audiobook">Audiobook</option>
             <option value="manga" data-i18n="opt_manga">Manga</option>
+          </select>
+          <select id="wl-profile" class="bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white" title="Quality profile">
+            <option value="0" data-i18n="wanted_profile_default">Default profile</option>
           </select>
         </div>
         <div class="flex items-center gap-2 mt-3">
@@ -630,6 +651,85 @@
               <button data-action="testConnection" data-arg="kavita" class="px-2.5 py-1 text-xs bg-slate-700 hover:bg-slate-600 text-slate-300 rounded transition-colors" data-i18n="btn_test">Test</button>
             </div>
           </div>
+        </div>
+      </div>
+
+      <!-- Wanted list, quality profiles, author monitoring -->
+      <div id="wanted-settings" class="bg-slate-900 border border-slate-800 rounded-xl p-5 mb-6">
+        <h3 class="text-sm font-semibold text-slate-300 uppercase tracking-wider mb-1" data-i18n="s_wanted_title">Wanted List &amp; Quality</h3>
+        <p class="text-xs text-slate-500 mb-4" data-i18n="s_wanted_desc">The scheduler searches every monitored wanted item on an interval, runs its quality profile over the results, and grabs the best acceptable release — a first copy when the book is missing, an upgrade when the file on disk is below the profile's cutoff.</p>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_sched_enabled">Search wanted items automatically</span>
+            <input type="checkbox" id="setting-scheduler_enabled" class="h-4 w-4 accent-indigo-500">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_sched_auto_download">Grab automatically (otherwise only notify)</span>
+            <input type="checkbox" id="setting-scheduler_auto_download" class="h-4 w-4 accent-indigo-500">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_sched_interval">Interval (hours)</span>
+            <input type="number" min="1" id="setting-scheduler_interval_hours" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_sched_min_score">Minimum match score (0–100)</span>
+            <input type="number" min="0" max="100" id="setting-scheduler_min_score" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_sched_delay">Pause between items (seconds)</span>
+            <input type="number" min="0" max="3600" id="setting-scheduler_item_delay_seconds" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-sm text-white">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1">
+            <span class="text-sm text-slate-300" data-i18n="s_auto_upgrade">Upgrade existing files when a better format appears</span>
+            <input type="checkbox" id="setting-auto_upgrade_enabled" class="h-4 w-4 accent-indigo-500">
+          </label>
+          <label class="flex items-center justify-between gap-3 py-1 md:col-start-2">
+            <span class="text-sm text-slate-300" data-i18n="s_keep_old">Keep the old file after an upgrade (default: replace it)</span>
+            <input type="checkbox" id="setting-upgrade_keep_old_files" class="h-4 w-4 accent-indigo-500">
+          </label>
+        </div>
+        <div class="flex items-center gap-2 mt-4 flex-wrap">
+          <button data-action="saveWantedSettings" class="px-3 py-1.5 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="save">Save</button>
+          <button data-action="runSchedulerNow" class="px-3 py-1.5 text-sm bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg transition-colors" data-i18n="wanted_search_all">Search all now</button>
+          <span id="scheduler-status" class="text-xs text-slate-500"></span>
+        </div>
+
+        <div class="border-t border-slate-800 mt-6 pt-5">
+          <div class="flex items-center justify-between gap-3 mb-1 flex-wrap">
+            <h4 class="text-sm font-medium text-slate-200" data-i18n="s_profiles_title">Quality profiles</h4>
+            <div class="flex items-center gap-2">
+              <button data-action="qpNew" data-arg="ebook" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg">+ Ebook</button>
+              <button data-action="qpNew" data-arg="audiobook" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg">+ Audiobook</button>
+              <button data-action="qpNew" data-arg="manga" class="px-2.5 py-1 text-xs bg-slate-800 hover:bg-slate-700 text-slate-200 rounded-lg">+ Manga</button>
+            </div>
+          </div>
+          <p class="text-xs text-slate-500 mb-3" data-i18n="s_profiles_desc">Tick the formats a profile may grab and order them best-first. The cutoff is where upgrading stops: once a file at or above it is on disk the item is satisfied. Formats left unticked are never grabbed automatically. The built-in profile for each media type is what items use unless you pick another.</p>
+          <div id="quality-profiles-list" class="space-y-3"></div>
+        </div>
+
+        <div class="border-t border-slate-800 mt-6 pt-5">
+          <h4 class="text-sm font-medium text-slate-200 mb-1" data-i18n="s_authors_title">Monitored authors</h4>
+          <p class="text-xs text-slate-500 mb-3" data-i18n="s_authors_desc">Followed authors are checked against Open Library on their interval. The first check records the existing catalogue silently; from then on each new work is added to the wanted list (or only announced, per author).</p>
+          <label class="flex items-center justify-between gap-3 py-1 mb-3 md:w-1/2">
+            <span class="text-sm text-slate-300" data-i18n="s_authors_enabled">Check monitored authors automatically</span>
+            <input type="checkbox" id="setting-author_monitor_enabled" class="h-4 w-4 accent-indigo-500" data-action-change="saveAuthorMonitorEnabled">
+          </label>
+          <div class="flex items-end flex-wrap gap-2 mb-4">
+            <div class="flex-1 min-w-[200px]">
+              <label class="block text-xs text-slate-500 mb-1" data-i18n="s_author_name">Author</label>
+              <input id="author-name" type="text" class="w-full bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white placeholder-slate-500 text-sm" placeholder="e.g. Ann Leckie">
+            </div>
+            <div>
+              <label class="block text-xs text-slate-500 mb-1" data-i18n="s_author_interval">Check every (days)</label>
+              <input id="author-interval" type="number" min="1" value="7" class="w-24 bg-slate-800 border border-slate-700 rounded-lg px-3 py-2 text-white text-sm">
+            </div>
+            <label class="flex items-center gap-2 text-sm text-slate-300 pb-2">
+              <input id="author-auto-add" type="checkbox" checked class="h-4 w-4 accent-indigo-500"> <span data-i18n="s_author_auto_add">Add new works to wanted</span>
+            </label>
+            <button data-action="addAuthor" class="px-3 py-2 text-sm bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg transition-colors" data-i18n="s_author_follow">Follow</button>
+          </div>
+          <div id="authors-list" class="space-y-2"></div>
         </div>
       </div>
 

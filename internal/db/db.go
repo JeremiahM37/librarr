@@ -28,7 +28,14 @@ func New(path string) (*DB, error) {
 		return nil, fmt.Errorf("create db directory: %w", err)
 	}
 
-	db, err := sql.Open("sqlite", path+"?_journal_mode=WAL&_busy_timeout=10000")
+	// modernc.org/sqlite reads DSN options as _pragma=NAME(VALUE), applied
+	// to every pooled connection. The mattn-style keys used before
+	// (_journal_mode=WAL&_busy_timeout=10000) were silently ignored, which
+	// left the file in rollback-journal mode with a zero busy timeout: a
+	// read on one pooled connection made a concurrent write fail at once
+	// with "database is locked", and callers that dropped the error (an
+	// import racing the scheduler) lost the write without a trace.
+	db, err := sql.Open("sqlite", path+"?_pragma=journal_mode(WAL)&_pragma=busy_timeout(10000)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, fmt.Errorf("open database: %w", err)
 	}
@@ -309,6 +316,24 @@ func (d *DB) migrate() error {
 		`ALTER TABLE download_jobs ADD COLUMN source_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE activity_log ADD COLUMN user TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE reading_history ADD COLUMN status TEXT NOT NULL DEFAULT ''`,
+
+		// Wanted-list state machine (wishlist rows became persistent,
+		// monitored entities with a quality profile instead of one-shot
+		// requests that were deleted on grab).
+		`ALTER TABLE wishlist ADD COLUMN monitored INTEGER NOT NULL DEFAULT 1`,
+		`ALTER TABLE wishlist ADD COLUMN quality_profile_id INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wishlist ADD COLUMN library_item_id INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE wishlist ADD COLUMN active_job_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE wishlist ADD COLUMN last_searched REAL NOT NULL DEFAULT 0`,
+		`ALTER TABLE wishlist ADD COLUMN last_result TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE wishlist ADD COLUMN source TEXT NOT NULL DEFAULT 'manual'`,
+		// A grab links back to the wanted row it satisfies.
+		`ALTER TABLE download_jobs ADD COLUMN wanted_id INTEGER NOT NULL DEFAULT 0`,
+		// Profiles are per media type; built-in ones cannot be deleted.
+		`ALTER TABLE quality_profiles ADD COLUMN media_type TEXT NOT NULL DEFAULT 'ebook'`,
+		`ALTER TABLE quality_profiles ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0`,
+		// Author monitoring can add new works to the wanted list.
+		`ALTER TABLE monitored_authors ADD COLUMN auto_add INTEGER NOT NULL DEFAULT 1`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := d.db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
@@ -317,6 +342,29 @@ func (d *DB) migrate() error {
 	}
 	if _, err := d.db.Exec(`CREATE INDEX IF NOT EXISTS idx_library_items_content_hash ON library_items(content_hash)`); err != nil {
 		return fmt.Errorf("create library content hash index: %w", err)
+	}
+	// Works an author monitor has already seen, keyed by Open Library work
+	// key so a reissued edition of an old book is not mistaken for a release.
+	postMigrations := []string{
+		`CREATE TABLE IF NOT EXISTS author_seen_works (
+			author_id INTEGER NOT NULL,
+			work_key TEXT NOT NULL,
+			title TEXT NOT NULL DEFAULT '',
+			year INTEGER NOT NULL DEFAULT 0,
+			first_seen REAL NOT NULL DEFAULT (strftime('%s','now')),
+			PRIMARY KEY (author_id, work_key),
+			FOREIGN KEY (author_id) REFERENCES monitored_authors(id) ON DELETE CASCADE
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_wishlist_active_job ON wishlist(active_job_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_wishlist_library_item ON wishlist(library_item_id)`,
+	}
+	for _, m := range postMigrations {
+		if _, err := d.db.Exec(m); err != nil {
+			return fmt.Errorf("migration failed: %w\nSQL: %s", err, m)
+		}
+	}
+	if err := d.seedDefaultQualityProfiles(); err != nil {
+		return fmt.Errorf("seed quality profiles: %w", err)
 	}
 	if err := d.backfillLibraryContentHashes(); err != nil {
 		return fmt.Errorf("backfill library content hashes: %w", err)

@@ -583,6 +583,7 @@ func (w *Watcher) recordTorrentItem(source string, t TorrentInfo, mediaType, sou
 		return false, err
 	}
 	slog.Info("torrent library import decision", fields...)
+	linkTorrentToWanted(w.db, w.organizer, w.cfg, t, outcome)
 	return outcome.Inserted, nil
 }
 

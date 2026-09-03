@@ -103,6 +103,11 @@ func (c *WishlistCleaner) Run(ctx context.Context) CleanupResult {
 	}
 
 	for _, item := range wishlist {
+		// A row already linked to a library file is tracked by the wanted
+		// list (it may still be waiting on an upgrade); leave it alone.
+		if item.LibraryItemID != 0 {
+			continue
+		}
 		matches := conservativeWishlistMatches(item, candidates)
 		switch len(matches) {
 		case 0:
