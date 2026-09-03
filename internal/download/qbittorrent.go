@@ -249,15 +249,46 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, ex
 	} else if isHTTPURL(torrentURL) && q.isProwlarrTorrentURL(torrentURL) {
 		slog.Info("fetching torrent before qBittorrent upload", "title", logTitle, "category", logCategory)
 		var fetched fetchedTorrent
-		fetched, err = q.fetchTorrent(torrentURL)
-		if err == nil {
-			if supplied := firstNonEmptyHash(expectedInfoHash); supplied != "" && supplied != fetched.infoHash {
-				slog.Warn("torrent info hash differs from search result", "title", logTitle, "expected_hash", netutil.SanitizeLogValue(supplied), "fetched_hash", netutil.SanitizeLogValue(fetched.infoHash))
+		if fetched, err = q.fetchTorrent(torrentURL); err == nil {
+			if fetched.magnetURL != "" {
+				slog.Info(
+					"submitting redirected magnet to qBittorrent",
+					"title", logTitle,
+					"category", logCategory,
+				)
+
+				ids, err = q.addTorrentURL(
+					fetched.magnetURL,
+					savePath,
+					category,
+				)
+			} else {
+				if supplied := firstNonEmptyHash(expectedInfoHash); supplied != "" && supplied != fetched.infoHash {
+					slog.Warn(
+						"torrent info hash differs from search result",
+						"title", logTitle,
+						"expected_hash", netutil.SanitizeLogValue(supplied),
+						"fetched_hash", netutil.SanitizeLogValue(fetched.infoHash),
+					)
+				}
+
+				// The hash of the fetched bytes is authoritative for verification.
+				expectedInfoHash = fetched.infoHash
+
+				slog.Info(
+					"uploading torrent bytes to qBittorrent",
+					"title", logTitle,
+					"category", logCategory,
+					"filename", netutil.SanitizeLogValue(fetched.filename),
+					"bytes", len(fetched.body),
+				)
+
+				ids, err = q.addTorrentFile(
+					fetched,
+					savePath,
+					category,
+				)
 			}
-			// The hash of the fetched bytes is authoritative for verification.
-			expectedInfoHash = fetched.infoHash
-			slog.Info("uploading torrent bytes to qBittorrent", "title", logTitle, "category", logCategory, "filename", netutil.SanitizeLogValue(fetched.filename), "bytes", len(fetched.body))
-			ids, err = q.addTorrentFile(fetched, savePath, category)
 		}
 	} else {
 		slog.Info("submitting torrent URL to qBittorrent", "title", logTitle, "category", logCategory)
@@ -425,9 +456,10 @@ func parseQBittorrentAddTorrentResponse(body []byte) (qbittorrentAddTorrentRespo
 const maxTorrentFetchBytes = 50 << 20
 
 type fetchedTorrent struct {
-	filename string
-	body     []byte
-	infoHash string
+	filename  string
+	body      []byte
+	infoHash  string
+	magnetURL string
 }
 
 // isProwlarrTorrentURL reports whether the URL belongs to the configured
@@ -459,18 +491,40 @@ func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) 
 	// path and query, so the fetched host and port always come from config.
 	requestURL := base.Scheme + "://" + base.Host + u.RequestURI()
 
+	var redirectedMagnet string
+
 	client := &http.Client{
-		Timeout:   30 * time.Second,
-		Transport: q.client.Transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("stopped after 5 redirects")
 			}
-			if _, err := netutil.ValidateSameOriginHTTPURL(req.URL.String(), q.cfg.ProwlarrURL); err != nil {
+
+			// Prowlarr may respond to its HTTP download URL with a
+			// magnet URI instead of returning a .torrent file.
+			//
+			// Do not attempt to make an HTTP request to the magnet.
+			// Capture it and let AddTorrent submit it directly to qBittorrent.
+			if strings.EqualFold(req.URL.Scheme, "magnet") {
+				magnet := req.URL.String()
+
+				if infoHashFromMagnet(magnet) == "" {
+					return fmt.Errorf("torrent redirect rejected: invalid magnet URL")
+				}
+
+				redirectedMagnet = magnet
+				return http.ErrUseLastResponse
+			}
+
+			if _, err := netutil.ValidateSameOriginHTTPURL(
+				req.URL.String(),
+				q.cfg.ProwlarrURL,
+			); err != nil {
 				req.Header.Del("X-Api-Key")
 				return fmt.Errorf("torrent redirect rejected: %w", err)
 			}
+
 			q.applyProwlarrAuth(req)
+
 			return nil
 		},
 	}
@@ -486,6 +540,12 @@ func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) 
 		return fetchedTorrent{}, fmt.Errorf("fetch torrent: %s", netutil.SanitizeSensitiveText(err.Error()))
 	}
 	defer resp.Body.Close()
+
+	if redirectedMagnet != "" {
+		return fetchedTorrent{
+			magnetURL: redirectedMagnet,
+		}, nil
+	}
 
 	body, err := io.ReadAll(io.LimitReader(resp.Body, maxTorrentFetchBytes+1))
 	if err != nil {

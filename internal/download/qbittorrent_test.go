@@ -478,6 +478,98 @@ func TestQBittorrentHTTPURLFetchedAndUploadedAsMultipart(t *testing.T) {
 	}
 }
 
+func TestQBittorrentProwlarrRedirectToMagnet(t *testing.T) {
+	const hash = "0123456789abcdef0123456789abcdef01234567"
+	magnet := "magnet:?xt=urn:btih:" + hash
+
+	var sawDownload bool
+	var sawMagnet bool
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/download/book.torrent", func(w http.ResponseWriter, r *http.Request) {
+		sawDownload = true
+
+		if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
+			t.Fatalf("X-Api-Key = %q, want prowlarr-key", got)
+		}
+
+		http.Redirect(w, r, magnet, http.StatusFound)
+	})
+
+	mux.HandleFunc("/api/v2/auth/login", func(w http.ResponseWriter, r *http.Request) {
+		http.SetCookie(w, &http.Cookie{
+			Name:  "QBT_SID",
+			Value: "abc123",
+			Path:  "/",
+		})
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("Ok."))
+	})
+
+	mux.HandleFunc("/api/v2/torrents/add", func(w http.ResponseWriter, r *http.Request) {
+		contentType := r.Header.Get("Content-Type")
+
+		if strings.HasPrefix(contentType, "multipart/form-data") {
+			t.Fatalf("expected URL form submission for magnet, got multipart: %q", contentType)
+		}
+
+		if err := r.ParseForm(); err != nil {
+			t.Fatalf("ParseForm: %v", err)
+		}
+
+		if got := r.FormValue("urls"); got != magnet {
+			t.Fatalf("urls = %q, want %q", got, magnet)
+		}
+
+		if got := r.FormValue("savepath"); got != "/downloads" {
+			t.Fatalf("savepath = %q, want /downloads", got)
+		}
+
+		if got := r.FormValue("category"); got != "librarr" {
+			t.Fatalf("category = %q, want librarr", got)
+		}
+
+		sawMagnet = true
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(
+			`{"added_torrent_ids":["` + hash + `"],"success_count":1}`,
+		))
+	})
+
+	mux.HandleFunc(
+		"/api/v2/torrents/info",
+		torrentInfoHandler(hash, "Actual qB Name"),
+	)
+
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+	q.cfg.ProwlarrURL = srv.URL
+	q.cfg.ProwlarrAPIKey = "prowlarr-key"
+
+	if err := q.AddTorrent(
+		srv.URL+"/download/book.torrent",
+		"Search Result Name",
+		"",
+		"",
+		hash,
+	); err != nil {
+		t.Fatalf("AddTorrent returned error: %v", err)
+	}
+
+	if !sawDownload {
+		t.Fatal("expected Librarr to fetch torrent URL")
+	}
+
+	if !sawMagnet {
+		t.Fatal("expected redirected magnet to be submitted to qBittorrent")
+	}
+}
+
 func TestFetchTorrentAllowsConfiguredProwlarrOrigin(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if got := r.Header.Get("X-Api-Key"); got != "prowlarr-key" {
