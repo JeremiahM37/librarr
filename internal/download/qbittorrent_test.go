@@ -654,6 +654,28 @@ func TestFetchTorrentRejectsMagnetRedirectWithoutInfoHash(t *testing.T) {
 	}
 }
 
+func TestFetchTorrentRejectsNonHTTPNonMagnetRedirect(t *testing.T) {
+	// Magnet is the only non-HTTP redirect scheme that is allowed through;
+	// every other one must still hit the same-origin rejection.
+	for _, target := range []string{"ftp://example.com/book.torrent", "file:///etc/passwd"} {
+		t.Run(target, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				http.Redirect(w, r, target, http.StatusFound)
+			}))
+			defer srv.Close()
+
+			q := newAddTorrentTestQBClient(srv.URL, srv.Client())
+			q.cfg.ProwlarrURL = srv.URL
+
+			if _, err := q.fetchTorrent(srv.URL + "/download.torrent"); err == nil {
+				t.Fatal("expected redirect rejection")
+			} else if !strings.Contains(err.Error(), "redirect rejected") {
+				t.Fatalf("error = %q, want redirect rejection", err.Error())
+			}
+		})
+	}
+}
+
 func TestFetchTorrentUsesConfiguredTransport(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/x-bittorrent")
