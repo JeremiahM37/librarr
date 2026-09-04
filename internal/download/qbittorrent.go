@@ -37,6 +37,7 @@ type QBittorrentClient struct {
 	lastError      string
 	verifyTimeout  time.Duration
 	verifyInterval time.Duration
+	fetchTimeout   time.Duration
 }
 
 // TorrentVerificationWarning indicates that qBittorrent accepted the add
@@ -75,6 +76,7 @@ func NewQBittorrentClient(cfg *config.Config) *QBittorrentClient {
 		backoffSec:     3,
 		verifyTimeout:  25 * time.Second,
 		verifyInterval: 250 * time.Millisecond,
+		fetchTimeout:   30 * time.Second,
 	}
 }
 
@@ -251,6 +253,21 @@ func (q *QBittorrentClient) AddTorrent(torrentURL, title, savePath, category, ex
 		var fetched fetchedTorrent
 		if fetched, err = q.fetchTorrent(torrentURL); err == nil {
 			if fetched.magnetURL != "" {
+				magnetHash := infoHashFromMagnet(fetched.magnetURL)
+				if supplied := firstNonEmptyHash(expectedInfoHash); supplied != "" && supplied != magnetHash {
+					slog.Warn(
+						"redirected magnet info hash differs from search result",
+						"title", logTitle,
+						"expected_hash", netutil.SanitizeLogValue(supplied),
+						"magnet_hash", netutil.SanitizeLogValue(magnetHash),
+					)
+				}
+
+				// The hash carried by the magnet Prowlarr redirected to is what
+				// qBittorrent will register, so it is authoritative for
+				// verification.
+				expectedInfoHash = magnetHash
+
 				slog.Info(
 					"submitting redirected magnet to qBittorrent",
 					"title", logTitle,
@@ -493,7 +510,14 @@ func (q *QBittorrentClient) fetchTorrent(rawURL string) (fetchedTorrent, error) 
 
 	var redirectedMagnet string
 
+	timeout := q.fetchTimeout
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
+
 	client := &http.Client{
+		Timeout:   timeout,
+		Transport: q.client.Transport,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if len(via) >= 5 {
 				return fmt.Errorf("stopped after 5 redirects")
