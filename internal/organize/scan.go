@@ -64,6 +64,12 @@ func (s *AudiobookScanner) scan() {
 	if _, err := os.Stat(s.cfg.AudiobookDir); os.IsNotExist(err) {
 		return
 	}
+	trackedPaths, err := s.db.LibraryPaths("audiobook")
+	if err != nil {
+		slog.Error("audiobook scanner could not load tracked paths", "error", err)
+		return
+	}
+	trackedRoot := db.NormalizeLibraryPath(s.cfg.AudiobookDir)
 
 	// Walk the audiobook directory looking for audio files.
 	var newFiles []string
@@ -76,9 +82,11 @@ func (s *AudiobookScanner) scan() {
 			return nil
 		}
 
-		// Check if this directory is already tracked (we track by dir, not file).
-		dir := filepath.Dir(path)
-		if s.db.HasSourceID("scan-" + dir) {
+		// A torrent import may track either the file or the destination
+		// directory, and its source ID is the torrent hash rather than the
+		// scanner's synthetic ID. Walk ancestors so both import shapes are
+		// recognized as already tracked.
+		if isTrackedAudiobookPath(path, trackedRoot, trackedPaths) {
 			return nil
 		}
 
@@ -128,7 +136,7 @@ func (s *AudiobookScanner) scan() {
 			}
 		}
 
-		_, _ = s.db.AddItem(&models.LibraryItem{
+		outcome, err := s.db.AddItemWithOutcome(&models.LibraryItem{
 			Title:     title,
 			Author:    author,
 			FilePath:  dir,
@@ -137,8 +145,17 @@ func (s *AudiobookScanner) scan() {
 			Source:    "scan",
 			SourceID:  "scan-" + dir,
 		})
+		if err != nil {
+			slog.Error("audiobook scanner library import failed", "path", dir, "error", err)
+			continue
+		}
+		if !outcome.Inserted {
+			continue
+		}
 
-		_ = s.db.LogEvent("scan_import", title, "Auto-imported from audiobook scan", nil, "")
+		if err := s.db.LogEvent("scan_import", title, "Auto-imported from audiobook scan", &outcome.ID, ""); err != nil {
+			slog.Warn("audiobook scanner activity log failed", "path", dir, "error", err)
+		}
 		imported++
 	}
 
@@ -146,5 +163,32 @@ func (s *AudiobookScanner) scan() {
 	if imported > 0 && s.targets != nil {
 		slog.Info("audiobook scanner triggering library scan", "imported", imported)
 		s.targets.ImportAudiobook()
+	}
+}
+
+// isTrackedAudiobookPath reports whether path or one of its parent
+// directories belongs to a previously recorded audiobook import. Directory
+// torrent imports record their destination directory while file imports
+// record the individual destination file.
+//
+// The library root itself is never treated as a match. No import records it —
+// OrganizeAudiobook always returns a path at least one level below it — but a
+// restored library export carries its file paths verbatim, so a single bad row
+// naming the root would otherwise mark every file in the tree as tracked and
+// silently blind the scanner.
+func isTrackedAudiobookPath(path, root string, trackedPaths map[string]struct{}) bool {
+	current := db.NormalizeLibraryPath(path)
+	if current == "" {
+		return false
+	}
+
+	for {
+		if current == root || current == filepath.Dir(current) {
+			return false
+		}
+		if _, ok := trackedPaths[current]; ok {
+			return true
+		}
+		current = filepath.Dir(current)
 	}
 }
