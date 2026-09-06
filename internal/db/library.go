@@ -158,6 +158,33 @@ func NormalizeLibraryPath(filePath string) string {
 	return filepath.Clean(cleaned)
 }
 
+// LibraryPaths returns the canonical paths recorded for a media type. A
+// library item may record either an individual file or the directory that
+// contains an imported tree, so callers can use the result to recognize both
+// forms without depending on the item's source ID.
+func (d *DB) LibraryPaths(mediaType string) (map[string]struct{}, error) {
+	rows, err := d.db.Query("SELECT file_path FROM library_items WHERE media_type = ?", mediaType)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	paths := make(map[string]struct{})
+	for rows.Next() {
+		var filePath string
+		if err := rows.Scan(&filePath); err != nil {
+			return nil, err
+		}
+		if normalized := NormalizeLibraryPath(filePath); normalized != "" {
+			paths[normalized] = struct{}{}
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return paths, nil
+}
+
 func hashLibraryFile(filePath string) string {
 	filePath = filepath.Clean(strings.TrimSpace(filePath))
 	if filePath == "" || filePath == "." || strings.Contains(filePath, "..") {
