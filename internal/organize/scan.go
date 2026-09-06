@@ -170,6 +170,12 @@ func (s *AudiobookScanner) scan() {
 // directories belongs to a previously recorded audiobook import. Directory
 // torrent imports record their destination directory while file imports
 // record the individual destination file.
+//
+// The library root itself is never treated as a match. No import records it —
+// OrganizeAudiobook always returns a path at least one level below it — but a
+// restored library export carries its file paths verbatim, so a single bad row
+// naming the root would otherwise mark every file in the tree as tracked and
+// silently blind the scanner.
 func isTrackedAudiobookPath(path, root string, trackedPaths map[string]struct{}) bool {
 	current := db.NormalizeLibraryPath(path)
 	if current == "" {
@@ -177,11 +183,11 @@ func isTrackedAudiobookPath(path, root string, trackedPaths map[string]struct{})
 	}
 
 	for {
-		if _, ok := trackedPaths[current]; ok {
-			return true
-		}
 		if current == root || current == filepath.Dir(current) {
 			return false
+		}
+		if _, ok := trackedPaths[current]; ok {
+			return true
 		}
 		current = filepath.Dir(current)
 	}

@@ -76,3 +76,46 @@ func TestAudiobookScannerSkipsTorrentTrackedPaths(t *testing.T) {
 		})
 	}
 }
+
+// A library row naming the audiobook root must not mark the whole tree as
+// tracked. No import records the root, but a restored library export carries
+// its file paths verbatim, and treating that row as an ancestor match would
+// silently stop the scanner from ever importing again.
+func TestAudiobookScannerIgnoresRootLevelTrackedPath(t *testing.T) {
+	root := t.TempDir()
+	for _, book := range []string{"BookA", "BookB"} {
+		bookDir := filepath.Join(root, "Author", book)
+		if err := os.MkdirAll(bookDir, 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(bookDir, "Book.m4b"), []byte(book), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	database, err := db.New(filepath.Join(root, "library.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+
+	if _, err := database.AddItem(&models.LibraryItem{
+		Title:     "root row",
+		FilePath:  root,
+		MediaType: "audiobook",
+		Source:    "import",
+		SourceID:  "restored-root",
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	NewAudiobookScanner(&config.Config{AudiobookDir: root}, database, nil).scan()
+
+	itemCount, err := database.CountItems("audiobook")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if itemCount != 3 {
+		t.Fatalf("audiobook library items = %d, want 3 (the root row plus both books)", itemCount)
+	}
+}
