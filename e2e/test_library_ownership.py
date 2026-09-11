@@ -22,7 +22,7 @@ def _search(page, query):
 
 def _result_by_title(page, title):
     return page.evaluate(
-        "t => (state.renderedResults || []).find(r => r.title === t) || null", title)
+        "async t => (await fetch('/api/search?q='+encodeURIComponent(t)).then(r=>r.json())).results.find(r=>r.title===t)||null", title)
 
 
 def _library_titles(page):
@@ -42,10 +42,9 @@ def owned(ui):
     _search(page, OWNED_TITLE)
 
     if OWNED_TITLE not in _library_titles(page):
-        idx = page.evaluate(
-            "t => (state.renderedResults || []).findIndex(r => r.title === t)", OWNED_TITLE)
-        assert idx >= 0, f"{OWNED_TITLE!r} not among the stub results"
-        page.click(f'[data-action="startDownload"][data-idx="{idx}"]')
+        card=page.locator('.book-card').filter(has=page.get_by_role('heading', name=OWNED_TITLE, exact=True))
+        assert card.count()==1
+        card.locator('[data-action="startDownload"]').click()
 
         deadline = time.time() + 90
         while time.time() < deadline:
@@ -112,7 +111,7 @@ def test_download_of_an_owned_book_is_refused_by_the_server(owned):
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 title: r.title, author: r.author || '', source: r.source,
-                download_url: r.download_url || r.url || '',
+                download_url: r.download_url || r.url || r.epub_url || '',
             }),
         }).then(async res => ({status: res.status, body: await res.json()}))""",
         result)
@@ -163,7 +162,7 @@ def test_download_anyway_overrides_the_check(owned):
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 title: r.title, author: r.author || '', source: r.source,
-                download_url: r.download_url || r.url || '', force: true,
+                download_url: r.download_url || r.url || r.epub_url || '', force: true,
             }),
         }).then(async res => ({status: res.status, body: await res.json()}))""",
         result)
@@ -173,9 +172,13 @@ def test_download_anyway_overrides_the_check(owned):
 
     # The UI's owned button is what sends that flag.
     _search(page, OWNED_TITLE)
-    sends_force = page.evaluate(
-        "() => (state.renderedResults || []).some(r => r.in_library === true)")
-    assert sends_force, "no rendered result is flagged, so nothing would send force"
+    captured=[]
+    def intercept(route):
+        captured.append(route.request.post_data_json)
+        route.fulfill(json={"success":True})
+    page.route("**/api/download",intercept)
+    page.locator('.book-card').filter(has=page.get_by_role('heading',name=OWNED_TITLE,exact=True)).locator('[data-action="startDownload"]').click()
+    assert captured and captured[0]['force'] is True
 
 
 def test_unowned_book_downloads_without_a_prompt(owned):
@@ -183,7 +186,7 @@ def test_unowned_book_downloads_without_a_prompt(owned):
     page = owned["page"]
     _search(page, "test adventure")
     unowned = page.evaluate(
-        "t => (state.renderedResults || []).find(r => !r.in_library && r.title !== t) || null",
+        "async t => (await fetch('/api/search?q=test%20adventure').then(r=>r.json())).results.find(r=>!r.in_library&&r.title!==t)||null",
         OWNED_TITLE)
     assert unowned, "no unowned stub book left to check"
 
@@ -193,7 +196,7 @@ def test_unowned_book_downloads_without_a_prompt(owned):
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({
                 title: r.title, author: r.author || '', source: r.source,
-                download_url: r.download_url || r.url || '',
+                download_url: r.download_url || r.url || r.epub_url || '',
             }),
         }).then(async res => ({status: res.status, body: await res.json()}))""",
         unowned)

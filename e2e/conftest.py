@@ -362,3 +362,9 @@ def ui(app, page):
     page.goto(app["base"], wait_until="networkidle")
     yield {"page": page, "errors": errors, **app}
     assert errors == [], f"JS errors during journey: {errors}"
+
+
+@pytest.fixture()
+def isolated_auth_app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
+    """Account lifecycle tests cannot turn auth on for unrelated browser journeys."""
+    yield from app.__wrapped__(stub_server, kavita_stub, librarr_binary, tmp_path_factory)

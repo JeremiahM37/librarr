@@ -1,0 +1,20 @@
+{
+  "name": "librarr-ui",
+  "private": true,
+  "version": "1.3.0",
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit && vite build && node scripts/entry.mjs",
+    "check": "tsc --noEmit --pretty false"
+  },
+  "dependencies": {
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.7",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3",
+    "vite": "8.3.0"
+  }
+}

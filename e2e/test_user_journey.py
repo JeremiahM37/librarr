@@ -36,7 +36,7 @@ def test_boot_serves_ui_with_strict_csp(ui):
         assert attr not in html, f"inline handler {attr} leaked back into index.html"
     assert "<script>" not in html, "inline script block leaked back into index.html"
 
-    for asset in ("/static/js/app.js", "/static/css/app.css",
+    for asset in ("/static/react/librarr.js", "/static/css/app.css",
                   "/static/js/vendor/tailwind.js", "/static/fonts/inter-latin.woff2"):
         r = page.request.get(ui["base"] + asset)
         assert r.status == 200, f"{asset} -> {r.status}"
@@ -85,59 +85,37 @@ def test_data_idx_maps_to_rendered_result_in_every_sort_mode(searched):
     A mismatch here would download the wrong book — the most dangerous
     possible regression of the inline-handler removal."""
     page = searched["page"]
+    writes=[]
+    def intercept(route):
+        writes.append(route.request.post_data_json)
+        route.fulfill(json={"success":False,"error":"Fixture download refusal"})
+    page.route("**/api/download",intercept)
     for mode in ("size", "seeders", "relevance"):
         page.click(f'[data-action="setSortMode"][data-arg="{mode}"]')
-        page.wait_for_timeout(300)
-        mismatches = page.evaluate("""() =>
-            [...document.querySelectorAll('[data-action="startDownload"]')].map(btn => {
-                const card = btn.closest('.book-card');
-                const shown = card?.querySelector('h3')?.textContent.trim();
-                const mapped = state.renderedResults[+btn.dataset.idx]?.title;
-                return shown === mapped ? null : `${shown} != ${mapped}`;
-            }).filter(Boolean)""")
-        assert mismatches == [], f"sort={mode}: {mismatches}"
+        for card in page.locator('.book-card').all():
+            shown=card.locator('h3').inner_text()
+            card.locator('[data-action="startDownload"]').click()
+            page.wait_for_timeout(50)
+            assert writes[-1]['title']==shown
 
 
 def test_retry_wait_shows_progress_in_search_and_downloads(searched):
     page = searched["page"]
-    retry_text = page.evaluate("""() => {
-        const result = state.renderedResults[0];
-        const key = getDownloadKey(result);
-        state.trackedDownloadJobs.set('retry-probe', {
-            key, title: result.title, source: 'annas', url: result.url || ''
-        });
-        state.downloadJobs = [{
-            job_id: 'retry-probe', title: result.title, source: 'annas',
-            status: 'retry_wait', detail: 'Retry 1/2 scheduled',
-            retry_count: 1, max_retries: 2, error: 'download HTTP 504'
-        }];
-        renderSearchResults();
-        renderDownloadList();
-        return {
-            button: document.querySelector('[data-action="startDownload"]')?.innerText,
-            downloads: document.querySelector('#downloads-list')?.innerText,
-        };
-    }""")
-    assert "Retry 1/2 scheduled" in retry_text["button"]
-    assert "Retry 1/2 scheduled" in retry_text["downloads"]
-    assert "Attempt 2/3" in retry_text["downloads"]
-
-    page.evaluate("""() => {
-        state.trackedDownloadJobs.delete('retry-probe');
-        state.downloadJobs = [];
-        renderSearchResults();
-        renderDownloadList();
-    }""")
+    page.route("**/api/download",lambda route:route.fulfill(json={"success":True,"job_id":"retry-probe"}))
+    page.route("**/api/downloads",lambda route:route.fulfill(json={"downloads":[{"job_id":"retry-probe","title":"Retry Probe","source":"annas","status":"retry_wait","detail":"Retry 1/2 scheduled","retry_count":1,"max_retries":2,"error":"download HTTP 504"}]}))
+    page.locator('[data-action="startDownload"]').first.click()
+    page.wait_for_function("() => document.querySelector('[data-action=startDownload]')?.innerText.includes('Retry 1/2 scheduled')")
+    page.click('[data-action="switchTab"][data-arg="downloads"]')
+    page.wait_for_selector('#downloads-list')
+    assert "Retry 1/2 scheduled" in page.locator('#downloads-list').inner_text()
+    assert "Attempt 2/3" in page.locator('#downloads-list').inner_text()
 
 
 def test_download_completes_and_lands_in_library(searched):
     page = searched["page"]
     # Download the first rendered card; remember which book it claims to be.
-    title = page.evaluate("""() => {
-        const btn = document.querySelector('[data-action="startDownload"]');
-        return state.renderedResults[+btn.dataset.idx].title;
-    }""")
-    page.click('[data-action="startDownload"]')
+    title=page.locator('.book-card h3').first.inner_text()
+    page.locator('[data-action="startDownload"]').first.click()
 
     # Poll the API until the job finishes (direct download from the stub).
     deadline = time.time() + 60
@@ -198,15 +176,9 @@ def test_wishlist_add_search_delete(ui):
 
 def test_broken_cover_falls_back_to_placeholder(ui):
     page = ui["page"]
-    ok = page.evaluate("""() => new Promise(res => {
-        const img = document.createElement('img');
-        img.dataset.phTitle = 'Fallback Probe';
-        img.dataset.phIdx = '0';
-        img.src = '/static/definitely-missing.png';
-        document.body.appendChild(img);
-        setTimeout(() => res(!!document.querySelector('.cover-placeholder')), 800);
-    })""")
-    assert ok, "broken cover did not swap to the gradient placeholder"
+    _render_card(page,{"source":"fixture","title":"Fallback Probe","cover_url":"/static/definitely-missing.png"})
+    page.wait_for_selector('.cover-placeholder')
+    assert page.locator('.cover-placeholder').inner_text()=='F'
 
 
 # ── i18n toggle (re-renders DOM incl. converted anchor templates) ───────────
@@ -236,10 +208,13 @@ def test_language_badge_comes_from_real_source_metadata(searched):
 
 def _render_card(page, result):
     """Render one result through the shipped renderer and return its badge row."""
-    page.evaluate(
-        "r => { document.getElementById('search-results').innerHTML = renderBookCard(r, 0); }",
-        result,
-    )
+    def respond(route):
+        route.fulfill(status=503) if '/stream' in route.request.url else route.fulfill(json={"results":[result]})
+    page.route("**/api/search**",respond)
+    page.fill('#search-input','fixture')
+    page.press('#search-input','Enter')
+    page.wait_for_selector('.book-card')
+
     return page
 
 
@@ -340,12 +315,7 @@ def test_ebook_download_triggers_kavita_scan(searched):
     before = len(scans)
 
     # Download a book the earlier journey test did not take.
-    title = page.evaluate("""() => {
-        const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
-        const btn = btns[btns.length - 1];
-        btn.scrollIntoView();
-        return state.renderedResults[+btn.dataset.idx].title;
-    }""")
+    title=page.locator('.book-card h3').last.inner_text()
     page.locator('[data-action="startDownload"]').last.click()
 
     deadline = time.time() + 60
@@ -458,7 +428,7 @@ def test_keeping_torrents_alone_switches_imports_to_hardlink(ui):
 
     # The checkbox is sr-only; the visible control is the styled track beside
     # it, which the wrapping <label> forwards to the input.
-    page.click("#remove-torrent-toggle + div")
+    page.locator("#remove-torrent-toggle").click()
     page.wait_for_timeout(700)
     assert not page.is_checked("#remove-torrent-toggle"), "toggle did not flip"
     try:
@@ -472,7 +442,7 @@ def test_keeping_torrents_alone_switches_imports_to_hardlink(ui):
         assert "hardlink" in hint.lower() and "seeding" in hint.lower(), \
             f"UI should spell out the resolved mode, got: {hint!r}"
     finally:
-        page.click("#remove-torrent-toggle + div")
+        page.locator("#remove-torrent-toggle").click()
         page.wait_for_timeout(700)
 
 
@@ -494,15 +464,8 @@ def test_direct_download_moves_even_in_hardlink_mode(ui):
 
         # Pick the last card so this is a book the earlier download test did
         # not already import.
-        title = page.evaluate("""() => {
-            const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
-            const btn = btns[btns.length - 1];
-            return state.renderedResults[+btn.dataset.idx].title;
-        }""")
-        page.evaluate("""() => {
-            const btns = [...document.querySelectorAll('[data-action="startDownload"]')];
-            btns[btns.length - 1].click();
-        }""")
+        title=page.locator('.book-card h3').last.inner_text()
+        page.locator('[data-action="startDownload"]').last.click()
         _wait_for_download(page, title)
 
         assert list(ui["books_dir"].rglob("*.epub")), "nothing imported into the library"
