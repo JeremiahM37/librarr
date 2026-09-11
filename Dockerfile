@@ -1,3 +1,12 @@
+FROM node:20.19-alpine AS ui-builder
+
+WORKDIR /build/web/ui
+COPY web/ui/package.json web/ui/package-lock.json ./
+RUN npm ci
+COPY web/ui/ ./
+COPY web/index.html ../index.html
+RUN npm run build
+
 FROM golang:1.25-alpine AS builder
 
 WORKDIR /build
@@ -8,6 +17,8 @@ RUN go mod download
 
 # Build the binary.
 COPY . .
+COPY --from=ui-builder /build/web/static/react ./web/static/react
+COPY --from=ui-builder /build/web/index.html ./web/index.html
 RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /librarr ./cmd/librarr/
 
 # --- Runtime image ---

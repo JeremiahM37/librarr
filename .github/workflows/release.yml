@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with: {fetch-depth: 0}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/ui/package-lock.json
+      - name: Build the TypeScript frontend
+        run: npm ci --prefix web/ui && npm run build --prefix web/ui
       - uses: actions/setup-go@v5
         with: {go-version: '1.25', cache: false}
       # The version the binary reports is embedded from

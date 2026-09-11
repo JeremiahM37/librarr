@@ -1,0 +1,25 @@
+# The browser suite boots the embedded candidate with isolated fixture services.
+# Live deployment/service checks run separately from this local source suite.
+backend: generic
+steps:
+  - name: Strict React build
+    actions:
+      - shell:
+          cmd: npm --prefix web/ui ci && npm --prefix web/ui run build
+          timeout: 180
+    expect:
+      no_log_contains: "error TS"
+  - name: Go tests and embedded application build
+    actions:
+      - shell:
+          cmd: go test ./... -count=1 && go build -o /tmp/librarr-react-verify ./cmd/librarr
+          timeout: 600
+    expect:
+      no_log_contains: "FAIL"
+  - name: Browser user journeys with isolated services
+    actions:
+      - shell:
+          cmd: e2e/.venv/bin/pytest -q --disable-warnings e2e
+          timeout: 600
+    expect:
+      no_log_contains: "failed"

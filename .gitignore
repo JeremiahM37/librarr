@@ -10,7 +10,16 @@
 node_modules/
 package-lock.json
 package.json
+!web/ui/package.json
+!web/ui/package-lock.json
 
 # e2e test artifacts
 .pytest_cache/
 __pycache__/
+
+e2e/.venv
+
+# Local verification output and dependency caches
+.verify-artifacts/
+node_modules/
+.venv
