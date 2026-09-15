@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http/httptest"
 	"path/filepath"
 	"testing"
@@ -145,5 +146,86 @@ func TestLibraryEbooks_ExplicitTypeOverrideStillWorks(t *testing.T) {
 	items := decodeLibraryListBody(t, rr.Body.Bytes())
 	if len(items) != 1 || items[0].MediaType != "audiobook" {
 		t.Errorf("expected single audiobook for ?type=audiobook, got: %+v", items)
+	}
+}
+
+func TestLocalLibrarySearchAndPagination(t *testing.T) {
+	for _, category := range []string{"ebook", "audiobook", "manga"} {
+		t.Run(category, func(t *testing.T) {
+			s := libraryMediaTypeTestSetup(t)
+			for i := 0; i < 101; i++ {
+				_, err := s.db.AddItem(&models.LibraryItem{Title: fmt.Sprintf("Needle %03d", i), Author: "Unique Writer", MediaType: category, FileFormat: "cbz", FileSize: 2097152})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			handler := s.handleLibrary
+			pageSize := 50
+			if category == "manga" {
+				handler = s.handleLibraryManga
+				pageSize = 100
+			}
+			if category == "audiobook" {
+				handler = s.handleLibraryAudiobooks
+				pageSize = 100
+			}
+			for _, tc := range []struct {
+				query                     string
+				total, page, pages, count int
+			}{
+				{"?q=needle&page=2", 101, 2, (101 + pageSize - 1) / pageSize, min(pageSize, 101-pageSize)},
+				{"?q=NEEDLE+100", 1, 1, 1, 1},
+				{"?q=unique+writer", 101, 1, (101 + pageSize - 1) / pageSize, pageSize},
+				{"?q=absent", 0, 1, 0, 0},
+				{"?q=%25", 0, 1, 0, 0},
+				{"?q=_", 0, 1, 0, 0},
+				{"?q=%27+OR+1%3D1--", 0, 1, 0, 0},
+				{"?q=needle&page=-1", 101, 1, (101 + pageSize - 1) / pageSize, pageSize},
+				{"?q=needle&page=999999999999", 101, 1, (101 + pageSize - 1) / pageSize, pageSize},
+			} {
+				t.Run(tc.query, func(t *testing.T) {
+					rr := httptest.NewRecorder()
+					handler(rr, httptest.NewRequest("GET", "/api/library"+tc.query, nil))
+					var response struct {
+						Items              []map[string]interface{}
+						Total, Page, Pages int
+					}
+					if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+						t.Fatal(err)
+					}
+					if rr.Code != 200 || response.Total != tc.total || response.Page != tc.page || response.Pages != tc.pages || len(response.Items) != tc.count {
+						t.Fatalf("response: %s", rr.Body.String())
+					}
+					for _, item := range response.Items {
+						if item["media_type"] != category || item["file_format"] != "cbz" || item["file_size"] != float64(2097152) {
+							t.Fatalf("metadata lost: %+v", item)
+						}
+					}
+				})
+			}
+		})
+	}
+}
+
+func TestLocalEbookLegacyOffset(t *testing.T) {
+	s := libraryMediaTypeTestSetup(t)
+	for i := 0; i < 3; i++ {
+		if _, err := s.db.AddItem(&models.LibraryItem{Title: fmt.Sprintf("Legacy %d", i), MediaType: "ebook"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, query := range []string{"?q=Legacy&limit=1&offset=1", "?q=Legacy&limit=1&page=2"} {
+		rr := httptest.NewRecorder()
+		s.handleLibrary(rr, httptest.NewRequest("GET", "/api/library"+query, nil))
+		var response struct {
+			Items                             []map[string]interface{}
+			Total, Limit, Offset, Page, Pages int
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &response); err != nil {
+			t.Fatal(err)
+		}
+		if response.Total != 3 || response.Limit != 1 || response.Offset != 1 || response.Page != 2 || response.Pages != 3 || len(response.Items) != 1 || response.Items[0]["title"] != "Legacy 1" {
+			t.Fatalf("legacy pagination: %s", rr.Body.String())
+		}
 	}
 }

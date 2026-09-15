@@ -54,6 +54,8 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 
 ### Library Management
 
+Without Audiobookshelf or Kavita configured, the library tabs show locally imported items with titles, authors, formats, and file sizes. Local library search matches titles and authors across all pages.
+
 - **Auto-import pipeline** -- organize files by author/title, rename on import (configurable pattern), scan into Calibre/Audiobookshelf/Kavita/Komga
 - **Series auto-complete** -- detect gaps in series, search for and download missing books
 - **Author monitoring** -- follow authors; the first check records their catalogue as a baseline, later checks add each new work to the wanted list (or only notify, per author)

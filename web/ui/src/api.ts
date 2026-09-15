@@ -105,6 +105,8 @@ export interface LibraryItem {
   cover_url?: string;
   format?: string;
   file_path?: string;
+  file_format?: string;
+  file_size?: number;
   size?: number | string;
   duration_hours?: number;
   num_files?: number;

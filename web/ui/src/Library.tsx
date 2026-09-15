@@ -96,7 +96,8 @@ function Card({
 }): React.JSX.Element {
   const { t } = useTranslation();
   const title = displayTitle(item);
-  const format = item.format || item.file_path?.split(".").pop() || "";
+  const format =
+    item.file_format || item.format || item.file_path?.match(/\.([^./\\]+)$/)?.[1] || "";
   return (
     <article className="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative group">
       <Cover item={item} index={index} />
@@ -112,17 +113,17 @@ function Card({
       )}
       <div className="p-3">
         <h3 className="text-sm font-semibold text-white">{title}</h3>
-        {category !== "manga" && (
+        {item.author && (
           <p className="text-xs text-slate-400">{item.author}</p>
         )}
         {item.series && (
           <p className="text-xs text-indigo-400">{item.series}</p>
         )}
         <div className="flex gap-2 text-xs text-slate-500">
-          {category === "ebooks" && (
+          {Boolean(format || item.file_size || item.size) && (
             <>
               <span className="uppercase">{format}</span>
-              <span>{size(item.size)}</span>
+              <span>{size(item.file_size ?? item.size)}</span>
             </>
           )}
           {category === "audiobooks" && (
@@ -175,12 +176,14 @@ export function Library({
     [items, setItems] = useState<LibraryItem[]>([]),
     [loading, setLoading] = useState(false);
   useEffect(() => {
+    const nextQuery = query.trim();
+    if (nextQuery === debounced) return;
     const timer = window.setTimeout(() => {
       setPage(1);
-      setDebounced(query.trim());
+      setDebounced(nextQuery);
     }, 400);
     return () => window.clearTimeout(timer);
-  }, [query]);
+  }, [query, debounced]);
   const load = async () => {
     setLoading(true);
     try {

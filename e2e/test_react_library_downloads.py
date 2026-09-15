@@ -91,3 +91,40 @@ def test_download_cards_progress_retry_cancel_clear_refresh_and_poll(app, page):
     assert any(method == "POST" and "/jobs/retry-1/retry" in url for method,url in actions)
     assert any(method == "DELETE" and "/torrent/abc123" in url for method,url in actions)
     assert any(method == "POST" and url.endswith("/api/downloads/clear") for method,url in actions)
+
+
+def test_library_metadata_shapes_and_broken_cover_titles(app, page):
+    """Keep local field names and provider field names covered independently."""
+    from playwright.sync_api import expect
+    _sign_in(app, page)
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    page.route("**/broken-library-cover.png", lambda route: route.fulfill(status=404))
+    cases = [
+        ("ebooks", {"title": "Local Ebook", "file_format": "epub", "file_size": 1048576,
+                    "format": "wrong", "size": "wrong", "file_path": "/books/wrong.pdf"}, "LE", ["epub", "1.0 MB"]),
+        ("audiobooks", {"title": "Local Audio", "file_format": "m4b", "file_size": 1048576}, "LA", ["m4b", "1.0 MB"]),
+        ("manga", {"title": "Local Manga", "file_format": "cbz", "file_size": 1048576, "author": "Artist"}, "LM", ["cbz", "1.0 MB", "Artist"]),
+        ("manga", {"name": "Kavita Manga", "pages": 42, "library": "Comics", "kavita_url": "https://kavita.example/series/42"}, "KM", ["42 pages", "Comics", "Open in Kavita"]),
+        ("audiobooks", {"title": "ABS Audio", "duration_hours": 2.5, "num_files": 3, "abs_url": "https://abs.example/item/audio"}, "AA", ["2.5h", "3 files", "Open in Audiobookshelf"]),
+        ("ebooks", {"title": "Legacy Ebook", "format": "pdf", "size": "3 MB"}, "LE", ["pdf", "3 MB"]),
+        ("manga", {"title": "", "name": "Fallback Name"}, "FN", ["Fallback Name"]),
+        ("manga", {}, "U", ["Unknown"]),
+    ]
+    for index, (category, item, initials, metadata) in enumerate(cases):
+        endpoint = "/api/library" + ("" if category == "ebooks" else "/" + category)
+        # Unique IDs force a new image load for each shape, including the broken-cover path.
+        payload = {"id": f"shape-{index}", "cover_url": app["base"] + "/broken-library-cover.png", **item}
+        page.route("**" + endpoint + "?*", lambda route, request, payload=payload: route.fulfill(json={"items": [payload], "pages": 1}))
+        page.locator('[data-action="switchTab"][data-arg="search"]').click()
+        page.locator('[data-action="switchTab"][data-arg="library"]').click()
+        page.locator(f'[data-library-tab="{category}"]').click()
+        card = page.locator("#library-results article")
+        expect(card).to_have_count(1)
+        expect(card.locator("[data-cover-fallback]")).to_have_text(initials)
+        for text in metadata:
+            expect(card).to_contain_text(text)
+        expect(card).not_to_contain_text("wrong")
+        if not item.get("abs_url") and not item.get("kavita_url"):
+            expect(card.locator("a")).to_have_count(0)
+    assert errors == []
