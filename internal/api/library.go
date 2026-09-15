@@ -68,63 +68,39 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	items, err := s.db.GetItems(mediaType, limit, offset)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
-		return
+	// Keep limit/offset clients working; the React UI uses page/pages.
+	page := offset/limit + 1
+	if r.URL.Query().Has("page") {
+		page = queryBoundedInt(r, "page", 1, 1, 1_000_000)
+		offset = (page - 1) * limit
 	}
-
-	total, _ := s.db.CountItems(mediaType)
-
-	var jsonItems []map[string]interface{}
-	for _, item := range items {
-		jsonItems = append(jsonItems, db.ItemToJSON(item))
-	}
-	if jsonItems == nil {
-		jsonItems = []map[string]interface{}{}
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items":  jsonItems,
-		"total":  total,
-		"limit":  limit,
-		"offset": offset,
-	})
+	s.serveLocalLibraryPage(w, r, mediaType, page, limit, offset)
 }
 
-// serveLocalLibraryByMediaType is the fallback used by /api/library/audiobooks
-// and /api/library/manga when ABS / Kavita aren't configured. Response shape
-// matches the ABS handler (items/total/page/pages) so the UI's existing
-// pagination code works against both code paths.
+// serveLocalLibraryByMediaType uses the same page-based contract as ABS/Kavita.
 func (s *Server) serveLocalLibraryByMediaType(w http.ResponseWriter, r *http.Request, mediaType string) {
 	const pageSize = 100
-	page := queryInt(r, "page", 1)
-	if page < 1 {
-		page = 1
-	}
-	offset := (page - 1) * pageSize
+	page := queryBoundedInt(r, "page", 1, 1, 1_000_000)
+	s.serveLocalLibraryPage(w, r, mediaType, page, pageSize, (page-1)*pageSize)
+}
 
-	items, err := s.db.GetItems(mediaType, pageSize, offset)
+func (s *Server) serveLocalLibraryPage(w http.ResponseWriter, r *http.Request, mediaType string, page, limit, offset int) {
+	items, total, err := s.db.FindItems(mediaType, strings.TrimSpace(r.URL.Query().Get("q")), limit, offset)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 		return
 	}
-	total, _ := s.db.CountItems(mediaType)
-
 	jsonItems := make([]map[string]interface{}, 0, len(items))
 	for _, item := range items {
 		jsonItems = append(jsonItems, db.ItemToJSON(item))
 	}
-	pages := 0
-	if total > 0 {
-		pages = int(math.Ceil(float64(total) / float64(pageSize)))
-	}
-
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items": jsonItems,
-		"total": total,
-		"page":  page,
-		"pages": pages,
+		"items":  jsonItems,
+		"total":  total,
+		"page":   page,
+		"pages":  int(math.Ceil(float64(total) / float64(limit))),
+		"limit":  limit,
+		"offset": offset,
 	})
 }
 

@@ -425,6 +425,24 @@ func (d *DB) GetItems(mediaType string, limit, offset int) ([]models.LibraryItem
 	return scanLibraryItems(rows)
 }
 
+// FindItems filters before pagination and returns the matching total. instr
+// treats %, _ and quotes as literal search text rather than LIKE wildcards.
+func (d *DB) FindItems(mediaType, query string, limit, offset int) ([]models.LibraryItem, int, error) {
+	where := " WHERE (? = '' OR media_type = ?) AND (? = '' OR instr(lower(title), lower(?)) > 0 OR instr(lower(author), lower(?)) > 0)"
+	args := []interface{}{mediaType, mediaType, query, query, query}
+	var total int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM library_items"+where, args...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+	rows, err := d.db.Query("SELECT "+libraryItemColumns+" FROM library_items"+where+" ORDER BY added_at DESC, id DESC LIMIT ? OFFSET ?", append(args, limit, offset)...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+	items, err := scanLibraryItems(rows)
+	return items, total, err
+}
+
 // CountItems counts library items, optionally filtered by media type.
 func (d *DB) CountItems(mediaType string) (int, error) {
 	var count int
