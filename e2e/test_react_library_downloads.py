@@ -1,5 +1,7 @@
 """Stateful browser coverage for the React Library and Downloads tabs."""
 
+from playwright.sync_api import expect
+
 
 def _sign_in(app, page):
     page.goto(app["base"], wait_until="networkidle")
@@ -52,6 +54,7 @@ def test_library_categories_grouping_filter_pagination_links_and_cover_fallback(
     page.locator('[data-library-tab="manga"]').click()
     page.wait_for_selector('a[href="https://kavita.example/series/1"]')
     assert "382 pages" in page.locator("#library-results").inner_text()
+    expect(page.locator('[data-action="deleteLibraryItem"]')).to_have_count(0)
 
 
 def test_download_cards_progress_retry_cancel_clear_refresh_and_poll(app, page):
@@ -128,3 +131,49 @@ def test_library_metadata_shapes_and_broken_cover_titles(app, page):
         if not item.get("abs_url") and not item.get("kavita_url"):
             expect(card.locator("a")).to_have_count(0)
     assert errors == []
+
+
+def test_library_delayed_response_cannot_replace_current_category(app, page):
+    _sign_in(app, page)
+    pending = []
+    page.route("**/api/library?*", lambda route: pending.append(route))
+    page.route("**/api/library/manga?*", lambda route: route.fulfill(json={
+        "items": [{"id": 77, "title": "Current Manga"}], "pages": 1,
+    }))
+    page.locator('[data-action="switchTab"][data-arg="library"]').click()
+    expect(page.locator('[aria-busy="true"]')).to_be_visible()
+    page.locator('[data-library-tab="manga"]').click()
+    expect(page.locator("#library-results")).to_contain_text("Current Manga")
+    assert len(pending) == 1
+    with page.expect_response(lambda response: "/api/library?" in response.url):
+        pending.pop().fulfill(json={"items": [{"id": 1, "title": "Stale Ebook"}], "pages": 5})
+    page.wait_for_timeout(100)
+    expect(page.locator("#library-results")).to_contain_text("Current Manga")
+    expect(page.locator("#library-results")).not_to_contain_text("Stale Ebook")
+    expect(page.locator("#library-pagination")).to_have_count(0)
+
+
+def test_library_delete_pending_disables_repeat_and_refreshes_current_category(app, page):
+    _sign_in(app, page)
+    pending = []
+    page.route("**/api/library?*", lambda route: route.fulfill(json={
+        "items": [{"id": 1, "title": "Old Ebook"}], "pages": 1,
+    }))
+    page.route("**/api/library/book/1", lambda route: pending.append(route))
+    page.route("**/api/library/manga?*", lambda route: route.fulfill(json={
+        "items": [{"id": 2, "title": "Current Manga"}], "pages": 1,
+    }))
+    page.locator('[data-action="switchTab"][data-arg="library"]').click()
+    remove = page.get_by_role("button", name="Remove from library")
+    page.once("dialog", lambda dialog: dialog.accept())
+    remove.click()
+    expect(remove).to_be_disabled()
+    page.locator('[data-library-tab="manga"]').click()
+    expect(page.locator("#library-results")).to_contain_text("Current Manga")
+    expect(remove).to_be_disabled()
+    assert len(pending) == 1
+    pending.pop().fulfill(json={"success": True})
+    expect(page.locator("#toast-container")).to_contain_text('Removed "Old Ebook"')
+    expect(remove).to_be_enabled()
+    expect(page.locator("#library-results")).to_contain_text("Current Manga")
+    expect(page.locator("#library-results")).not_to_contain_text("Old Ebook")

@@ -7,6 +7,8 @@ Thanks for your interest in contributing! Here's how to get started.
 ```bash
 git clone https://github.com/JeremiahM37/librarr.git
 cd librarr
+npm ci --prefix web/ui
+npm run build --prefix web/ui
 go build -o librarr ./cmd/librarr/
 go test ./...
 ```
@@ -29,6 +31,7 @@ Check the [good first issue](https://github.com/JeremiahM37/librarr/labels/good%
 | Suite | Command | Needs |
 |---|---|---|
 | Unit + race | `go test ./... -race` | nothing |
+| Frontend type check + embedded bundle | `npm ci --prefix web/ui && npm run build --prefix web/ui` | Node.js 24 |
 | Integration | `go test -tags=integration ./internal/integration/...` | nothing |
 | Browser end-to-end | `pip install -r e2e/requirements.txt && playwright install chromium`, then `LIBRARR_E2E_BIN=./librarr pytest e2e/` | Chromium |
 | Import modes vs. a real torrent client | `LIBRARR_BIN=./librarr python3 e2e/manual_qbittorrent_check.py --spawn` | Docker |
@@ -37,6 +40,15 @@ The last one is not part of CI. It seeds real torrents in a disposable
 qBittorrent and force-rechecks them, which is the only way to prove that an
 imported torrent is still seedable and that deleting a torrent's files leaves
 the library copy intact. Run it when you touch the import pipeline.
+
+Build the frontend before the Go binary when running browser tests; Go embeds
+the built assets. CI runs all browser journeys and fails on uncaught JavaScript
+errors. For library changes, extend `e2e/test_local_library_contract.py` to
+exercise the real SQLite → API → browser flow for ebooks, audiobooks, and manga.
+Removal coverage includes desktop/mobile controls, confirmation cancellation,
+failure recovery, last-page and filtered-list behavior, and persistence after
+reload. Provider responses and delayed requests are covered separately in
+`e2e/test_react_library_downloads.py`.
 
 ## Code Style
 

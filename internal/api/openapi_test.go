@@ -53,4 +53,10 @@ func TestHandleOpenAPI(t *testing.T) {
 	if _, ok := spec.Components.SecuritySchemes["apiKey"]; !ok {
 		t.Error("expected apiKey securityScheme")
 	}
+	for _, path := range []string{"/api/library/book/{id}", "/api/library/audiobook/{id}", "/api/library/manga/{id}"} {
+		operations, ok := spec.Paths[path].(map[string]interface{})
+		if !ok || operations["delete"] == nil {
+			t.Errorf("missing library removal contract: %s", path)
+		}
+	}
 }

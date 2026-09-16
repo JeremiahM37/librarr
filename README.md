@@ -516,8 +516,16 @@ different format); that is what the UI's **Download anyway** button sends.
 | GET | `/api/library/manga` | List manga |
 | DELETE | `/api/library/book/{id}` | Remove ebook |
 | DELETE | `/api/library/audiobook/{id}` | Remove audiobook |
+| DELETE | `/api/library/manga/{id}` | Remove a local manga library record |
 | GET | `/api/stats` | Library statistics |
 | GET | `/api/activity` | Recent activity log |
+
+Removing a local library item preserves the file on disk and returns linked
+wanted entries to missing. Local ebooks, audiobooks, and manga all offer a
+confirmation before removal. Manga displayed from Kavita is managed through
+the **Open in Kavita** link; its series IDs are not Librarr item IDs. If Kavita
+is configured, API callers removing a local manga record must explicitly pass
+`?source=local` with the Librarr item ID.
 
 ### Requests
 

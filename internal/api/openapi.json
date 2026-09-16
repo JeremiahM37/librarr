@@ -397,6 +397,25 @@
         "summary": "List manga"
       }
     },
+    "/api/library/manga/{id}": {
+      "delete": {
+        "summary": "Remove a local manga library record, preserving its file",
+        "description": "Unlinks wanted entries. Kavita series IDs are not local item IDs: manage those in Kavita. When Kavita is configured, source=local is required to explicitly select a local record.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": { "type": "integer", "minimum": 1 }
+          },
+          {
+            "name": "source",
+            "in": "query",
+            "schema": { "type": "string", "enum": ["local"] }
+          }
+        ]
+      }
+    },
     "/api/library/book/{id}": {
       "delete": {
         "summary": "Remove an ebook from the library",

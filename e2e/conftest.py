@@ -295,6 +295,8 @@ def app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
         "LIBRARR_SOURCES_PATH": str(reg_path),
         "EBOOK_DIR": str(books),
         "AUDIOBOOK_DIR": str(data / "audiobooks"),
+        "MANGA_DIR": str(data / "manga"),
+        "MANGA_INCOMING_DIR": str(data / "manga-incoming"),
         "INCOMING_DIR": str(incoming),
         # Kavita integration on, no library ID — the reporter's configuration
         # in issue #98, where EBOOK_DIR already sits inside a Kavita folder.
@@ -368,3 +370,15 @@ def ui(app, page):
 def isolated_auth_app(stub_server, kavita_stub, librarr_binary, tmp_path_factory):
     """Account lifecycle tests cannot turn auth on for unrelated browser journeys."""
     yield from app.__wrapped__(stub_server, kavita_stub, librarr_binary, tmp_path_factory)
+
+
+@pytest.fixture(autouse=True)
+def no_uncaught_browser_errors(request):
+    if "page" not in request.fixturenames:
+        yield
+        return
+    page = request.getfixturevalue("page")
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    yield
+    assert errors == [], f"Uncaught browser errors: {errors}"

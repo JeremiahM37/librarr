@@ -1,7 +1,9 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -392,14 +394,25 @@ func (s *Server) kavitaLogin() (string, error) {
 // --- Delete library items ---
 
 func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
+	s.deleteLibraryItem(w, r, "ebook")
+}
+
+func (s *Server) deleteLibraryItem(w http.ResponseWriter, r *http.Request, mediaType string) {
 	idStr := r.PathValue("id")
 
 	// Try as integer (internal DB item) first.
 	if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-		// Wanted rows pointing at this file go back to "missing".
-		_ = s.db.UnlinkLibraryItemFromWishlist(id)
+		item, err := s.db.GetItem(id)
+		if errors.Is(err, sql.ErrNoRows) || (err == nil && item.MediaType != mediaType) {
+			writeJSON(w, http.StatusNotFound, map[string]interface{}{"error": "Library item not found"})
+			return
+		}
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, "Failed to load library item", err)
+			return
+		}
 		if err := s.db.DeleteItem(id); err != nil {
-			writeJSON(w, http.StatusNotFound, map[string]interface{}{
+			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 				"success": false,
 				"error":   err.Error(),
 			})
@@ -411,26 +424,34 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// UUID string — ABS library item. Delete via ABS API.
-	if s.cfg.HasAudiobookshelf() && s.cfg.ABSToken != "" {
-		absURL := fmt.Sprintf("%s/api/items/%s", s.cfg.ABSURL, idStr)
-		req, err := http.NewRequest("DELETE", absURL, nil)
-		if err == nil {
-			req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
-			resp, err := http.DefaultClient.Do(req)
-			if err == nil {
-				resp.Body.Close()
-				if resp.StatusCode < 300 {
-					slog.Info("deleted ABS library item", "id", idStr)
-				} else {
-					slog.Warn("ABS delete non-success", "id", idStr, "status", resp.StatusCode)
-				}
-			}
-		}
+	if mediaType == "manga" || !s.cfg.HasAudiobookshelf() {
+		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid library item ID"})
+		return
+	}
+	absURL := fmt.Sprintf("%s/api/items/%s", s.cfg.ABSURL, url.PathEscape(idStr))
+	req, err := http.NewRequestWithContext(r.Context(), "DELETE", absURL, nil)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Failed to create ABS request", err)
+		return
+	}
+	req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		writeError(w, http.StatusBadGateway, "Failed to reach ABS", err)
+		return
+	}
+	resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		writeJSON(w, http.StatusBadGateway, map[string]interface{}{"error": fmt.Sprintf("ABS returned HTTP %d", resp.StatusCode)})
+		return
 	}
 
 	// Also try internal DB by source_id.
-	_ = s.db.DeleteItemBySourceID(idStr)
+	if err := s.db.DeleteItemBySourceID(idStr); err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to remove local library record", err)
+		return
+	}
 
 	username, _ := r.Context().Value(ctxUsername).(string)
 	s.db.LogActivity(username, "library_remove", idStr, fmt.Sprintf("Removed library item %s", idStr))
@@ -438,6 +459,13 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDeleteAudiobook(w http.ResponseWriter, r *http.Request) {
-	// Same as delete book — handles both integer and UUID IDs.
-	s.handleDeleteBook(w, r)
+	s.deleteLibraryItem(w, r, "audiobook")
+}
+
+func (s *Server) handleDeleteManga(w http.ResponseWriter, r *http.Request) {
+	if s.cfg.HasKavita() && r.URL.Query().Get("source") != "local" {
+		writeJSON(w, http.StatusConflict, map[string]interface{}{"error": "Manage Kavita series in Kavita; use source=local for a Librarr library item ID"})
+		return
+	}
+	s.deleteLibraryItem(w, r, "manga")
 }
