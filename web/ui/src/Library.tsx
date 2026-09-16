@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api, type LibraryItem, type LibraryResponse } from "./api";
 import { useTranslation } from "./i18n";
 
@@ -88,11 +88,13 @@ function Card({
   index,
   category,
   remove,
+  removing,
 }: {
   item: LibraryItem;
   index: number;
   category: Category;
   remove: (item: LibraryItem) => void;
+  removing: boolean;
 }): React.JSX.Element {
   const { t } = useTranslation();
   const title = displayTitle(item);
@@ -101,12 +103,14 @@ function Card({
   return (
     <article className="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative group">
       <Cover item={item} index={index} />
-      {category !== "manga" && (
+      {item.id != null && !item.kavita_url && (
         <button
           data-action="deleteLibraryItem"
           title="Remove from library"
+          aria-label="Remove from library"
+          disabled={removing}
           onClick={() => remove(item)}
-          className="absolute top-2 right-2"
+          className="absolute top-2 right-2 w-11 h-11 rounded-full bg-slate-950/80 text-white hover:bg-red-700 disabled:opacity-50"
         >
           ✕
         </button>
@@ -174,7 +178,10 @@ export function Library({
     [page, setPage] = useState(1),
     [pages, setPages] = useState(1),
     [items, setItems] = useState<LibraryItem[]>([]),
-    [loading, setLoading] = useState(false);
+    [loading, setLoading] = useState(false),
+    [removing, setRemoving] = useState(false),
+    [revision, setRevision] = useState(0);
+  const requestVersion = useRef(0);
   useEffect(() => {
     const nextQuery = query.trim();
     if (nextQuery === debounced) return;
@@ -185,24 +192,36 @@ export function Library({
     return () => window.clearTimeout(timer);
   }, [query, debounced]);
   const load = async () => {
+    const version = ++requestVersion.current;
     setLoading(true);
     try {
       const suffix = `?page=${page}${debounced ? `&q=${encodeURIComponent(debounced)}` : ""}`;
       const data = await api<LibraryResponse>(endpoints[category] + suffix);
+      if (version !== requestVersion.current) return;
+      const lastPage = Math.max(1, data.pages ?? 1);
+      if (page > lastPage) {
+        setPage(lastPage);
+        return;
+      }
       setItems(data.items ?? []);
-      setPages(Math.max(1, data.pages ?? 1));
+      setPages(lastPage);
     } catch (error) {
+      if (version !== requestVersion.current) return;
       setItems([]);
+      setPages(1);
       setNotice(
         error instanceof Error ? error.message : t("failed_load_library"),
       );
     } finally {
-      setLoading(false);
+      if (version === requestVersion.current) setLoading(false);
     }
   };
   useEffect(() => {
     void load();
-  }, [category, page, debounced]);
+    return () => {
+      requestVersion.current++;
+    };
+  }, [category, page, debounced, revision]);
   const grouped = useMemo(() => {
     const groups = new Map<string, LibraryItem[]>(),
       standalone: LibraryItem[] = [];
@@ -215,19 +234,29 @@ export function Library({
   }, [items]);
   const remove = async (item: LibraryItem) => {
     if (
+      removing ||
       item.id == null ||
+      item.kavita_url ||
       !window.confirm(`Remove "${displayTitle(item)}" from library?`)
     )
       return;
-    const type = category === "audiobooks" ? "audiobook" : "book";
+    const type = category === "audiobooks"
+      ? "audiobook"
+      : category === "manga" ? "manga" : "book";
+    const suffix = type === "manga" ? "?source=local" : "";
+    setRemoving(true);
     try {
-      await api(`/api/library/${type}/${item.id}`, { method: "DELETE" });
+      await api(`/api/library/${type}/${encodeURIComponent(item.id)}${suffix}`, {
+        method: "DELETE",
+      });
       setNotice(`Removed "${displayTitle(item)}"`);
-      await load();
+      setRevision((value) => value + 1);
     } catch (error) {
       setNotice(
         `Failed to remove: ${error instanceof Error ? error.message : "unknown error"}`,
       );
+    } finally {
+      setRemoving(false);
     }
   };
   let index = 0;
@@ -238,6 +267,7 @@ export function Library({
       index={index++}
       category={category}
       remove={remove}
+      removing={removing}
     />
   );
   const start = Math.max(1, Math.min(page - 3, pages - 6)),
@@ -255,7 +285,9 @@ export function Library({
               data-library-tab={value}
               aria-pressed={category === value}
               onClick={() => {
+                if (category === value) return;
                 setCategory(value);
+                setItems([]);
                 setPage(1);
               }}
             >
@@ -282,7 +314,7 @@ export function Library({
         id="library-results"
         className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3"
       >
-        {grouped.groups.map(([series, group]) => (
+        {!loading && grouped.groups.map(([series, group]) => (
           <section data-series-group={series} className="contents" key={series}>
             {group.length > 1 && (
               <header className="col-span-full">
@@ -293,10 +325,10 @@ export function Library({
             {group.map(render)}
           </section>
         ))}
-        {grouped.standalone.length > 0 && grouped.groups.length > 0 && (
+        {!loading && grouped.standalone.length > 0 && grouped.groups.length > 0 && (
           <h3 className="col-span-full">{t("other")}</h3>
         )}
-        {grouped.standalone.map(render)}
+        {!loading && grouped.standalone.map(render)}
       </div>
       {pages > 1 && (
         <nav id="library-pagination" aria-label="Library pages">

@@ -477,7 +477,15 @@ func (d *DB) DeleteItem(id int64) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	result, err := d.db.Exec("DELETE FROM library_items WHERE id = ?", id)
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("DELETE FROM item_tags WHERE item_id = ?", id); err != nil {
+		return err
+	}
+	result, err := tx.Exec("DELETE FROM library_items WHERE id = ?", id)
 	if err != nil {
 		return err
 	}
@@ -485,15 +493,31 @@ func (d *DB) DeleteItem(id int64) error {
 	if n == 0 {
 		return fmt.Errorf("item not found")
 	}
-	return nil
+	if _, err := tx.Exec("UPDATE wishlist SET library_item_id = 0 WHERE library_item_id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 // DeleteItemBySourceID removes a library item by its source_id field.
 func (d *DB) DeleteItemBySourceID(sourceID string) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_, err := d.db.Exec("DELETE FROM library_items WHERE source_id = ?", sourceID)
-	return err
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec("UPDATE wishlist SET library_item_id = 0 WHERE library_item_id IN (SELECT id FROM library_items WHERE source_id = ?)", sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM item_tags WHERE item_id IN (SELECT id FROM library_items WHERE source_id = ?)", sourceID); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM library_items WHERE source_id = ?", sourceID); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 func scanLibraryItems(rows *sql.Rows) ([]models.LibraryItem, error) {
 	var items []models.LibraryItem
