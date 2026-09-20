@@ -54,6 +54,7 @@ Findings are grouped by severity. **Fixed** indicates a code change is present o
 | **Files** | `internal/api/auth.go`, `internal/api/opds.go` |
 | **Scenario** | When session auth is enabled, `/opds/books` and `/opds/download/{id}` were reachable without login. |
 | **Fix** | **Fixed** — only `/opds`, `/opds/`, and `/opds/opensearch.xml` remain auth-exempt. Books/search/download require session or API key. |
+| **Correction** | That fix never shipped: a merge conflict resolution (`19f491a`) kept the old blanket `/opds` exemption while this document came through saying "Fixed", so every release through v1.4.0 was affected (GHSA-368r-6vrp-m3pw). Re-fixed: no `/opds` path is exempt, e-readers use HTTP Basic, and `opds_auth_test.go` probes every route anonymously through the real middleware chain so it cannot silently return. |
 
 ### H4: Session cookie missing Secure flag
 
@@ -161,7 +162,7 @@ Findings are grouped by severity. **Fixed** indicates a code change is present o
 
 ### L1: OPDS root catalog remains public
 
-Root `/opds` catalog is still auth-exempt for e-reader discovery. Full OPDS Basic Auth support is a follow-up.
+Resolved — OPDS Basic Auth is implemented, so the root catalog requires credentials like every other `/opds` route and answers with a `WWW-Authenticate` challenge for e-reader discovery.
 
 ### L2: OIDC sub not stored for account linking
 
@@ -216,4 +217,3 @@ The review stack added the following beyond the initial security pass:
 - Dedicated rate limit for `/api/login/totp`
 - Full webhook worker pool (semaphore cap is in place)
 - Dial-time IP validation to close DNS rebinding gap
-- OPDS Basic Auth for protected catalogs

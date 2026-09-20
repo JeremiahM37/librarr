@@ -41,10 +41,9 @@ func isExempt(path string) bool {
 	if strings.HasPrefix(path, "/static/") {
 		return true
 	}
-	// OPDS feeds (e-readers handle auth separately).
-	if strings.HasPrefix(path, "/opds") {
-		return true
-	}
+	// OPDS is NOT exempt: the feed lists the library and /opds/download
+	// streams its files. E-readers authenticate with HTTP Basic, handled in
+	// authMiddleware (see opds_auth.go).
 	// Prometheus metrics.
 	if path == "/metrics" {
 		return true
@@ -58,6 +57,8 @@ func isExempt(path string) bool {
 
 // authMiddleware returns an HTTP middleware that enforces authentication.
 func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore, next http.Handler) http.Handler {
+	opdsAuth := newOPDSBasicAuth()
+
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Check if multi-user is active (any users in DB).
 		userCount, _ := database.CountUsers()
@@ -153,6 +154,29 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 				next.ServeHTTP(w, r.WithContext(ctx))
 				return
 			}
+		}
+
+		// E-readers cannot hold a session cookie or send X-Api-Key, so OPDS
+		// paths also accept HTTP Basic, and answer with a challenge so the
+		// reader prompts for credentials.
+		if isOPDSPath(r.URL.Path) {
+			ident, status := opdsAuth.authenticate(r, cfg, database, multiUser)
+			if status == opdsAuthOK {
+				ctx := context.WithValue(r.Context(), ctxUserID, ident.userID)
+				ctx = context.WithValue(ctx, ctxUserRole, ident.role)
+				ctx = context.WithValue(ctx, ctxUsername, ident.username)
+				next.ServeHTTP(w, r.WithContext(ctx))
+				return
+			}
+			if status == opdsAuthThrottled {
+				w.Header().Set("Retry-After", "60")
+				writeJSON(w, http.StatusTooManyRequests, map[string]interface{}{
+					"success": false,
+					"error":   "Too many failed login attempts",
+				})
+				return
+			}
+			w.Header().Set("WWW-Authenticate", `Basic realm="Librarr OPDS", charset="UTF-8"`)
 		}
 
 		// No valid auth found.

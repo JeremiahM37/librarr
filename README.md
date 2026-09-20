@@ -738,6 +738,13 @@ Librarr serves an OPDS 1.2 catalog at `/opds` for e-reader apps (KOReader, Moon+
 
 **Setup:** Add `http://your-librarr-host:5050/opds` as an OPDS catalog in your e-reader. If auth is enabled, enter your Librarr username and password.
 
+When auth is enabled every `/opds` route requires credentials (HTTP Basic, a
+browser session, or the API key). Accounts with two-factor auth enabled, and
+SSO-only accounts, cannot use their password here: enter the `API_KEY` value as
+the password instead (any username). Repeated failed logins from one address
+are temporarily blocked. Basic auth sends the password with every request, so
+use HTTPS when the feed is reachable beyond your LAN.
+
 ## Using Librarr with Claude / MCP
 
 Librarr's REST API is the integration surface, so any [Model Context Protocol](https://modelcontextprotocol.io/) server can expose Librarr's search, download, and library tools to an LLM (Claude Desktop, Claude Code, Open WebUI, Cursor, etc.). There's no built-in MCP server in Librarr — you wire it into the MCP server you already run.

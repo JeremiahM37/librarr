@@ -963,9 +963,11 @@
     "/opds": {
       "get": {
         "summary": "OPDS 1.2 catalog root",
-        "description": "Browse your library from e-reader apps (KOReader, Moon+ Reader, Librera).",
-        "security": [],
+        "description": "Browse your library from e-reader apps (KOReader, Moon+ Reader, Librera). When auth is enabled, all /opds routes require HTTP Basic credentials (or a session / API key).",
         "responses": {
+          "401": {
+            "description": "Authentication required (sends a WWW-Authenticate: Basic challenge)"
+          },
           "200": {
             "description": "Atom feed",
             "content": {

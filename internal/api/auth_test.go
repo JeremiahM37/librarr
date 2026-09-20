@@ -290,8 +290,14 @@ func TestIsExempt(t *testing.T) {
 		{"/torznab/api", true},
 		{"/torznab/api?t=caps", true},
 		{"/static/style.css", true},
-		{"/opds", true},
-		{"/opds/books", true},
+		// OPDS lists and serves the library, so it must never be exempt
+		// (GHSA-368r-6vrp-m3pw). E-readers use HTTP Basic instead.
+		{"/opds", false},
+		{"/opds/", false},
+		{"/opds/books", false},
+		{"/opds/search", false},
+		{"/opds/download/1", false},
+		{"/opds/opensearch.xml", false},
 		{"/metrics", true},
 		{"/auth/oidc/callback", true},
 		// OpenAPI spec is public so AI agents / tooling can introspect the
