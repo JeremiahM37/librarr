@@ -214,12 +214,19 @@ behind TLS.
 | `OIDC_AUTO_CREATE_USERS` | `true` | Auto-create users on first OIDC login |
 | `OIDC_DEFAULT_ROLE` | `user` | Default role for OIDC-created users |
 | `OIDC_PROXY_HEADERS_ENABLED` | `false` | Trust Authentik identity headers from a reverse proxy |
+| `LIBRARR_TRUSTED_PROXIES` | | Comma-separated IPs/CIDRs of your reverse proxy. **Required for `OIDC_PROXY_HEADERS_ENABLED`**; also gates `X-Forwarded-Proto` |
 
 When `OIDC_PROXY_HEADERS_ENABLED=true` and Librarr sits behind a trusted reverse
 proxy that injects Authentik headers like `X-Authentik-Username`, it will treat
 those requests as an authenticated SSO session, auto-provision the local user if
 needed, and skip the manual "Login with SSO" click. Enable this only for
 proxy-gated deployments.
+Identity headers are honored **only** when the connection comes from an address
+in `LIBRARR_TRUSTED_PROXIES` (e.g. `LIBRARR_TRUSTED_PROXIES=172.18.0.5` or a
+Docker network CIDR). From any other peer they are ignored, and with the list
+empty they are always ignored — Librarr logs a warning at startup and users fall
+back to the "Login with SSO" button. Your proxy must also strip these headers
+from incoming client requests.
 Local logout only clears Librarr's session cookie; if the proxy keeps sending
 the identity header, the next request will sign the browser back in.
 

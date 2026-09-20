@@ -429,6 +429,11 @@ func TestAuthMiddleware_AcceptsAuthentikProxyHeaders(t *testing.T) {
 	t.Cleanup(func() { database.Close() })
 	sessions := NewSessionStore()
 
+	// httptest.NewRequest's peer is 192.0.2.1; identity headers are honored
+	// only from a configured reverse proxy.
+	setTrustedProxies([]string{"192.0.2.1"})
+	t.Cleanup(func() { setTrustedProxies(nil) })
+
 	var gotUsername, gotRole string
 	var gotUserID int64
 	handler := authMiddleware(newOIDCTestConfig(), database, sessions, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

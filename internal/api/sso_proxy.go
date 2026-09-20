@@ -50,6 +50,13 @@ func setTrustedProxies(entries []string) {
 	trustedProxiesMu.Unlock()
 }
 
+// hasTrustedProxies reports whether any valid trusted-proxy entry is configured.
+func hasTrustedProxies() bool {
+	trustedProxiesMu.RLock()
+	defer trustedProxiesMu.RUnlock()
+	return len(trustedProxies) > 0
+}
+
 // remoteFromTrustedProxy reports whether the request's immediate peer
 // (RemoteAddr) is in the configured trusted-proxy set. With no proxies
 // configured this is always false, so spoofed forwarded headers are ignored.

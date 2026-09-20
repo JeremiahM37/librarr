@@ -67,8 +67,19 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 		// login flow when OIDC is configured. This lets Authentik-backed
 		// deployments log users in transparently instead of requiring a second
 		// click on the Librarr login button.
+		//
+		// The identity headers are plain request headers, so they prove nothing
+		// unless the immediate peer is a configured reverse proxy. From any
+		// other peer they are ignored and the request authenticates (or fails)
+		// like any other — never rejected outright, so a direct connection
+		// with a valid session or API key keeps working.
 		if cfg != nil && cfg.HasOIDCProxyHeaders() {
 			username := proxyIdentityFromRequest(r)
+			if username != "" && !remoteFromTrustedProxy(r) {
+				slog.Warn("ignoring SSO identity header from a peer outside LIBRARR_TRUSTED_PROXIES",
+					"remote", sanitizeLogValue(r.RemoteAddr), "username", sanitizeLogValue(username))
+				username = ""
+			}
 			if username != "" {
 				if user, err := resolveOIDCUser(cfg, database, username); err == nil && user != nil {
 					if sessions != nil {
