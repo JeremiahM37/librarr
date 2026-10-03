@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"regexp"
 	"strings"
 	"testing"
@@ -147,5 +148,79 @@ func TestExtractABBInfoHash(t *testing.T) {
 	want := "0123456789ABCDEF0123456789ABCDEF01234567"
 	if got != want {
 		t.Fatalf("extractABBInfoHash = %q, want %q", got, want)
+	}
+}
+
+// The language and keywords fields need not have whitespace between their tags.
+func TestAudioBookBaySearchLanguage(t *testing.T) {
+	tests := []struct {
+		name, info string
+		want       int
+	}{
+		{"adjacent keywords", `Category: Fantasy&nbsp; <br />Language: English<span style="margin-left:100px;">Keywords: Alchemy&nbsp;</span><br />`, 1},
+		{"space before keywords", `Language: English <span>Keywords: Alchemy</span>`, 1},
+		{"line break", `Language: English<br />Keywords: Alchemy`, 1},
+		{"formatted language", `<b>Language:</b><span>English</span><span>Keywords: Alchemy</span>`, 1},
+		{"nonbreaking space", `Language:&nbsp;English&nbsp;Keywords: Alchemy`, 1},
+		{"mixed case", `LANGUAGE: eNgLiSh<span>Keywords: Alchemy</span>`, 1},
+		{"comma separated", `Language: English, French`, 1},
+		{"non English", `Language: French<span>Keywords: English</span>`, 0},
+		{"English prefix is not English", `Language: Englishish<span>Keywords: Alchemy</span>`, 0},
+		{"no language", `Category: Fantasy`, 1},
+		{"empty language", `Language:`, 1},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rt := &abbRoundTripper{body: `<div class="post"><h2><a href="/abss/example/">Example Book</a></h2><div class="postInfo">` + tt.info + `</div></div>`}
+			a := NewAudioBookBay(&config.Config{}, &http.Client{Transport: rt})
+			results, err := a.searchDomain(context.Background(), "abb.example", "example")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(results) != tt.want {
+				t.Fatalf("got %d results, want %d", len(results), tt.want)
+			}
+			if len(results) > 0 && (results[0].Title != "Example Book" || results[0].AbbURL != "/abss/example/" || results[0].Source != "audiobook") {
+				t.Fatalf("unexpected result: %+v", results[0])
+			}
+		})
+	}
+}
+
+func TestAudioBookBaySearchLowercasesQuery(t *testing.T) {
+	for _, query := range []string{"Example Book", "EXAMPLE BOOK", "example book", "Éxample & Book+One"} {
+		t.Run(query, func(t *testing.T) {
+			requests := 0
+			server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				requests++
+				if r.URL.Query().Get("s") != strings.ToLower(query) || r.URL.Query().Get("tt") != "1" {
+					// Reproduce ABB redirecting capitalized searches to its home page.
+					if r.URL.RawQuery != "" {
+						http.Redirect(w, r, "/", http.StatusMovedPermanently)
+						return
+					}
+					io.WriteString(w, `<html><body>Home page</body></html>`)
+					return
+				}
+				io.WriteString(w, `<div class="post"><h2><a href="/abss/example/">Example Book</a></h2><div class="postInfo">Language: English<span>Keywords: Alchemy</span></div></div>`)
+			}))
+			defer server.Close()
+			reg, err := sourcestest.Registry()
+			if err != nil {
+				t.Fatal(err)
+			}
+			reg.AudioBookBay.Mirrors = []string{strings.TrimPrefix(server.URL, "https://")}
+			a := NewAudioBookBay(&config.Config{Sources: reg}, server.Client())
+			results, err := a.Search(context.Background(), query)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if requests != 1 {
+				t.Errorf("got %d requests, want one search without a home-page redirect", requests)
+			}
+			if len(results) != 1 {
+				t.Fatalf("got %d results, want 1", len(results))
+			}
+		})
 	}
 }
