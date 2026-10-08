@@ -1,0 +1,5 @@
+{"name":"Librarr","short_name":"Librarr","start_url":"/","display":"standalone","background_color":"#0d0a1c","theme_color":"#0d0a1c","icons":[
+{"src":"/static/icons/icon-192.png","sizes":"192x192","type":"image/png","purpose":"any"},
+{"src":"/static/icons/icon-512.png","sizes":"512x512","type":"image/png","purpose":"any"},
+{"src":"/static/icons/icon-192-maskable.png","sizes":"192x192","type":"image/png","purpose":"maskable"},
+{"src":"/static/icons/icon-512-maskable.png","sizes":"512x512","type":"image/png","purpose":"maskable"}]}

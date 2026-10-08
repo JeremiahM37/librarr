@@ -136,6 +136,7 @@ function App(): React.JSX.Element {
             >
               ☰
             </button>
+            <img src="/static/logo.svg" alt="" aria-hidden="true" className="h-7 w-7" />
             <h1 className="text-lg font-bold text-white">Librarr</h1>
           </div>
           <div className="flex gap-3 items-center">

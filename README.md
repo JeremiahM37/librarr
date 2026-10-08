@@ -1,11 +1,29 @@
-# Librarr
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/librarr-lockup-dark.svg">
+    <img alt="Librarr" src="docs/brand/librarr-lockup-light.svg" width="420">
+  </picture>
+</p>
 
-[![Build & Test](https://github.com/JeremiahM37/librarr/actions/workflows/test.yml/badge.svg)](https://github.com/JeremiahM37/librarr/actions/workflows/test.yml)
-[![Release](https://img.shields.io/github/v/release/JeremiahM37/librarr)](https://github.com/JeremiahM37/librarr/releases)
-[![Go Report Card](https://goreportcard.com/badge/github.com/JeremiahM37/librarr)](https://goreportcard.com/report/github.com/JeremiahM37/librarr)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+<h3 align="center">The missing *arr for books.</h3>
 
-**The missing *arr for books.** Self-hosted book, audiobook, and manga search and download manager -- like Sonarr/Radarr but for your reading library.
+<p align="center">
+  <a href="https://github.com/JeremiahM37/librarr/actions/workflows/test.yml"><img alt="Build &amp; Test" src="https://github.com/JeremiahM37/librarr/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/JeremiahM37/librarr/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JeremiahM37/librarr"></a>
+  <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/JeremiahM37/librarr">
+  <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>
+  <a href="https://github.com/JeremiahM37/librarr/pkgs/container/librarr"><img alt="Docker image" src="https://img.shields.io/badge/docker-ghcr.io-2496ED?logo=docker&amp;logoColor=white"></a>
+</p>
+
+<p align="center">
+  <a href="#quick-start">Quick start</a> &middot;
+  <a href="#features">Features</a> &middot;
+  <a href="#configuration">Configuration</a> &middot;
+  <a href="https://github.com/JeremiahM37/librarr/releases">Releases</a> &middot;
+  <a href="CONTRIBUTING.md">Contributing</a>
+</p>
+
+Self-hosted book, audiobook, and manga search and download manager -- like Sonarr/Radarr but for your reading library.
 
 Librarr searches all configured indexers in parallel, scores results by confidence, and auto-imports into your Calibre, Audiobookshelf, Kavita, or Komga library. Single ~17MB Go binary, no runtime dependencies — **~14MB RSS idle** in a real homelab[^1], typically 10-20× lower than the .NET-based *arr apps.
 
@@ -20,6 +38,57 @@ Librarr searches all configured indexers in parallel, scores results by confiden
 | Wanted | Settings |
 |---|---|
 | ![Wanted list: every book has a state, a quality profile and the last scheduler decision](docs/screenshots/wishlist.png) | ![Settings: scheduler, quality profile editor with cutoff, and monitored authors](docs/screenshots/settings.png) |
+
+## Quick Start
+
+### Docker (recommended)
+
+```yaml
+services:
+  librarr:
+    image: ghcr.io/jeremiahm37/librarr:latest
+    ports:
+      - "5050:5050"
+    volumes:
+      - ./data:/data
+      - /path/to/ebooks:/books/ebooks
+      - /path/to/audiobooks:/books/audiobooks
+      - /path/to/manga:/books/manga
+    environment:
+      - AUTH_USERNAME=admin
+      - AUTH_PASSWORD=changeme
+      - API_KEY=your-api-key-here
+      - QB_URL=http://qbittorrent:8080
+      - QB_USER=admin
+      - QB_PASS=changeme
+      - PROWLARR_URL=http://prowlarr:9696
+      - PROWLARR_API_KEY=your-prowlarr-api-key
+    restart: unless-stopped
+```
+
+```bash
+docker compose up -d
+```
+
+### Binary
+
+```bash
+# Download from releases
+curl -LO https://github.com/JeremiahM37/librarr/releases/latest/download/librarr_linux_amd64.tar.gz
+tar xzf librarr_linux_amd64.tar.gz
+
+# Configure
+export AUTH_USERNAME=admin
+export AUTH_PASSWORD=changeme
+export QB_URL=http://localhost:8080
+# ... set other env vars as needed
+
+# Run
+./librarr
+```
+
+Open `http://localhost:5050` in your browser.
+
 
 ## Why Librarr?
 
@@ -124,56 +193,6 @@ Librarr ships with **driver implementations** -- the protocols it can speak. The
 | HTML scrape with regex extractor | Sites without a structured API |
 
 To add or remove a specific indexer endpoint, edit the registry -- no code changes required.
-
-## Quick Start
-
-### Docker (recommended)
-
-```yaml
-services:
-  librarr:
-    image: ghcr.io/jeremiahm37/librarr:latest
-    ports:
-      - "5050:5050"
-    volumes:
-      - ./data:/data
-      - /path/to/ebooks:/books/ebooks
-      - /path/to/audiobooks:/books/audiobooks
-      - /path/to/manga:/books/manga
-    environment:
-      - AUTH_USERNAME=admin
-      - AUTH_PASSWORD=changeme
-      - API_KEY=your-api-key-here
-      - QB_URL=http://qbittorrent:8080
-      - QB_USER=admin
-      - QB_PASS=changeme
-      - PROWLARR_URL=http://prowlarr:9696
-      - PROWLARR_API_KEY=your-prowlarr-api-key
-    restart: unless-stopped
-```
-
-```bash
-docker compose up -d
-```
-
-### Binary
-
-```bash
-# Download from releases
-curl -LO https://github.com/JeremiahM37/librarr/releases/latest/download/librarr_linux_amd64.tar.gz
-tar xzf librarr_linux_amd64.tar.gz
-
-# Configure
-export AUTH_USERNAME=admin
-export AUTH_PASSWORD=changeme
-export QB_URL=http://localhost:8080
-# ... set other env vars as needed
-
-# Run
-./librarr
-```
-
-Open `http://localhost:5050` in your browser.
 
 ## Configuration
 
