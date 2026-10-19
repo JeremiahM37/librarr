@@ -385,8 +385,16 @@ func (s *Scheduler) processItem(ctx context.Context, item models.WishlistItem, d
 
 	// Match confidence gates; quality ranks. Releases on the blocklist
 	// (rejected after an earlier import, or blocked by hand) never compete.
+	// Enabled release profiles and the wanted volume number filter next;
+	// preferred words only re-rank releases that already passed the gate.
+	profiles, err := s.db.GetReleaseProfiles()
+	if err != nil {
+		slog.Warn("scheduler: could not load release profiles", "error", err)
+	}
+	filter := newReleaseFilter(profiles)
 	var cands []quality.Candidate
 	var below, blocked int
+	var rejected []string
 	for i, r := range results {
 		if r.Score < float64(s.cfg.SchedulerMinScore) {
 			below++
@@ -396,7 +404,16 @@ func (s *Scheduler) processItem(ctx context.Context, item models.WishlistItem, d
 			blocked++
 			continue
 		}
-		cands = append(cands, quality.Candidate{Index: i, Format: search.DetectFormat(r), Score: r.Score, Size: r.Size})
+		if wrongVolume(item.Title, r.Title) {
+			rejected = append(rejected, "wrong volume")
+			continue
+		}
+		ok, bonus, why := filter.check(r.Title)
+		if !ok {
+			rejected = append(rejected, why)
+			continue
+		}
+		cands = append(cands, quality.Candidate{Index: i, Format: search.DetectFormat(r), Score: r.Score + bonus, Size: r.Size})
 	}
 	best, decisions := profile.Choose(cands, item.CurrentFormat)
 	for _, d := range decisions {
@@ -408,7 +425,7 @@ func (s *Scheduler) processItem(ctx context.Context, item models.WishlistItem, d
 	}
 	if best == nil {
 		out.Action = "searched"
-		out.Reason = summariseRejection(len(results), below, blocked, decisions, s.cfg.SchedulerMinScore)
+		out.Reason = summariseRejection(len(results), below, blocked, rejected, decisions, s.cfg.SchedulerMinScore)
 		s.record(item.ID, out)
 		return out
 	}
@@ -453,11 +470,13 @@ func (s *Scheduler) processItem(ctx context.Context, item models.WishlistItem, d
 	return out
 }
 
-func summariseRejection(total, belowScore, blocked int, decisions []quality.CandidateDecision, minScore int) string {
+func summariseRejection(total, belowScore, blocked int, rejected []string, decisions []quality.CandidateDecision, minScore int) string {
 	var msg string
 	if len(decisions) == 0 {
 		msg = fmt.Sprintf("%d results, none acceptable", total)
-		if blocked == 0 {
+		if len(rejected) > 0 {
+			msg += ": " + rejected[0]
+		} else if blocked == 0 {
 			msg = fmt.Sprintf("%d results, none scored %d or higher", total, minScore)
 		}
 	} else {
@@ -476,6 +495,9 @@ func summariseRejection(total, belowScore, blocked int, decisions []quality.Cand
 	}
 	if blocked > 0 {
 		msg += fmt.Sprintf(" (%d blocklisted)", blocked)
+	}
+	if len(rejected) > 0 {
+		msg += fmt.Sprintf(" (%d filtered)", len(rejected))
 	}
 	return msg
 }
