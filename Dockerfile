@@ -7,7 +7,7 @@ COPY web/ui/ ./
 COPY web/index.html ../index.html
 RUN npm run build
 
-FROM golang:1.25-alpine AS builder
+FROM golang:1.26-alpine AS builder
 
 WORKDIR /build
 

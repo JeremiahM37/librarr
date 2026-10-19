@@ -538,3 +538,88 @@ func TestRun_BlocklistedReleasesNeverCompete(t *testing.T) {
 		t.Fatalf("reason: %q", got)
 	}
 }
+
+func TestRun_ReleaseProfilesFilterAndRank(t *testing.T) {
+	f := newSchedFixture(t)
+	id := f.want("Le Seigneur des Anneaux", "Tolkien", "ebook")
+	f.srch.results["Le Seigneur des Anneaux"] = []models.SearchResult{
+		res("Le Seigneur des Anneaux [ENGLISH]", "s", "epub", 95, "http://x/en.epub"),
+		res("Le Seigneur des Anneaux FRENCH sample", "s", "epub", 92, "http://x/sample.epub"),
+		res("Le Seigneur des Anneaux FRENCH", "s", "epub", 80, "http://x/fr.epub"),
+		res("Le Seigneur des Anneaux FRENCH retail", "s", "epub", 75, "http://x/fr-retail.epub"),
+	}
+	if _, err := f.db.CreateReleaseProfile(&db.ReleaseProfile{
+		Name: "French", Enabled: true,
+		MustContain: []string{"french"}, MustNotContain: []string{"sample"},
+		Preferred: []db.PreferredWord{{Word: "retail", Score: 10}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// A disabled profile is ignored.
+	_, _ = f.db.CreateReleaseProfile(&db.ReleaseProfile{Name: "Off", MustNotContain: []string{"retail"}})
+
+	f.s.RunCtx(context.Background())
+	if g := f.dl.last(); g.url != "http://x/fr-retail.epub" {
+		t.Fatalf("want the preferred French release, got %+v", g)
+	}
+
+	// Nothing passes: the reason names the profile.
+	_ = f.db.SetWishlistActiveJob(id, "")
+	f.srch.results["Le Seigneur des Anneaux"] = []models.SearchResult{
+		res("Le Seigneur des Anneaux [ENGLISH]", "s", "epub", 95, "http://x/en2.epub"),
+	}
+	before := f.dl.count()
+	f.s.RunCtx(context.Background())
+	if f.dl.count() != before {
+		t.Fatalf("English release must not be grabbed: %+v", f.dl.last())
+	}
+	if got := f.item(id).LastResult; !strings.Contains(got, `"French" requires`) || !strings.Contains(got, "1 filtered") {
+		t.Fatalf("reason: %q", got)
+	}
+}
+
+func TestRun_WrongVolumeIsNeverGrabbed(t *testing.T) {
+	f := newSchedFixture(t)
+	id := f.want("Primal Hunter 5", "Zogarth", "ebook")
+	var rs []models.SearchResult
+	for _, v := range []string{"1", "2", "3", "4", "7"} {
+		rs = append(rs, res("Zogarth - The Primal Hunter "+v+" (epub)", "p", "epub", 85, "http://x/ph"+v+".epub"))
+	}
+	f.srch.results["Primal Hunter 5"] = rs
+	f.s.RunCtx(context.Background())
+	if f.dl.count() != 0 {
+		t.Fatalf("grabbed another volume: %+v", f.dl.last())
+	}
+	if got := f.item(id).LastResult; !strings.Contains(got, "wrong volume") {
+		t.Fatalf("reason: %q", got)
+	}
+	_ = f.db.SetWishlistActiveJob(id, "")
+	f.srch.results["Primal Hunter 5"] = append(rs, res("The Primal Hunter, Book 5", "p", "epub", 85, "http://x/ph5.epub"))
+	f.s.RunCtx(context.Background())
+	if g := f.dl.last(); g.url != "http://x/ph5.epub" {
+		t.Fatalf("want volume 5, got %+v", g)
+	}
+}
+
+func TestWrongVolume(t *testing.T) {
+	cases := []struct {
+		wanted, release string
+		wrong           bool
+	}{
+		{"Primal Hunter 5", "The Primal Hunter 7", true},
+		{"Primal Hunter 5", "Primal Hunter Vol. 5", false},
+		{"Primal Hunter 5", "Primal Hunter 05 [EPUB]", false},
+		{"Primal Hunter 5", "Primal Hunter", false},
+		{"Dune, Book 2", "Dune Book 3", true},
+		{"Dune, Book 2", "Dune Messiah", false},
+		{"L'Assassin royal, Tome 2", "L'Assassin royal Tome 3", true},
+		{"Fahrenheit 451", "Fahrenheit 451 (50th Anniversary)", false},
+		{"1984", "1984 Orwell", false},
+		{"Dune", "Dune 2", false},
+	}
+	for _, c := range cases {
+		if got := wrongVolume(c.wanted, c.release); got != c.wrong {
+			t.Errorf("wrongVolume(%q, %q) = %v, want %v", c.wanted, c.release, got, c.wrong)
+		}
+	}
+}
