@@ -209,7 +209,6 @@ func TestWantedGrab_FailureReleasesActiveJob(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_ = h.db.SetWishlistActiveJob(wantedID, job.ID)
 	h.waitJob(job, "error")
 
 	w, _ := h.db.GetWishlistItem(wantedID)
