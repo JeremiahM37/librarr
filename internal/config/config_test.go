@@ -392,6 +392,14 @@ func TestHas_Methods(t *testing.T) {
 		if cfg.HasKavita() {
 			t.Error("expected false")
 		}
+		cfg = &Config{KavitaURL: "http://k", KavitaAPIKey: "key"}
+		if !cfg.HasKavita() {
+			t.Error("expected an auth key alone to configure Kavita")
+		}
+		cfg.KavitaURL = ""
+		if cfg.HasKavita() {
+			t.Error("expected false without a URL")
+		}
 	})
 
 	t.Run("HasCalibre", func(t *testing.T) {

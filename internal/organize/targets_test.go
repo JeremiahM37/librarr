@@ -192,6 +192,53 @@ func TestImportManga_TriggersUsableKavitaScan(t *testing.T) {
 	}
 }
 
+// TestScanKavita_Authentication — an auth key is sent directly and takes
+// priority over a username and password, which still work without one.
+func TestScanKavita_Authentication(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		apiKey     string
+		wantLogins int
+		wantHeader string
+		wantValue  string
+	}{
+		{"auth key skips login", "kavita-key", 0, "x-api-key", "kavita-key"},
+		{"password falls back to login", "", 1, "Authorization", "Bearer jwt-123"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			logins := 0
+			var scan http.Header
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				mu.Lock()
+				defer mu.Unlock()
+				if r.URL.Path == "/api/Account/login" {
+					logins++
+					io.WriteString(w, `{"token":"jwt-123"}`)
+					return
+				}
+				scan = r.Header.Clone()
+			}))
+			defer srv.Close()
+
+			cfg := &config.Config{KavitaURL: srv.URL, KavitaUser: "u", KavitaPass: "p", KavitaAPIKey: tc.apiKey}
+			NewLibraryTargets(cfg).scanKavita("")
+
+			mu.Lock()
+			defer mu.Unlock()
+			if logins != tc.wantLogins {
+				t.Errorf("logins = %d, want %d", logins, tc.wantLogins)
+			}
+			if scan == nil {
+				t.Fatal("no scan request received")
+			}
+			if got := scan.Get(tc.wantHeader); got != tc.wantValue {
+				t.Errorf("%s = %q, want %q", tc.wantHeader, got, tc.wantValue)
+			}
+		})
+	}
+}
+
 // TestKavitaLibraryIDIsEscaped — an ID is user-supplied config and must not be
 // able to smuggle extra query parameters into the scan URL.
 func TestKavitaLibraryIDIsEscaped(t *testing.T) {
@@ -218,6 +265,7 @@ func TestScanKavita_SkipsWhenUnconfigured(t *testing.T) {
 	}{
 		{"nothing set", &config.Config{}},
 		{"url only", &config.Config{KavitaURL: "http://kavita:5000"}},
+		{"auth key, no url", &config.Config{KavitaAPIKey: "key"}},
 		{"url and user, no password", &config.Config{KavitaURL: "http://kavita:5000", KavitaUser: "u"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

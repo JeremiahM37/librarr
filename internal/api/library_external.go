@@ -194,8 +194,8 @@ func (s *Server) handleLibraryManga(w http.ResponseWriter, r *http.Request) {
 	page := queryInt(r, "page", 1)
 	query := r.URL.Query().Get("q")
 
-	// Step 1: Login to Kavita to get JWT.
-	token, err := s.kavitaLogin()
+	// Step 1: Get credentials for Kavita requests.
+	authorize, err := s.kavitaAuthorizer()
 	if err != nil {
 		slog.Error("Kavita login failed", "error", err)
 		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
@@ -211,7 +211,7 @@ func (s *Server) handleLibraryManga(w http.ResponseWriter, r *http.Request) {
 
 	if query != "" {
 		// Use search endpoint.
-		s.handleKavitaSearch(w, token, query, page, publicURL)
+		s.handleKavitaSearch(w, authorize, query, page, publicURL)
 		return
 	}
 
@@ -234,7 +234,7 @@ func (s *Server) handleLibraryManga(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	authorize(req)
 	req.Header.Set("Content-Type", "application/json")
 
 	client := &http.Client{Timeout: 15 * time.Second}
@@ -285,14 +285,14 @@ func (s *Server) handleLibraryManga(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func (s *Server) handleKavitaSearch(w http.ResponseWriter, token, query string, page int, publicURL string) {
+func (s *Server) handleKavitaSearch(w http.ResponseWriter, authorize func(*http.Request), query string, page int, publicURL string) {
 	apiURL := fmt.Sprintf("%s/api/Search/search?queryString=%s", s.cfg.KavitaURL, url.QueryEscape(query))
 	req, err := http.NewRequest("GET", apiURL, nil)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": err.Error()})
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	authorize(req)
 
 	client := &http.Client{Timeout: 15 * time.Second}
 	resp, err := client.Do(req)
@@ -359,6 +359,20 @@ func (s *Server) kavitaSeriesToItems(series []kavitaSeries, publicURL string) []
 		items = []map[string]interface{}{}
 	}
 	return items
+}
+
+// kavitaAuthorizer returns a function that adds credentials to a Kavita request.
+// A configured auth key is sent as-is; otherwise it logs in with the username
+// and password to get a JWT.
+func (s *Server) kavitaAuthorizer() (func(*http.Request), error) {
+	if key := s.cfg.KavitaAPIKey; key != "" {
+		return func(req *http.Request) { req.Header.Set("x-api-key", key) }, nil
+	}
+	token, err := s.kavitaLogin()
+	if err != nil {
+		return nil, err
+	}
+	return func(req *http.Request) { req.Header.Set("Authorization", "Bearer "+token) }, nil
 }
 
 func (s *Server) kavitaLogin() (string, error) {

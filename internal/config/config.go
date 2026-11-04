@@ -76,6 +76,7 @@ type Config struct {
 	KavitaURL              string
 	KavitaUser             string
 	KavitaPass             string
+	KavitaAPIKey           string
 	KavitaLibraryPath      string
 	KavitaMangaLibraryPath string
 	KavitaEbookLibraryID   string
@@ -345,6 +346,7 @@ func buildFromEnv() *Config {
 		KavitaURL:              getEnv("KAVITA_URL", ""),
 		KavitaUser:             getEnv("KAVITA_USER", ""),
 		KavitaPass:             getEnv("KAVITA_PASS", ""),
+		KavitaAPIKey:           getEnv("KAVITA_API_KEY", ""),
 		KavitaLibraryPath:      getEnv("KAVITA_LIBRARY_PATH", ""),
 		KavitaMangaLibraryPath: getEnv("KAVITA_MANGA_LIBRARY_PATH", ""),
 		KavitaEbookLibraryID:   getEnv("KAVITA_EBOOK_LIBRARY_ID", ""),
@@ -480,7 +482,7 @@ func (c *Config) HasAudiobookshelf() bool {
 
 // HasKavita returns true if Kavita is configured.
 func (c *Config) HasKavita() bool {
-	return c.KavitaURL != "" && c.KavitaUser != "" && c.KavitaPass != ""
+	return c.KavitaURL != "" && (c.KavitaAPIKey != "" || (c.KavitaUser != "" && c.KavitaPass != ""))
 }
 
 // HasCalibre returns true if Calibre library path is configured.
@@ -602,6 +604,7 @@ func (c *Config) applySettingsFileOverrides() {
 		"kavita_url":                &c.KavitaURL,
 		"kavita_user":               &c.KavitaUser,
 		"kavita_pass":               &c.KavitaPass,
+		"kavita_api_key":            &c.KavitaAPIKey,
 		"kavita_library_path":       &c.KavitaLibraryPath,
 		"kavita_manga_library_path": &c.KavitaMangaLibraryPath,
 		"kavita_ebook_library_id":   &c.KavitaEbookLibraryID,

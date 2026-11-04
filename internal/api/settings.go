@@ -21,6 +21,7 @@ var sensitiveKeys = map[string]bool{
 	"qb_pass":                  true,
 	"abs_token":                true,
 	"kavita_pass":              true,
+	"kavita_api_key":           true,
 	"api_key":                  true,
 	"auth_password":            true,
 	"komga_pass":               true,
@@ -86,6 +87,7 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"kavita_url":              s.cfg.KavitaURL,
 		"kavita_user":             s.cfg.KavitaUser,
 		"kavita_pass":             s.cfg.KavitaPass,
+		"kavita_api_key":          s.cfg.KavitaAPIKey,
 		"kavita_ebook_library_id": s.cfg.KavitaEbookLibraryID,
 		"kavita_manga_library_id": s.cfg.KavitaMangaLibraryID,
 		"komga_url":               s.cfg.KomgaURL,
@@ -399,7 +401,31 @@ func (s *Server) handleTestAudiobookshelf(w http.ResponseWriter, _ *http.Request
 	})
 }
 
-// handleTestKavita actually tests Kavita login.
+// kavitaTestRequest builds the request that proves the configured credentials
+// work: an authenticated read for an auth key, or a login for a password.
+func (s *Server) kavitaTestRequest() (*http.Request, error) {
+	if s.cfg.KavitaAPIKey != "" {
+		req, err := http.NewRequest(http.MethodGet, s.cfg.KavitaURL+"/api/Library/libraries", nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("x-api-key", s.cfg.KavitaAPIKey)
+		return req, nil
+	}
+
+	payload, _ := json.Marshal(map[string]string{
+		"username": s.cfg.KavitaUser,
+		"password": s.cfg.KavitaPass,
+	})
+	req, err := http.NewRequest(http.MethodPost, s.cfg.KavitaURL+"/api/Account/login", strings.NewReader(string(payload)))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	return req, nil
+}
+
+// handleTestKavita actually tests Kavita credentials.
 func (s *Server) handleTestKavita(w http.ResponseWriter, _ *http.Request) {
 	if !s.cfg.HasKavita() {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
@@ -415,17 +441,16 @@ func (s *Server) handleTestKavita(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	payload, _ := json.Marshal(map[string]string{
-		"username": s.cfg.KavitaUser,
-		"password": s.cfg.KavitaPass,
-	})
+	req, err := s.kavitaTestRequest()
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]interface{}{
+			"success": false, "error": "Connection failed",
+		})
+		return
+	}
 
 	client := &http.Client{Timeout: 10 * time.Second}
-	resp, err := client.Post(
-		s.cfg.KavitaURL+"/api/Account/login",
-		"application/json",
-		strings.NewReader(string(payload)),
-	)
+	resp, err := client.Do(req)
 	if err != nil {
 		writeJSON(w, http.StatusOK, map[string]interface{}{
 			"success": false, "error": "Connection failed",

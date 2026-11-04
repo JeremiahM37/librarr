@@ -326,6 +326,7 @@ which requires Transmission 3.0+).
 | `KAVITA_URL` | | Kavita server URL |
 | `KAVITA_USER` | | Kavita username |
 | `KAVITA_PASS` | | Kavita password |
+| `KAVITA_API_KEY` | | Kavita auth key (Kavita 0.8.9+), used instead of `KAVITA_USER` and `KAVITA_PASS`. Library scans need a key from an admin account |
 | `KAVITA_LIBRARY_PATH` | | Kavita ebook library path |
 | `KAVITA_MANGA_LIBRARY_PATH` | | Kavita manga library path |
 | `KAVITA_EBOOK_LIBRARY_ID` | | Kavita library to scan after an ebook import (blank = all) |

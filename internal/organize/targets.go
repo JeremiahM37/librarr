@@ -173,8 +173,7 @@ func (lt *LibraryTargets) scanKavita(libraryID string) {
 		return
 	}
 
-	// Login to get JWT token.
-	token, err := lt.kavitaLogin()
+	authorize, err := lt.kavitaAuthorizer()
 	if err != nil {
 		slog.Error("kavita login failed", "error", err)
 		return
@@ -191,7 +190,7 @@ func (lt *LibraryTargets) scanKavita(libraryID string) {
 		slog.Error("kavita scan request creation failed", "error", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+token)
+	authorize(req)
 
 	resp, err := lt.client.Do(req)
 	if err != nil {
@@ -206,6 +205,20 @@ func (lt *LibraryTargets) scanKavita(libraryID string) {
 	} else {
 		slog.Warn("kavita scan returned non-success", "library_id", libraryID, "status", resp.StatusCode)
 	}
+}
+
+// kavitaAuthorizer returns a function that adds credentials to a Kavita request.
+// A configured auth key is sent as-is; otherwise it logs in with the username
+// and password to get a JWT.
+func (lt *LibraryTargets) kavitaAuthorizer() (func(*http.Request), error) {
+	if key := lt.cfg.KavitaAPIKey; key != "" {
+		return func(req *http.Request) { req.Header.Set("x-api-key", key) }, nil
+	}
+	token, err := lt.kavitaLogin()
+	if err != nil {
+		return nil, err
+	}
+	return func(req *http.Request) { req.Header.Set("Authorization", "Bearer "+token) }, nil
 }
 
 func (lt *LibraryTargets) kavitaLogin() (string, error) {
