@@ -27,6 +27,7 @@ var sensitiveKeys = map[string]bool{
 	"komga_pass":               true,
 	"sabnzbd_api_key":          true,
 	"transmission_pass":        true,
+	"rtorrent_pass":            true,
 	"annas_archive_secret_key": true,
 	"annas_secret_key":         true,
 }
@@ -76,6 +77,10 @@ func (s *Server) handleGetSettings(w http.ResponseWriter, _ *http.Request) {
 		"transmission_url":        s.cfg.TransmissionURL,
 		"transmission_user":       s.cfg.TransmissionUser,
 		"transmission_pass":       s.cfg.TransmissionPass,
+		"rtorrent_url":            s.cfg.RTorrentURL,
+		"rtorrent_user":           s.cfg.RTorrentUser,
+		"rtorrent_pass":           s.cfg.RTorrentPass,
+		"rtorrent_directory":      s.cfg.RTorrentDirectory,
 		"torrent_client":          s.cfg.TorrentClient,
 		"prowlarr_url":            s.cfg.ProwlarrURL,
 		"prowlarr_api_key":        s.cfg.ProwlarrAPIKey,
@@ -363,6 +368,12 @@ func (s *Server) handleTestQBittorrent(w http.ResponseWriter, _ *http.Request) {
 // handleTestTransmission tests the Transmission RPC connection.
 func (s *Server) handleTestTransmission(w http.ResponseWriter, _ *http.Request) {
 	result := s.transmission.Diagnose()
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleTestRTorrent tests the rTorrent XML-RPC connection.
+func (s *Server) handleTestRTorrent(w http.ResponseWriter, _ *http.Request) {
+	result := s.rtorrent.Diagnose()
 	writeJSON(w, http.StatusOK, result)
 }
 

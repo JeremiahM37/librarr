@@ -114,7 +114,7 @@ Open `http://localhost:5050` in your browser.
 
 ### Download Management
 
-- **Multiple download clients** -- qBittorrent or Transmission for torrents, plus SABnzbd for Usenet
+- **Multiple download clients** -- qBittorrent, Transmission or rTorrent for torrents, plus SABnzbd for Usenet
 - **Anna's Archive membership fast download** -- optional account secret key uses `/dyn/api/fast_download.json`, with LibGen mirror fallback
 - **Request/approval workflow** -- pending, approved, searching, downloading, completed states with per-request notifications
 - **Scheduled wanted-list searches** -- the scheduler searches every monitored wanted item on an interval, runs its quality profile over the results (match score gates, format rank decides) and grabs the best acceptable release; `POST /api/scheduler/run?wait=1` runs a pass synchronously
@@ -251,14 +251,23 @@ the identity header, the next request will sign the browser back in.
 
 ### Download Clients
 
-Librarr sends torrents to **either qBittorrent or Transmission**. Configure one,
+Librarr sends torrents to **qBittorrent, Transmission or rTorrent**. Configure one,
 or configure both and choose with `TORRENT_CLIENT`. The category/save-path
-settings below apply to both (Transmission uses the category as a torrent label,
-which requires Transmission 3.0+).
+settings below apply to all of them (Transmission uses the category as a torrent
+label, which requires Transmission 3.0+; rTorrent stores it in `d.custom1`, shown as
+the label in ruTorrent).
+
+**rTorrent notes.** Downloads go to `RTORRENT_DIRECTORY`, or rTorrent's own
+`directory.default` when it is empty; `QB_*_SAVE_PATH` is not used. Each torrent's
+path is read from rTorrent at import time, so finished downloads can be moved, but
+the folder a torrent finishes in must be mounted in Librarr at `INCOMING_DIR` (or
+`QB_AUDIOBOOK_SAVE_PATH` / `MANGA_INCOMING_DIR`). To keep seeding, set
+`REMOVE_TORRENT_AFTER_IMPORT=false` with `IMPORT_MODE=hardlink`. rTorrent's API cannot
+delete data, so removing a torrent with its files deletes them through that mount.
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TORRENT_CLIENT` | | Active torrent backend when both are configured: empty (auto, qBittorrent preferred), `qbittorrent`, or `transmission` |
+| `TORRENT_CLIENT` | | Active torrent backend when both are configured: empty (auto, qBittorrent preferred), `qbittorrent`, `transmission`, or `rtorrent` |
 | `QB_URL` | | qBittorrent Web UI URL |
 | `QB_USER` | `admin` | qBittorrent username |
 | `QB_PASS` | | qBittorrent password |
@@ -273,6 +282,10 @@ which requires Transmission 3.0+).
 | `TRANSMISSION_URL` | | Transmission RPC URL (e.g. `http://transmission:9091`) |
 | `TRANSMISSION_USER` | | Transmission RPC username (optional — only if RPC auth is enabled) |
 | `TRANSMISSION_PASS` | | Transmission RPC password (optional) |
+| `RTORRENT_URL` | | rTorrent XML-RPC URL over HTTP, e.g. `http://rutorrent/RPC2` (no path means `/RPC2`) |
+| `RTORRENT_USER` | | HTTP basic auth username (optional) |
+| `RTORRENT_PASS` | | HTTP basic auth password (optional) |
+| `RTORRENT_DIRECTORY` | | Download directory (optional; empty uses rTorrent's `directory.default`) |
 | `SABNZBD_URL` | | SABnzbd URL |
 | `SABNZBD_API_KEY` | | SABnzbd API key |
 | `SABNZBD_CATEGORY` | `librarr` | NZB download category |
@@ -719,6 +732,7 @@ arrive by other routes are linked on the next pass by title and author.
 | POST | `/api/test/prowlarr` | Test Prowlarr connection |
 | POST | `/api/test/qbittorrent` | Test qBittorrent connection |
 | POST | `/api/test/transmission` | Test Transmission connection |
+| POST | `/api/test/rtorrent` | Test rTorrent connection |
 | POST | `/api/test/audiobookshelf` | Test Audiobookshelf connection |
 | POST | `/api/test/kavita` | Test Kavita connection |
 | POST | `/api/test/sabnzbd` | Test SABnzbd connection |
@@ -862,7 +876,7 @@ internal/
     ratelimit.go                Per-source rate limiting
     router.go                   Route registration
   search/                       Search source implementations
-  download/                     Download manager (qBit, Transmission, Deluge, SABnzbd)
+  download/                     Download manager (qBit, Transmission, rTorrent, Deluge, SABnzbd)
   organize/                     Post-download file organization + library import
   metadata/                     Open Library metadata enrichment
   scheduler/                    Background scheduler, series detector, author monitor

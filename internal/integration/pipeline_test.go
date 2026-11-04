@@ -55,7 +55,7 @@ func TestAPISearchEndpoint(t *testing.T) {
 	organizer := organize.NewOrganizer(cfg)
 	downloadMgr := download.NewManager(cfg, database, nil, nil, direct, organizer, nil, health)
 
-	srv := api.NewServer(cfg, database, searchMgr, downloadMgr, nil, nil, nil, organizer, nil)
+	srv := api.NewServer(cfg, database, searchMgr, downloadMgr, nil, nil, nil, nil, organizer, nil)
 	httpSrv := httptest.NewServer(srv.Handler())
 	defer httpSrv.Close()
 

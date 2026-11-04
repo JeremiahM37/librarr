@@ -34,6 +34,7 @@ type Server struct {
 	downloadMgr    *download.Manager
 	qb             *download.QBittorrentClient
 	transmission   *download.TransmissionClient
+	rtorrent       *download.RTorrentClient
 	sab            *download.SABnzbdClient
 	mux            *http.ServeMux
 	sessions       *SessionStore
@@ -51,7 +52,7 @@ type Server struct {
 }
 
 // NewServer creates the HTTP API server.
-func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, transmission *download.TransmissionClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets) *Server {
+func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, downloadMgr *download.Manager, qb *download.QBittorrentClient, transmission *download.TransmissionClient, rtorrent *download.RTorrentClient, sab *download.SABnzbdClient, organizer *organize.Organizer, targets *organize.LibraryTargets) *Server {
 	sessions := NewSessionStore()
 
 	// Configure which reverse proxies may set forwarded headers we honor.
@@ -113,6 +114,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		downloadMgr:    downloadMgr,
 		qb:             qb,
 		transmission:   transmission,
+		rtorrent:       rtorrent,
 		sab:            sab,
 		mux:            http.NewServeMux(),
 		sessions:       sessions,
@@ -408,6 +410,7 @@ func (s *Server) registerAdminRoutes() {
 	s.mux.HandleFunc("POST /api/test/prowlarr", requireAdmin(s.handleTestProwlarr))
 	s.mux.HandleFunc("POST /api/test/qbittorrent", requireAdmin(s.handleTestQBittorrent))
 	s.mux.HandleFunc("POST /api/test/transmission", requireAdmin(s.handleTestTransmission))
+	s.mux.HandleFunc("POST /api/test/rtorrent", requireAdmin(s.handleTestRTorrent))
 	s.mux.HandleFunc("POST /api/test/audiobookshelf", requireAdmin(s.handleTestAudiobookshelf))
 	s.mux.HandleFunc("POST /api/test/kavita", requireAdmin(s.handleTestKavita))
 	s.mux.HandleFunc("POST /api/test/sabnzbd", requireAdmin(s.handleTestSABnzbd))

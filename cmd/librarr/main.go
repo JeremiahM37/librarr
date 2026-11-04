@@ -91,8 +91,9 @@ func main() {
 	// Initialize download components.
 	qb := download.NewQBittorrentClient(cfg)
 	transmission := download.NewTransmissionClient(cfg)
+	rtorrent := download.NewRTorrentClient(cfg)
 	sab := download.NewSABnzbdClient(cfg)
-	torrentClient := download.SelectTorrentClient(cfg, qb, transmission)
+	torrentClient := download.SelectTorrentClient(cfg, qb, transmission, rtorrent)
 	if torrentClient != nil {
 		slog.Info("active torrent client", "client", torrentClient.Name())
 		logImportPolicy(cfg)
@@ -122,8 +123,8 @@ func main() {
 	targets := organize.NewLibraryTargets(cfg)
 	downloadMgr := download.NewManager(cfg, database, torrentClient, sab, directDL, organizer, targets, health)
 
-	// Try to connect to qBittorrent on startup (Transmission has no persistent
-	// login — it handshakes a session id lazily on first request).
+	// Try to connect to qBittorrent on startup (Transmission and rTorrent have no
+	// persistent login).
 	if cfg.ActiveTorrentClient() == "qbittorrent" {
 		if err := qb.Login(); err != nil {
 			slog.Warn("qBittorrent initial login failed (will retry on demand)", "error", err)
@@ -139,7 +140,7 @@ func main() {
 	go scanner.Start(ctx)
 
 	// Create HTTP server (also initializes webhook sender, scheduler, series detector).
-	server := api.NewServer(cfg, database, searchMgr, downloadMgr, qb, transmission, sab, organizer, targets)
+	server := api.NewServer(cfg, database, searchMgr, downloadMgr, qb, transmission, rtorrent, sab, organizer, targets)
 
 	// Start scheduled search goroutine.
 	go server.StartScheduler(ctx)

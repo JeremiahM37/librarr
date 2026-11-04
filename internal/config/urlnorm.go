@@ -46,6 +46,7 @@ func NormalizeBaseURL(raw string) string {
 var BaseURLSettingKeys = []string{
 	"qb_url",
 	"transmission_url",
+	"rtorrent_url",
 	"prowlarr_url",
 	"sabnzbd_url",
 	"abs_url",
@@ -79,6 +80,7 @@ func (c *Config) normalizeServiceURLs() {
 		&c.CalibreURL,
 		&c.DelugeURL,
 		&c.TransmissionURL,
+		&c.RTorrentURL,
 		&c.FlibustaURL,
 		&c.ZLibraryURL,
 		&c.BookTrackerURL,

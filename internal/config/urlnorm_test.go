@@ -110,6 +110,7 @@ func TestLoad_NormalizesSettingsFileURLs(t *testing.T) {
 	body := `{
 	  "qb_url": "qbittorrent:8080",
 	  "transmission_url": "transmission:9091",
+	  "rtorrent_url": "rutorrent:8000",
 	  "prowlarr_url": "prowlarr:9696",
 	  "sabnzbd_url": "sabnzbd:8080",
 	  "abs_url": "audiobookshelf:13378",
@@ -130,6 +131,7 @@ func TestLoad_NormalizesSettingsFileURLs(t *testing.T) {
 	got := map[string]string{
 		"qb_url":            cfg.QBUrl,
 		"transmission_url":  cfg.TransmissionURL,
+		"rtorrent_url":      cfg.RTorrentURL,
 		"prowlarr_url":      cfg.ProwlarrURL,
 		"sabnzbd_url":       cfg.SABnzbdURL,
 		"abs_url":           cfg.ABSURL,

@@ -100,6 +100,7 @@ func (s *Server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		"prowlarr":            configObj(s.cfg.HasProwlarr(), s.cfg.ProwlarrURL),
 		"qbittorrent":         configObj(s.cfg.HasQBittorrent(), s.cfg.QBUrl),
 		"transmission":        configObj(s.cfg.HasTransmission(), s.cfg.TransmissionURL),
+		"rtorrent":            configObj(s.cfg.HasRTorrent(), s.cfg.RTorrentURL),
 		"torrent_client":      s.cfg.ActiveTorrentClient(),
 		"audiobookshelf":      s.cfg.HasAudiobookshelf(),
 		"kavita":              s.cfg.HasKavita(),
