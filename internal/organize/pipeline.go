@@ -392,12 +392,19 @@ func syncFile(path string) error {
 }
 
 // copyFileForOrg copies a file without removing the source (streaming).
+// When dst already is src (the same path, or a hardlink to it) it returns
+// without writing: opening dst truncates it, which would empty src too.
 func copyFileForOrg(src, dst string) error {
 	srcFile, err := os.Open(src)
 	if err != nil {
 		return err
 	}
 	defer srcFile.Close()
+	if srcInfo, err := srcFile.Stat(); err == nil {
+		if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
+			return nil
+		}
+	}
 	return copyReaderToFile(srcFile, dst)
 }
 
