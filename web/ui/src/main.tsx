@@ -177,10 +177,16 @@ function App(): React.JSX.Element {
             <button
               data-action="doLogout"
               onClick={() =>
-                void api("/api/logout", { method: "POST" })
-                  .then(() => {
+                void api<{ logout_url?: string }>("/api/logout", {
+                  method: "POST",
+                })
+                  .then((result) => {
                     writeSignedOut(true);
-                    setAuth({ ...auth, authenticated: false });
+                    // SSO sessions also end at the identity provider (or
+                    // the proxy), or it would sign the browser back in.
+                    if (result.logout_url)
+                      window.location.assign(result.logout_url);
+                    else setAuth({ ...auth, authenticated: false });
                   })
                   .catch((e) => setNotice(String(e)))
               }

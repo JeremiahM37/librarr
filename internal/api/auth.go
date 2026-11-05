@@ -765,16 +765,27 @@ func handleDeleteUser(database *db.DB) http.HandlerFunc {
 	}
 }
 
-// handleLogout handles POST /api/logout.
-func handleLogout(sessions *SessionStore, database *db.DB) http.HandlerFunc {
+// handleLogout handles POST /api/logout. For SSO sessions the response
+// carries logout_url, which the UI follows to end the provider's session too;
+// otherwise the provider (or proxy) would sign the browser straight back in.
+func handleLogout(cfg *config.Config, oidcHandler *OIDCHandler, sessions *SessionStore, database *db.DB) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		username, _ := r.Context().Value(ctxUsername).(string)
+		var session *SessionData
 		cookie, err := r.Cookie("librarr_session")
 		if err == nil {
+			session, _ = sessions.Get(cookie.Value)
 			sessions.Delete(cookie.Value)
 		}
+		viaProxy := trustedProxyIdentity(cfg, r) != ""
+
 		database.LogActivity(username, "logout", username, "User logged out")
 		setSessionCookie(w, r, "", -1)
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
+
+		resp := map[string]interface{}{"success": true}
+		if logoutURL := oidcHandler.providerLogoutURL(cfg, session, viaProxy); logoutURL != "" {
+			resp["logout_url"] = logoutURL
+		}
+		writeJSON(w, http.StatusOK, resp)
 	}
 }

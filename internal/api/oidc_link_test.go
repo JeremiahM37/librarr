@@ -103,7 +103,7 @@ func TestCompleteLink_LinksAdminAndRotatesSessions(t *testing.T) {
 	other, _ := sessions.Create(id, "root", "admin")
 
 	rr := httptest.NewRecorder()
-	h.completeLink(rr, callbackRequest(token), id, "sub-root")
+	h.completeLink(rr, callbackRequest(token), id, "sub-root", "raw.id.token")
 
 	if rr.Code != http.StatusFound {
 		t.Fatalf("status = %d, want 302; body=%s", rr.Code, rr.Body.String())
@@ -124,8 +124,8 @@ func TestCompleteLink_LinksAdminAndRotatesSessions(t *testing.T) {
 			fresh = c.Value
 		}
 	}
-	if !sessions.Valid(fresh) {
-		t.Fatal("the browser must get a new session")
+	if data, ok := sessions.Get(fresh); !ok || !data.OIDC || data.IDToken != "raw.id.token" {
+		t.Fatal("the browser must get a new SSO session that keeps the ID token for provider logout")
 	}
 	// The next SSO login finds the account by subject, whatever the username.
 	resolved, err := resolveOIDCUser(h.cfg, h.db, sessions, "someone-else", "sub-root")
@@ -156,7 +156,7 @@ func TestCompleteLink_Refusals(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			rr := httptest.NewRecorder()
-			h.completeLink(rr, callbackRequest(tt.token), id, tt.subject)
+			h.completeLink(rr, callbackRequest(tt.token), id, tt.subject, "raw.id.token")
 			if rr.Code != tt.want {
 				t.Fatalf("status = %d, want %d; body=%s", rr.Code, tt.want, rr.Body.String())
 			}

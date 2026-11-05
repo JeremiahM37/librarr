@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -29,6 +30,10 @@ type OIDCHandler struct {
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 	oauth2   oauth2.Config
+
+	// endSessionEndpoint is the provider's RP-initiated logout endpoint from
+	// discovery, or "" when it doesn't advertise one.
+	endSessionEndpoint string
 
 	// State nonce store.
 	mu     sync.Mutex
@@ -72,7 +77,15 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 		oauth2Cfg.RedirectURL = cfg.OIDCRedirectURI
 	}
 
-	slog.Info("OIDC provider initialized", "issuer", cfg.OIDCIssuer, "provider_name", cfg.OIDCProviderName)
+	var discovery struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	if err := provider.Claims(&discovery); err != nil {
+		slog.Warn("could not read OIDC discovery metadata; provider logout disabled", "error", err)
+	}
+
+	slog.Info("OIDC provider initialized", "issuer", cfg.OIDCIssuer, "provider_name", cfg.OIDCProviderName,
+		"provider_logout", discovery.EndSessionEndpoint != "")
 
 	h := &OIDCHandler{
 		cfg:      cfg,
@@ -82,6 +95,8 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 		verifier: verifier,
 		oauth2:   oauth2Cfg,
 		states:   make(map[string]oidcState),
+
+		endSessionEndpoint: discovery.EndSessionEndpoint,
 	}
 
 	// Periodically clean up expired OIDC state nonces.
@@ -264,7 +279,7 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if pending.linkUserID != 0 {
-		h.completeLink(w, r, pending.linkUserID, claims.Sub)
+		h.completeLink(w, r, pending.linkUserID, claims.Sub, rawIDToken)
 		return
 	}
 
@@ -284,7 +299,7 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Create session.
 	h.db.UpdateLastLogin(user.ID)
-	sessionToken, err := h.sessions.Create(user.ID, user.Username, user.Role)
+	sessionToken, err := h.sessions.CreateOIDC(user.ID, user.Username, user.Role, rawIDToken)
 	if err != nil {
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return
@@ -293,6 +308,51 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to app root.
 	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+// providerLogoutURL returns where the browser should go to end the provider's
+// session after a Librarr sign-out, or "" to stay in Librarr.
+//
+//   - OIDC_LOGOUT_URL, when set, is used for every SSO session (including
+//     proxy-header ones, where Librarr never sees the provider).
+//   - Otherwise a session from the OIDC callback goes to the provider's
+//     end_session_endpoint (RP-initiated logout), with its ID token as
+//     id_token_hint and OIDC_POST_LOGOUT_REDIRECT_URI if configured.
+//   - Local sessions, and providers without an end_session_endpoint, get "".
+//
+// h may be nil (OIDC not configured or the provider failed to initialise).
+func (h *OIDCHandler) providerLogoutURL(cfg *config.Config, session *SessionData, viaProxy bool) string {
+	if cfg == nil || !cfg.HasOIDC() {
+		return ""
+	}
+	isSSO := viaProxy || (session != nil && session.OIDC)
+	if !isSSO {
+		return ""
+	}
+	if cfg.OIDCLogoutURL != "" {
+		return cfg.OIDCLogoutURL
+	}
+	if h == nil || h.endSessionEndpoint == "" || session == nil || !session.OIDC {
+		return ""
+	}
+
+	u, err := url.Parse(h.endSessionEndpoint)
+	if err != nil {
+		slog.Warn("invalid OIDC end_session_endpoint", "error", err)
+		return ""
+	}
+	q := u.Query()
+	q.Set("client_id", cfg.OIDCClientID)
+	if session.IDToken != "" {
+		q.Set("id_token_hint", session.IDToken)
+	}
+	// Sent only when configured: providers reject an unregistered value, and
+	// without one they show their own signed-out page.
+	if cfg.OIDCPostLogoutRedirectURI != "" {
+		q.Set("post_logout_redirect_uri", cfg.OIDCPostLogoutRedirectURI)
+	}
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 // HandleLinkStart handles POST /api/me/sso-link: a signed-in local user links
@@ -365,8 +425,9 @@ func (h *OIDCHandler) HandleLinkStart(w http.ResponseWriter, r *http.Request) {
 
 // completeLink finishes HandleLinkStart on the OIDC callback: it converts the
 // local account to an OIDC account bound to subject and signs the browser in
-// with a fresh session. The provider's username claims play no part.
-func (h *OIDCHandler) completeLink(w http.ResponseWriter, r *http.Request, userID int64, subject string) {
+// with a fresh SSO session (keeping the ID token so sign-out can end the
+// provider session). The provider's username claims play no part.
+func (h *OIDCHandler) completeLink(w http.ResponseWriter, r *http.Request, userID int64, subject, rawIDToken string) {
 	if subject == "" {
 		http.Error(w, "The identity provider returned no subject", http.StatusBadRequest)
 		return
@@ -416,7 +477,7 @@ func (h *OIDCHandler) completeLink(w http.ResponseWriter, r *http.Request, userI
 	slog.Info("account linked to OIDC", "id", user.ID, "username", user.Username)
 
 	h.db.UpdateLastLogin(user.ID)
-	sessionToken, err := h.sessions.Create(user.ID, user.Username, user.Role)
+	sessionToken, err := h.sessions.CreateOIDC(user.ID, user.Username, user.Role, rawIDToken)
 	if err != nil {
 		http.Error(w, "Failed to create session", http.StatusInternalServerError)
 		return

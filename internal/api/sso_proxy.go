@@ -105,6 +105,22 @@ func proxyIdentityFromRequest(r *http.Request) string {
 	return ""
 }
 
+// trustedProxyIdentity returns the SSO username a trusted reverse proxy sent
+// with r, or "" when proxy headers are off, absent, or came from a peer
+// outside LIBRARR_TRUSTED_PROXIES (which is logged and ignored).
+func trustedProxyIdentity(cfg *config.Config, r *http.Request) string {
+	if cfg == nil || !cfg.HasOIDCProxyHeaders() {
+		return ""
+	}
+	username := proxyIdentityFromRequest(r)
+	if username != "" && !remoteFromTrustedProxy(r) {
+		slog.Warn("ignoring SSO identity header from a peer outside LIBRARR_TRUSTED_PROXIES",
+			"remote", sanitizeLogValue(r.RemoteAddr), "username", sanitizeLogValue(username))
+		return ""
+	}
+	return username
+}
+
 func isSecureRequest(r *http.Request) bool {
 	if r.TLS != nil {
 		return true

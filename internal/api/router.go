@@ -257,7 +257,7 @@ func (s *Server) registerAuthRoutes() {
 	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions, oidcReady))
 	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.cfg, s.db, s.sessions, oidcReady))
 	s.mux.HandleFunc("POST /api/register", handleRegister(s.cfg, s.db, s.sessions, oidcReady))
-	s.mux.HandleFunc("POST /api/logout", handleLogout(s.sessions, s.db))
+	s.mux.HandleFunc("POST /api/logout", handleLogout(s.cfg, s.oidc, s.sessions, s.db))
 	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.cfg, s.db, s.sessions, oidcReady))
 	s.mux.HandleFunc("POST /api/me/sso-link", s.oidc.HandleLinkStart)
 
