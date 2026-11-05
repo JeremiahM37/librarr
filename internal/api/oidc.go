@@ -258,7 +258,7 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	slog.Info("OIDC login", "username", username, "email", claims.Email, "sub", claims.Sub)
 
 	// Find or create user.
-	user, err := resolveOIDCUser(h.cfg, h.db, username)
+	user, err := resolveOIDCUser(h.cfg, h.db, h.sessions, username, claims.Sub)
 	if err != nil {
 		slog.Error("failed to resolve OIDC user", "username", username, "error", err)
 		http.Error(w, err.Error(), http.StatusForbidden)

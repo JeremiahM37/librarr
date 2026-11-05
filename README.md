@@ -249,6 +249,15 @@ from incoming client requests.
 Local logout only clears Librarr's session cookie; if the proxy keeps sending
 the identity header, the next request will sign the browser back in.
 
+**Account linking.** Each account signs in one way: local (password, optional
+TOTP) or SSO. An SSO login is matched to an account by the provider's subject,
+then by username. A local, non-admin account with the same username is
+converted to SSO permanently: its password and TOTP are removed and its
+sessions end. Local admin accounts are never converted, and SSO stays disabled
+until at least one local admin exists. On a fresh install, register the admin
+account first. The last local admin cannot be demoted or deleted, so the
+instance stays reachable when the identity provider is down.
+
 ### Download Clients
 
 Librarr sends torrents to **qBittorrent, Transmission or rTorrent**. Configure one,

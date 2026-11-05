@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -82,7 +83,7 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 				username = ""
 			}
 			if username != "" {
-				if user, err := resolveOIDCUser(cfg, database, username); err == nil && user != nil {
+				if user, err := resolveOIDCUser(cfg, database, sessions, username, ""); err == nil && user != nil {
 					if sessions != nil {
 						if ensureSessionForUser(w, r, sessions, user) {
 							_ = database.UpdateLastLogin(user.ID)
@@ -93,6 +94,10 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 					ctx = context.WithValue(ctx, ctxUsername, user.Username)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
+				} else if errors.Is(err, errOIDCLocalAdmin) {
+					// The proxy sends the header on every request, so a local
+					// admin browsing through it would flood the log at Warn.
+					slog.Debug("proxy SSO identity is a local admin; using normal login", "username", sanitizeLogValue(username))
 				} else if err != nil && cfg != nil && cfg.HasOIDC() {
 					slog.Warn("proxy SSO login rejected", "username", sanitizeLogValue(username), "error", err)
 				}
