@@ -454,6 +454,9 @@ func TestActiveTorrentClient(t *testing.T) {
 		{"both default prefers qb", Config{QBUrl: "http://qb", TransmissionURL: "http://tr"}, "qbittorrent"},
 		{"explicit transmission", Config{QBUrl: "http://qb", TransmissionURL: "http://tr", TorrentClient: "transmission"}, "transmission"},
 		{"explicit qb alias", Config{QBUrl: "http://qb", TransmissionURL: "http://tr", TorrentClient: "qbit"}, "qbittorrent"},
+		{"explicit rtorrent", Config{QBUrl: "http://qb", RTorrentURL: "http://rt", TorrentClient: "rtorrent"}, "rtorrent"},
+		{"rtorrent alone", Config{RTorrentURL: "http://rt"}, "rtorrent"},
+		{"explicit rtorrent but unconfigured falls back", Config{QBUrl: "http://qb", TorrentClient: "rtorrent"}, "qbittorrent"},
 		{"explicit transmission but unconfigured falls back", Config{QBUrl: "http://qb", TorrentClient: "transmission"}, "qbittorrent"},
 	}
 	for _, c := range cases {

@@ -37,6 +37,11 @@ const integrations = [
     "SABnzbd",
     ["sabnzbd_url", "sabnzbd_api_key", "sabnzbd_category"],
   ],
+  [
+    "rtorrent",
+    "rTorrent",
+    ["rtorrent_url", "rtorrent_user", "rtorrent_pass", "rtorrent_directory"],
+  ],
   ["audiobookshelf", "Audiobookshelf", ["abs_url", "abs_token"]],
   [
     "kavita",
@@ -327,6 +332,7 @@ export function GeneralSettings() {
                     >
                       <option value="qbittorrent">qBittorrent</option>
                       <option value="transmission">Transmission</option>
+                      <option value="rtorrent">rTorrent</option>
                     </select>
                   ) : (
                     <input

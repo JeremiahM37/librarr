@@ -178,8 +178,15 @@ type Config struct {
 	TransmissionUser string
 	TransmissionPass string
 
+	// rTorrent. RTorrentDirectory is optional: when empty, rTorrent's own
+	// directory.default decides where downloads go.
+	RTorrentURL       string
+	RTorrentUser      string
+	RTorrentPass      string
+	RTorrentDirectory string
+
 	// TorrentClient explicitly selects the active torrent backend
-	// ("qbittorrent" or "transmission"). Empty means auto-detect.
+	// ("qbittorrent", "transmission" or "rtorrent"). Empty means auto-detect.
 	TorrentClient string
 
 	// User Agent
@@ -424,6 +431,11 @@ func buildFromEnv() *Config {
 		TransmissionUser: getEnv("TRANSMISSION_USER", ""),
 		TransmissionPass: getEnv("TRANSMISSION_PASS", ""),
 
+		RTorrentURL:       getEnv("RTORRENT_URL", ""),
+		RTorrentUser:      getEnv("RTORRENT_USER", ""),
+		RTorrentPass:      getEnv("RTORRENT_PASS", ""),
+		RTorrentDirectory: getEnv("RTORRENT_DIRECTORY", ""),
+
 		TorrentClient: getEnv("TORRENT_CLIENT", ""),
 
 		UserAgent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
@@ -520,16 +532,21 @@ func (c *Config) HasTransmission() bool {
 	return c.TransmissionURL != ""
 }
 
+// HasRTorrent returns true if rTorrent is configured.
+func (c *Config) HasRTorrent() bool {
+	return c.RTorrentURL != ""
+}
+
 // HasTorrentClient returns true if any torrent download backend is configured.
 func (c *Config) HasTorrentClient() bool {
-	return c.HasQBittorrent() || c.HasTransmission()
+	return c.HasQBittorrent() || c.HasTransmission() || c.HasRTorrent()
 }
 
 // ActiveTorrentClient resolves which torrent backend handles torrents:
 //   - an explicit, configured TORRENT_CLIENT wins ("qbittorrent"/"qbit"/"qb"
-//     or "transmission");
+//     or "transmission" or "rtorrent");
 //   - otherwise qBittorrent is preferred for backward compatibility;
-//   - otherwise Transmission if it alone is configured;
+//   - otherwise Transmission, then rTorrent, whichever is configured;
 //   - else "" (no torrent client).
 func (c *Config) ActiveTorrentClient() string {
 	switch strings.ToLower(strings.TrimSpace(c.TorrentClient)) {
@@ -541,12 +558,19 @@ func (c *Config) ActiveTorrentClient() string {
 		if c.HasTransmission() {
 			return "transmission"
 		}
+	case "rtorrent":
+		if c.HasRTorrent() {
+			return "rtorrent"
+		}
 	}
 	if c.HasQBittorrent() {
 		return "qbittorrent"
 	}
 	if c.HasTransmission() {
 		return "transmission"
+	}
+	if c.HasRTorrent() {
+		return "rtorrent"
 	}
 	return ""
 }
@@ -590,6 +614,10 @@ func (c *Config) applySettingsFileOverrides() {
 		"transmission_url":          &c.TransmissionURL,
 		"transmission_user":         &c.TransmissionUser,
 		"transmission_pass":         &c.TransmissionPass,
+		"rtorrent_url":              &c.RTorrentURL,
+		"rtorrent_user":             &c.RTorrentUser,
+		"rtorrent_pass":             &c.RTorrentPass,
+		"rtorrent_directory":        &c.RTorrentDirectory,
 		"torrent_client":            &c.TorrentClient,
 		"prowlarr_url":              &c.ProwlarrURL,
 		"prowlarr_api_key":          &c.ProwlarrAPIKey,

@@ -206,6 +206,7 @@ const I18N = {
     conn_prowlarr: 'Prowlarr',
     conn_qbittorrent: 'qBittorrent',
     conn_transmission: 'Transmission',
+    conn_rtorrent: 'rTorrent',
     conn_sabnzbd: 'SABnzbd',
     conn_audiobookshelf: 'Audiobookshelf',
     conn_kavita: 'Kavita',
@@ -427,6 +428,7 @@ const I18N = {
     conn_prowlarr: 'Prowlarr',
     conn_qbittorrent: 'qBittorrent',
     conn_transmission: 'Transmission',
+    conn_rtorrent: 'rTorrent',
     conn_sabnzbd: 'SABnzbd',
     conn_audiobookshelf: 'Audiobookshelf',
     conn_kavita: 'Kavita',
@@ -2699,6 +2701,7 @@ const INTEGRATION_FIELDS = {
   prowlarr:       ['prowlarr_url', 'prowlarr_api_key'],
   qbittorrent:    ['qb_url', 'qb_user', 'qb_pass'],
   transmission:   ['transmission_url', 'transmission_user', 'transmission_pass', 'torrent_client'],
+  rtorrent:       ['rtorrent_url', 'rtorrent_user', 'rtorrent_pass', 'rtorrent_directory'],
   sabnzbd:        ['sabnzbd_url', 'sabnzbd_api_key', 'sabnzbd_category'],
   audiobookshelf: ['abs_url', 'abs_token'],
   kavita:         ['kavita_url', 'kavita_user', 'kavita_pass', 'kavita_api_key', 'kavita_ebook_library_id', 'kavita_manga_library_id'],
@@ -2775,6 +2778,7 @@ async function loadConfig() {
     if (data.prowlarr) items.push(configItem('Prowlarr', data.prowlarr.url || t('not_configured')));
     if (data.qbittorrent) items.push(configItem('qBittorrent', data.qbittorrent.url || t('not_configured')));
     if (data.transmission) items.push(configItem('Transmission', data.transmission.url || t('not_configured')));
+    if (data.rtorrent) items.push(configItem('rTorrent', data.rtorrent.url || t('not_configured')));
     if (data.sabnzbd) items.push(configItem('SABnzbd', data.sabnzbd.url || t('not_configured')));
     if (data.kavita_url) items.push(configItem('Kavita', data.kavita_url));
     if (data.audiobookshelf_url) items.push(configItem('Audiobookshelf', data.audiobookshelf_url));

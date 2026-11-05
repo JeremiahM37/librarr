@@ -1,5 +1,5 @@
 // Package download manages download jobs and the supported download
-// clients (qBittorrent, Transmission, Deluge, SABnzbd, and direct HTTP).
+// clients (qBittorrent, Transmission, rTorrent, Deluge, SABnzbd, and direct HTTP).
 package download
 
 import (
@@ -509,7 +509,7 @@ func (m *Manager) runDirectDownload(job *models.DownloadJob, fileURL, sourceID, 
 func (m *Manager) GetDownloads() []models.DownloadStatus {
 	var downloads []models.DownloadStatus
 
-	// Active torrent client (qBittorrent or Transmission).
+	// Active torrent client (qBittorrent, Transmission or rTorrent).
 	if m.torrent != nil {
 		for _, cat := range []struct {
 			name  string
