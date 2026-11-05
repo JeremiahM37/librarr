@@ -63,3 +63,63 @@ func TestExtractEbookMetadataPDFInfo(t *testing.T) {
 		t.Fatalf("PDF metadata = %+v, want PDF info values", got)
 	}
 }
+
+// writeTestEPUB writes an EPUB whose OPF carries the given title and author.
+func writeTestEPUB(t *testing.T, path, title, author string) {
+	t.Helper()
+	file, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zipWriter := zip.NewWriter(file)
+	opf, err := zipWriter.Create("content.opf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = opf.Write([]byte(`<package><metadata><dc:title xmlns:dc="x">` + title + `</dc:title><dc:creator xmlns:dc="x">` + author + `</dc:creator></metadata></package>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := zipWriter.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Trackers such as MyAnonamouse often name files "Title - Author", so a MOBI
+// beside an EPUB must take the EPUB's metadata instead of reading the
+// filename as "Author - Title".
+func TestExtractEbookMetadataSetSharesEmbeddedMetadataAcrossFormats(t *testing.T) {
+	dir := t.TempDir()
+	epub := filepath.Join(dir, "Red Rising - Pierce Brown.epub")
+	mobi := filepath.Join(dir, "Red Rising - Pierce Brown.mobi")
+	writeTestEPUB(t, epub, "Red Rising", "Pierce Brown")
+	if err := os.WriteFile(mobi, []byte("no embedded metadata"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ExtractEbookMetadataSet([]string{epub, mobi})
+	want := EbookMetadata{Title: "Red Rising", Author: "Pierce Brown"}
+	if got[epub] != want || got[mobi] != want {
+		t.Fatalf("metadata = %+v, want both formats as %+v", got, want)
+	}
+}
+
+// Different books in one download (a pack) must not borrow each other's
+// metadata.
+func TestExtractEbookMetadataSetKeepsDifferentBooksApart(t *testing.T) {
+	dir := t.TempDir()
+	epub := filepath.Join(dir, "Book One.epub")
+	mobi := filepath.Join(dir, "Other Author - Book Two.mobi")
+	writeTestEPUB(t, epub, "Book One", "Jane Doe")
+	if err := os.WriteFile(mobi, []byte("no embedded metadata"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	got := ExtractEbookMetadataSet([]string{epub, mobi})
+	if want := (EbookMetadata{Title: "Book Two", Author: "Other Author"}); got[mobi] != want {
+		t.Fatalf("pack MOBI metadata = %+v, want filename values %+v", got[mobi], want)
+	}
+}

@@ -2,6 +2,7 @@ package download
 
 import (
 	"encoding/json"
+	"errors"
 	"io/fs"
 	"net/http"
 	"net/http/httptest"
@@ -801,5 +802,45 @@ func TestImportEbookReachesKavitaOnce(t *testing.T) {
 	})
 	if len(got) != 1 || strings.Contains(got[0], "Scene") {
 		t.Fatalf("Kavita library holds %v, want one copy not filed under the torrent name", got)
+	}
+}
+
+func TestReadyForImportSkipsTorrentsBeingVerified(t *testing.T) {
+	cases := []struct {
+		state    string
+		progress float64
+		want     bool
+	}{
+		{"stalledUP", 1, true},
+		{"uploading", 1, true},
+		{"pausedUP", 1, true},
+		{"downloading", 0.5, false},
+		{"checkingUP", 1, false},
+		{"checkingDL", 1, false},
+		{"checkingResumeData", 1, false},
+		{"moving", 1, false},
+		{"missingFiles", 1, false},
+	}
+	for _, c := range cases {
+		if got := readyForImport(TorrentInfo{State: c.state, Progress: c.progress}); got != c.want {
+			t.Errorf("readyForImport(%s, %v) = %v, want %v", c.state, c.progress, got, c.want)
+		}
+	}
+}
+
+// An empty file is one the client has not written yet; importing it would
+// file an empty book under a filename-guessed name.
+func TestImportEbookWaitsForEmptyFiles(t *testing.T) {
+	w, _, payload, info := newImportFixture(t, config.ImportModeHardlink, true, false)
+	if err := os.Truncate(payload, 0); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := w.importEbook(info, filepath.Dir(payload), "torrent")
+	if !errors.Is(err, errTorrentContentPending) {
+		t.Fatalf("importEbook error = %v, want errTorrentContentPending", err)
+	}
+	if _, statErr := os.Stat(w.cfg.EbookDir); statErr == nil {
+		t.Fatalf("empty payload was organized into %s", w.cfg.EbookDir)
 	}
 }

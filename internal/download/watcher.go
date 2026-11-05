@@ -102,7 +102,7 @@ func (w *Watcher) checkCompleted() {
 			continue
 		}
 		for _, t := range torrents {
-			if t.Progress < 1.0 {
+			if !readyForImport(t) {
 				continue
 			}
 
@@ -118,6 +118,20 @@ func (w *Watcher) checkCompleted() {
 			go w.importTorrent(t, cat.mediaType)
 		}
 	}
+}
+
+// readyForImport reports whether a torrent's files are complete on disk.
+// Progress alone is not enough: during a recheck qBittorrent keeps reporting
+// the last known progress while the files may be truncated or missing.
+func readyForImport(t TorrentInfo) bool {
+	if t.Progress < 1.0 {
+		return false
+	}
+	switch {
+	case strings.HasPrefix(t.State, "checking"), t.State == "moving", t.State == "missingFiles":
+		return false
+	}
+	return true
 }
 
 func (w *Watcher) importTorrent(t TorrentInfo, mediaType string) {
@@ -438,10 +452,20 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) (bool, err
 		return false, fmt.Errorf("%w: no ebook files found at %s", errTorrentContentPending, savePath)
 	}
 
+	// A zero-byte book is a file the client has created but not yet written,
+	// e.g. while it re-verifies a torrent. Reading it would yield no embedded
+	// metadata and import an empty file, so wait for the next poll.
+	for _, bf := range bookFiles {
+		if fi, err := os.Stat(bf); err == nil && fi.Size() == 0 {
+			return false, fmt.Errorf("%w: %s is empty", errTorrentContentPending, bf)
+		}
+	}
+
+	allMetadata := organize.ExtractEbookMetadataSet(bookFiles)
 	organizer := w.organizerFor(source)
 	inLibrary := true
 	for _, bf := range bookFiles {
-		metadata := organize.ExtractEbookMetadata(bf)
+		metadata := allMetadata[bf]
 		title := firstNonEmpty(metadata.Title, t.Name)
 		author := metadata.Author
 		destPath, err := organizer.OrganizeEbook(bf, title, author)
