@@ -10,6 +10,7 @@ import (
 	neturl "net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
@@ -31,8 +32,16 @@ func NewLibraryTargets(cfg *config.Config) *LibraryTargets {
 	}
 }
 
-// ImportEbook copies to Calibre library and triggers scans on ABS and Kavita.
+// ImportEbook copies to the Calibre and Kavita libraries and triggers scans on
+// ABS and Kavita. This is the only place ebooks are copied to them. Pass the
+// title the file was organized under, so the libraries agree. A missing author
+// is read from the EPUB, as OrganizeEbook does.
 func (lt *LibraryTargets) ImportEbook(filePath, title, author string) {
+	if author == "" && strings.HasSuffix(strings.ToLower(filePath), ".epub") {
+		if meta, err := ExtractEPUBMeta(filePath); err == nil {
+			author = meta.Author
+		}
+	}
 	lt.copyToCalibre(filePath, title, author)
 	lt.copyToKavitaEbook(filePath, title, author)
 	lt.scanABSEbookLibrary()
@@ -46,7 +55,8 @@ func (lt *LibraryTargets) ImportAudiobook() {
 	lt.scanABSAudiobookLibrary()
 }
 
-// ImportManga copies to Kavita and Komga manga libraries and triggers scans.
+// ImportManga copies to Kavita and Komga manga libraries and triggers scans. This
+// is the only place manga is copied to them. filePath may be a directory.
 func (lt *LibraryTargets) ImportManga(filePath, seriesTitle string) {
 	lt.copyToKavitaManga(filePath, seriesTitle)
 	lt.scanKavita(lt.cfg.KavitaMangaLibraryID)
@@ -86,7 +96,11 @@ func (lt *LibraryTargets) copyToKavitaEbook(filePath, title, author string) {
 		author = "Unknown"
 	}
 
-	destDir := filepath.Join(lt.cfg.KavitaLibraryPath, sanitizePath(author, 80), sanitizePath(title, 80))
+	destDir, err := joinUnder(lt.cfg.KavitaLibraryPath, filepath.Join(sanitizePath(author, 80), sanitizePath(title, 80)))
+	if err != nil {
+		slog.Error("kavita ebook path rejected", "error", err)
+		return
+	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		slog.Error("create kavita ebook dir failed", "error", err)
 		return
@@ -106,18 +120,38 @@ func (lt *LibraryTargets) copyToKavitaManga(filePath, seriesTitle string) {
 		return
 	}
 
-	destDir := filepath.Join(lt.cfg.KavitaMangaLibraryPath, sanitizePath(seriesTitle, 80))
+	// The same series folder OrganizeManga uses, so volumes stay together.
+	destDir, err := joinUnder(lt.cfg.KavitaMangaLibraryPath, cleanSeriesTitle(seriesTitle))
+	if err != nil {
+		slog.Error("kavita manga path rejected", "error", err)
+		return
+	}
 	if err := os.MkdirAll(destDir, 0755); err != nil {
 		slog.Error("create kavita manga dir failed", "error", err)
 		return
 	}
 
-	destPath := filepath.Join(destDir, filepath.Base(filePath))
-	if err := copyFile(filePath, destPath); err != nil {
-		slog.Error("copy to kavita manga library failed", "error", err)
-		return
+	sources := []string{filePath}
+	if info, err := os.Stat(filePath); err == nil && info.IsDir() {
+		entries, err := os.ReadDir(filePath)
+		if err != nil {
+			slog.Error("read manga folder failed", "error", err)
+			return
+		}
+		sources = sources[:0]
+		for _, entry := range entries {
+			if !entry.IsDir() {
+				sources = append(sources, filepath.Join(filePath, entry.Name()))
+			}
+		}
 	}
-	slog.Info("copied to kavita manga library", "path", destPath)
+	for _, src := range sources {
+		if err := copyFile(src, filepath.Join(destDir, filepath.Base(src))); err != nil {
+			slog.Error("copy to kavita manga library failed", "file", src, "error", err)
+			return
+		}
+	}
+	slog.Info("copied to kavita manga library", "path", destDir)
 }
 
 // scanABSAudiobookLibrary triggers an Audiobookshelf audiobook library scan.

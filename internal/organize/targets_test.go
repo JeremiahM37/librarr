@@ -294,3 +294,50 @@ func TestImportAudiobook_SkipsWhenUnconfigured(t *testing.T) {
 		})
 	}
 }
+
+// TestImportManga_KavitaGroupsVolumesAndHandlesFolders — volumes of one series
+// share a folder, and a directory import copies its files rather than failing.
+func TestImportManga_KavitaGroupsVolumesAndHandlesFolders(t *testing.T) {
+	kavita := t.TempDir()
+	lt := NewLibraryTargets(&config.Config{KavitaMangaLibraryPath: kavita})
+
+	folder := t.TempDir()
+	for _, name := range []string{"v01.cbz", "v02.cbz"} {
+		if err := os.WriteFile(filepath.Join(folder, name), []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lt.ImportManga(folder, "Some Series v01-02 (2020)")
+
+	for _, name := range []string{"v01.cbz", "v02.cbz"} {
+		if _, err := os.Stat(filepath.Join(kavita, "Some Series", name)); err != nil {
+			t.Errorf("%s missing: %v", name, err)
+		}
+	}
+}
+
+// TestKavitaCopies_StayInsideTheLibrary — titles come from torrent names and
+// import requests, so they must not be able to place files outside the library.
+func TestKavitaCopies_StayInsideTheLibrary(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "library")
+	if err := os.MkdirAll(root, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(t.TempDir(), "book.epub")
+	if err := os.WriteFile(src, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	lt := NewLibraryTargets(&config.Config{KavitaLibraryPath: root, KavitaMangaLibraryPath: root})
+
+	lt.ImportEbook(src, "../../escaped", "../../escaped")
+	lt.ImportManga(src, "../../escaped")
+
+	entries, err := os.ReadDir(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Name() != "library" {
+		t.Fatalf("files escaped the library: %v", entries)
+	}
+}

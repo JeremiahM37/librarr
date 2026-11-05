@@ -68,7 +68,7 @@ func (o *Organizer) placeFile(src, dst string) error {
 }
 
 // OrganizeEbook moves an ebook file into the organized directory structure: {EbookDir}/{Author}/{Title}/{file}
-// Also copies to KAVITA_LIBRARY_PATH if configured.
+// Copies to external libraries are LibraryTargets' job.
 func (o *Organizer) OrganizeEbook(filePath, title, author string) (string, error) {
 	if !o.cfg.FileOrgEnabled {
 		return filePath, nil
@@ -103,19 +103,6 @@ func (o *Organizer) OrganizeEbook(filePath, title, author string) (string, error
 	}
 
 	slog.Info("ebook organized", "title", title, "dest", destPath, "mode", o.importMode())
-
-	// Also copy to Kavita ebook library if configured.
-	if o.cfg.KavitaLibraryPath != "" {
-		kavitaDir, err := joinUnder(o.cfg.KavitaLibraryPath, filepath.Join(safeAuthor, safeTitle))
-		if err == nil && os.MkdirAll(kavitaDir, 0755) == nil {
-			kavitaDest := filepath.Join(kavitaDir, filepath.Base(destPath))
-			if err := copyFileForOrg(destPath, kavitaDest); err != nil {
-				slog.Warn("copy to kavita ebook library failed", "error", err)
-			} else {
-				slog.Info("copied to kavita ebook library", "path", kavitaDest)
-			}
-		}
-	}
 
 	return destPath, nil
 }
@@ -209,28 +196,6 @@ func (o *Organizer) OrganizeManga(filePath, seriesTitle string) (string, error) 
 			return filePath, err
 		}
 		resultPath = destPath
-	}
-
-	// Also copy to Kavita manga library if configured.
-	if o.cfg.KavitaMangaLibraryPath != "" {
-		kavitaDir, err := joinUnder(o.cfg.KavitaMangaLibraryPath, safeTitle)
-		if err == nil && os.MkdirAll(kavitaDir, 0755) == nil {
-			resultInfo, err := os.Stat(resultPath)
-			if err == nil {
-				if resultInfo.IsDir() {
-					entries, _ := os.ReadDir(resultPath)
-					for _, entry := range entries {
-						src := filepath.Join(resultPath, entry.Name())
-						dst := filepath.Join(kavitaDir, entry.Name())
-						_ = copyFileForOrg(src, dst)
-					}
-				} else {
-					dst := filepath.Join(kavitaDir, filepath.Base(resultPath))
-					_ = copyFileForOrg(resultPath, dst)
-				}
-				slog.Info("copied to kavita manga library", "path", kavitaDir)
-			}
-		}
 	}
 
 	return resultPath, nil
