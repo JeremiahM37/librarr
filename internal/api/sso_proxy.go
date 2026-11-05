@@ -1,8 +1,8 @@
 package api
 
 import (
-	"crypto/rand"
-	"encoding/hex"
+	"database/sql"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -134,9 +134,21 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxA
 	})
 }
 
-// resolveOIDCUser returns an existing Librarr user for the supplied SSO
-// identity, or auto-creates one when OIDC user provisioning is enabled.
-func resolveOIDCUser(cfg *config.Config, database *db.DB, username string) (*models.User, error) {
+// Errors returned by resolveOIDCUser when an SSO identity must not sign in.
+var (
+	errOIDCNoLocalAdmin    = errors.New("SSO login is unavailable until a local admin account exists: create the local admin account first")
+	errOIDCLocalAdmin      = errors.New("this username belongs to a local admin account, which cannot sign in through SSO")
+	errOIDCSubjectMismatch = errors.New("this username is linked to a different SSO identity")
+)
+
+// resolveOIDCUser returns the Librarr user for an SSO identity, or nil when
+// OIDC is not configured.
+//
+// subject is the provider's "sub" claim from a verified ID token, or "" when
+// the identity came from trusted reverse-proxy headers (which carry only a
+// username). Every account signs in one way: a local account whose username
+// matches is claimed (converted to OIDC for good) unless it is an admin.
+func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore, username, subject string) (*models.User, error) {
 	if cfg == nil || !cfg.HasOIDC() {
 		return nil, nil
 	}
@@ -146,31 +158,77 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, username string) (*mod
 		return nil, fmt.Errorf("empty SSO username")
 	}
 
+	// A local admin must exist before SSO can be used, so the instance can
+	// always be recovered when the provider is unavailable. This replaces the
+	// old "first SSO user becomes admin" bootstrap.
+	localAdmins, err := database.CountLocalAdmins()
+	if err != nil {
+		return nil, fmt.Errorf("count local admins: %w", err)
+	}
+	if localAdmins == 0 {
+		return nil, errOIDCNoLocalAdmin
+	}
+
+	// The subject is the stable identity: it survives username changes at
+	// the provider.
+	if subject != "" {
+		if user, err := database.GetUserByOIDCSubject(subject); err == nil {
+			return user, nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return nil, fmt.Errorf("look up OIDC subject: %w", err)
+		}
+	}
+
 	user, err := database.GetUserByUsername(username)
-	if err == nil {
-		return user, nil
+	switch {
+	case err == nil && user.IsOIDC():
+		switch {
+		case user.OIDCSubject == "" && subject != "":
+			// Created (or claimed) from proxy headers; link it now.
+			if err := database.SetOIDCSubject(user.ID, subject); err != nil {
+				return nil, fmt.Errorf("link OIDC subject: %w", err)
+			}
+			user.OIDCSubject = subject
+			return user, nil
+		case subject == "":
+			// Proxy headers carry no subject; trust the proxy's username.
+			return user, nil
+		case user.OIDCSubject == subject:
+			return user, nil
+		default:
+			return nil, errOIDCSubjectMismatch
+		}
+
+	case err == nil && user.Role == "admin":
+		return nil, errOIDCLocalAdmin
+
+	case err == nil:
+		// A local non-admin account with this username: claim it. The claim
+		// is permanent and removes its password and TOTP.
+		if err := database.ClaimUserForOIDC(user.ID, subject); err != nil {
+			return nil, fmt.Errorf("claim user for OIDC: %w", err)
+		}
+		if sessions != nil {
+			sessions.DeleteForUser(user.ID)
+		}
+		database.LogActivity(user.Username, "sso_claim", user.Username, "Local account converted to SSO sign-in")
+		slog.Info("local user claimed by OIDC", "id", user.ID, "username", user.Username)
+		claimed, err := database.GetUser(user.ID)
+		if err != nil {
+			return nil, fmt.Errorf("load claimed user: %w", err)
+		}
+		return claimed, nil
+
+	case !errors.Is(err, sql.ErrNoRows):
+		return nil, fmt.Errorf("look up user: %w", err)
 	}
 
 	if !cfg.OIDCAutoCreateUsers {
 		return nil, fmt.Errorf("user %q not found and auto-creation is disabled", username)
 	}
 
-	userCount, _ := database.CountUsers()
 	role := cfg.OIDCDefaultRole
-	if userCount == 0 {
-		role = "admin"
-	}
-
-	randomPass := make([]byte, 32)
-	if _, err := rand.Read(randomPass); err != nil {
-		return nil, fmt.Errorf("generate random password seed: %w", err)
-	}
-	passHash, err := hashPassword(hex.EncodeToString(randomPass))
-	if err != nil {
-		return nil, fmt.Errorf("hash random password: %w", err)
-	}
-
-	id, err := database.CreateUser(username, passHash, role)
+	id, err := database.CreateOIDCUser(username, subject, role)
 	if err != nil {
 		return nil, fmt.Errorf("create user: %w", err)
 	}

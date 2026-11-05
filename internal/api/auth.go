@@ -419,6 +419,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 			ID          int64  `json:"id"`
 			Username    string `json:"username"`
 			Role        string `json:"role"`
+			AuthSource  string `json:"auth_source"`
 			TOTPEnabled bool   `json:"totp_enabled"`
 			CreatedAt   string `json:"created_at"`
 			LastLogin   string `json:"last_login,omitempty"`
@@ -430,6 +431,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 				ID:          u.ID,
 				Username:    u.Username,
 				Role:        u.Role,
+				AuthSource:  u.AuthSource,
 				TOTPEnabled: u.TOTPEnabled,
 				CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 			}
@@ -478,6 +480,33 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 				"error":   "User not found",
 			})
 			return
+		}
+
+		// Validate everything before writing anything, so a rejected request
+		// leaves the account untouched.
+		if req.Password != "" && user.IsOIDC() {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "This account signs in through SSO and cannot have a password",
+			})
+			return
+		}
+		if req.Role == "user" && user.Role == "admin" && !user.IsOIDC() {
+			localAdmins, err := database.CountLocalAdmins()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to update user",
+				})
+				return
+			}
+			if localAdmins <= 1 {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"success": false,
+					"error":   "Cannot demote the last local admin account",
+				})
+				return
+			}
 		}
 
 		if req.Role != "" && (req.Role == "admin" || req.Role == "user") {
@@ -563,6 +592,14 @@ func handleChangeOwnPassword(database *db.DB) http.HandlerFunc {
 			return
 		}
 
+		if user.IsOIDC() {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "This account signs in through SSO; change your password with your identity provider",
+			})
+			return
+		}
+
 		if !checkPassword(req.CurrentPassword, user.PasswordHash) {
 			writeJSON(w, http.StatusUnauthorized, map[string]interface{}{
 				"success": false,
@@ -634,6 +671,18 @@ func handleDeleteUser(database *db.DB) http.HandlerFunc {
 				writeJSON(w, http.StatusConflict, map[string]interface{}{
 					"success": false,
 					"error":   "Cannot delete the last admin account",
+				})
+				return
+			}
+		}
+
+		// Keep at least one admin who can sign in without the OIDC provider.
+		if target, err := database.GetUser(id); err == nil && target.Role == "admin" && !target.IsOIDC() {
+			localAdmins, err := database.CountLocalAdmins()
+			if err != nil || localAdmins <= 1 {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"success": false,
+					"error":   "Cannot delete the last local admin account",
 				})
 				return
 			}
