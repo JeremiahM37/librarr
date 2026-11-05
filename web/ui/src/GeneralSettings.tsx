@@ -45,6 +45,7 @@ const integrations = [
       "kavita_url",
       "kavita_user",
       "kavita_pass",
+      "kavita_api_key",
       "kavita_ebook_library_id",
       "kavita_manga_library_id",
     ],
