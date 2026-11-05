@@ -341,3 +341,30 @@ func TestKavitaCopies_StayInsideTheLibrary(t *testing.T) {
 		t.Fatalf("files escaped the library: %v", entries)
 	}
 }
+
+// Pointing KAVITA_LIBRARY_PATH at EBOOK_DIR is a natural setup: Kavita reads
+// the organized library directly. The Kavita copy then targets the organized
+// file itself, and opening it for writing used to truncate the book to zero
+// bytes — and, in hardlink mode, the seeding torrent's copy with it.
+func TestImportEbookIntoOwnFolderKeepsTheBook(t *testing.T) {
+	ebooks := t.TempDir()
+	dir := filepath.Join(ebooks, "Jane Doe", "A Book")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	book := filepath.Join(dir, "A Book.epub")
+	if err := os.WriteFile(book, []byte("book payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lt := NewLibraryTargets(&config.Config{EbookDir: ebooks, KavitaLibraryPath: ebooks})
+	lt.ImportEbook(book, "A Book", "Jane Doe")
+
+	got, err := os.ReadFile(book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "book payload" {
+		t.Fatalf("book contents = %q after Kavita import, want unchanged", got)
+	}
+}
