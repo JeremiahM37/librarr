@@ -460,7 +460,7 @@ func (w *Watcher) importEbook(t TorrentInfo, savePath, source string) (bool, err
 
 		// Import to external libraries.
 		if inserted && w.targets != nil {
-			w.targets.ImportEbook(destPath, t.Name, author)
+			w.targets.ImportEbook(destPath, title, author)
 		}
 	}
 

@@ -753,3 +753,53 @@ func TestNZBImportAlwaysMovesEvenInHardlinkMode(t *testing.T) {
 		})
 	}
 }
+
+// A torrent's name rarely matches the title inside its EPUB. The organizer files
+// by the embedded title, and Kavita must get one copy there rather than a second
+// under the torrent name.
+func TestImportEbookReachesKavitaOnce(t *testing.T) {
+	base := t.TempDir()
+	incoming := filepath.Join(base, "incoming")
+	kavita := filepath.Join(base, "kavita")
+	if err := os.MkdirAll(incoming, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := makeEPUB(t, "application/epub+zip")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	src := filepath.Join(incoming, "The Real Title - Real Author.epub")
+	if err := os.WriteFile(src, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := &config.Config{
+		FileOrgEnabled:    true,
+		EbookDir:          filepath.Join(base, "ebooks"),
+		KavitaLibraryPath: kavita,
+	}
+	database, err := db.New(filepath.Join(base, "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	w := NewWatcher(cfg, database, nil, nil, organize.NewOrganizer(cfg), organize.NewLibraryTargets(cfg), nil)
+
+	info := TorrentInfo{Name: "Scene.Release.Name-GROUP", Hash: "abc123"}
+	if _, err := w.importEbook(info, incoming, "torrent"); err != nil {
+		t.Fatalf("importEbook: %v", err)
+	}
+
+	var got []string
+	filepath.WalkDir(kavita, func(p string, d os.DirEntry, err error) error {
+		if err == nil && !d.IsDir() {
+			rel, _ := filepath.Rel(kavita, p)
+			got = append(got, rel)
+		}
+		return nil
+	})
+	if len(got) != 1 || strings.Contains(got[0], "Scene") {
+		t.Fatalf("Kavita library holds %v, want one copy not filed under the torrent name", got)
+	}
+}

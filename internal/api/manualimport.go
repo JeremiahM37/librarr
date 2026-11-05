@@ -217,6 +217,17 @@ func (s *Server) handleImportFiles(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		imported++
+
+		// The organizer only places files in Librarr's own library.
+		if s.targets != nil {
+			switch mediaType {
+			case "manga":
+				s.targets.ImportManga(destPath, title)
+			case "audiobook":
+			default:
+				s.targets.ImportEbook(destPath, title, f.Author)
+			}
+		}
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
