@@ -177,7 +177,7 @@ func TestHandleAuthStatus_ReportsAuthSource(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
 	req.AddCookie(&http.Cookie{Name: sessionCookieName, Value: token})
 	rr := httptest.NewRecorder()
-	handleAuthStatus(newOIDCTestConfig(), database, sessions)(rr, req)
+	handleAuthStatus(newOIDCTestConfig(), database, sessions, false)(rr, req)
 
 	if got := decodeBody(t, rr)["auth_source"]; got != "oidc" {
 		t.Fatalf("auth_source = %v, want oidc", got)

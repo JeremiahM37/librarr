@@ -234,6 +234,7 @@ behind TLS.
 | `OIDC_DEFAULT_ROLE` | `user` | Default role for OIDC-created users |
 | `OIDC_PROXY_HEADERS_ENABLED` | `false` | Trust Authentik identity headers from a reverse proxy |
 | `OIDC_LINK_BY_USERNAME` | `false` | Let an SSO login take over an existing non-admin password account with the same username (see below) |
+| `LOCAL_AUTH_DISABLED` | `false` | Send everyone to SSO; only local admins sign in with a password, at `/login?local=1` |
 | `LIBRARR_TRUSTED_PROXIES` | | Comma-separated IPs/CIDRs of your reverse proxy. **Required for `OIDC_PROXY_HEADERS_ENABLED`**; also gates `X-Forwarded-Proto` |
 
 When `OIDC_PROXY_HEADERS_ENABLED=true` and Librarr sits behind a trusted reverse
@@ -261,6 +262,8 @@ a user at the provider gives them a new account there.
   because the username matches. Its owner signs in with the password and links
   it under **Settings > Account > Sign-in method**. That works for admins too.
   Linking removes the password and TOTP, and ends the account's other sessions.
+  E-readers using the OPDS feed sign in with that password, so they stop
+  working; SSO accounts can't use OPDS.
 - `OIDC_LINK_BY_USERNAME=true` instead converts a non-admin password account
   on the first SSO login with the same username, and binds the SSO identity to
   an account the proxy created (those know only a username). The username can come from
@@ -286,6 +289,22 @@ their SSO logins are refused until they are linked:
 2. For the other users, either set `OIDC_LINK_BY_USERNAME=true` until they
    have all signed in once with SSO, or set each a password under Users so
    they can sign in and link their own account.
+
+**SSO-only sign-in.** With `LOCAL_AUTH_DISABLED=true` the login page goes
+straight to the identity provider. Password sign-in and registration are
+refused for everyone except local admins, who sign in at `/login?local=1`. The
+first-run admin account can still be registered. If the provider fails to
+initialise at startup, local sign-in stays enabled so you are not locked out.
+After signing out, the login page waits for a click instead of redirecting,
+because the provider's session would sign you straight back in. Signing out of
+Librarr does not end that provider session.
+Non-admin password accounts can no longer sign in to link themselves, so have
+them link first, or migrate them with `OIDC_LINK_BY_USERNAME`.
+
+The setting covers the web login only. Password accounts can still use the
+OPDS feed (`/opds`) with their password, so existing e-readers keep working.
+SSO accounts have no password, so they can't sign in to OPDS; e-readers
+can't go through an SSO login.
 
 ### Download Clients
 

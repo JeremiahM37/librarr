@@ -15,6 +15,7 @@ import (
 // exemptPaths are paths that do not require authentication.
 var exemptPaths = map[string]bool{
 	"/":                 true, // Web UI (handles its own login)
+	"/login":            true, // Web UI login page (?local=1 for local admins)
 	"/health":           true,
 	"/api/health":       true,
 	"/api/login":        true,
