@@ -341,3 +341,58 @@ func TestKavitaCopies_StayInsideTheLibrary(t *testing.T) {
 		t.Fatalf("files escaped the library: %v", entries)
 	}
 }
+
+// Pointing KAVITA_LIBRARY_PATH at EBOOK_DIR is a natural setup: Kavita reads
+// the organized library directly. The Kavita copy then targets the organized
+// file itself, and opening it for writing used to truncate the book to zero
+// bytes — and, in hardlink mode, the seeding torrent's copy with it.
+func TestImportEbookIntoOwnFolderKeepsTheBook(t *testing.T) {
+	ebooks := t.TempDir()
+	dir := filepath.Join(ebooks, "Jane Doe", "A Book")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	book := filepath.Join(dir, "A Book.epub")
+	if err := os.WriteFile(book, []byte("book payload"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	lt := NewLibraryTargets(&config.Config{EbookDir: ebooks, KavitaLibraryPath: ebooks})
+	lt.ImportEbook(book, "A Book", "Jane Doe")
+
+	got, err := os.ReadFile(book)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "book payload" {
+		t.Fatalf("book contents = %q after Kavita import, want unchanged", got)
+	}
+}
+
+// Hardlink mode used to remove an existing destination before relinking. When
+// the destination is the source itself, that deleted the book: an import of a
+// file already in its organized place, such as a manual re-import.
+func TestOrganizeEbookOntoItselfKeepsTheBook(t *testing.T) {
+	for _, mode := range []string{config.ImportModeHardlink, config.ImportModeCopy, config.ImportModeMove} {
+		t.Run(mode, func(t *testing.T) {
+			ebooks := t.TempDir()
+			book := filepath.Join(ebooks, "Jane Doe", "A Book", "A Book.epub")
+			if err := os.MkdirAll(filepath.Dir(book), 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(book, []byte("book payload"), 0644); err != nil {
+				t.Fatal(err)
+			}
+
+			o := NewOrganizer(&config.Config{FileOrgEnabled: true, EbookDir: ebooks, ImportMode: mode})
+			dest, err := o.OrganizeEbook(book, "A Book", "Jane Doe")
+			if err != nil || dest != book {
+				t.Fatalf("OrganizeEbook = %q, %v; want %q", dest, err, book)
+			}
+			got, err := os.ReadFile(book)
+			if err != nil || string(got) != "book payload" {
+				t.Fatalf("book after organizing onto itself = %q, %v; want unchanged", got, err)
+			}
+		})
+	}
+}
