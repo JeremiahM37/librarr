@@ -325,8 +325,12 @@ func hardlinkFile(src, dst string) error {
 		return nil
 	}
 	// An existing destination is not a reason to copy: replace it and relink,
-	// matching the overwrite behavior of the move and copy modes.
+	// matching the overwrite behavior of the move and copy modes. Unless it is
+	// src itself: removing it would delete the only copy.
 	if errors.Is(err, fs.ErrExist) {
+		if sameFile(src, dst) {
+			return nil
+		}
 		if rmErr := os.Remove(dst); rmErr == nil {
 			if relinkErr := linkFile(src, dst); relinkErr == nil {
 				return nil
@@ -400,12 +404,21 @@ func copyFileForOrg(src, dst string) error {
 		return err
 	}
 	defer srcFile.Close()
-	if srcInfo, err := srcFile.Stat(); err == nil {
-		if dstInfo, err := os.Stat(dst); err == nil && os.SameFile(srcInfo, dstInfo) {
-			return nil
-		}
+	if sameFile(src, dst) {
+		return nil
 	}
 	return copyReaderToFile(srcFile, dst)
+}
+
+// sameFile reports whether a and b are the same file: the same path, or
+// hardlinks to the same data.
+func sameFile(a, b string) bool {
+	aInfo, err := os.Stat(a)
+	if err != nil {
+		return false
+	}
+	bInfo, err := os.Stat(b)
+	return err == nil && os.SameFile(aInfo, bInfo)
 }
 
 // copyReaderToFile streams r into dst; removes a partial dst on failure.
