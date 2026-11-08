@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/subtle"
 	"encoding/json"
-	"errors"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -94,10 +93,6 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 					ctx = context.WithValue(ctx, ctxUsername, user.Username)
 					next.ServeHTTP(w, r.WithContext(ctx))
 					return
-				} else if errors.Is(err, errOIDCLocalAdmin) || errors.Is(err, errOIDCLinkRequired) {
-					// The proxy sends the header on every request, so a local
-					// account browsing through it would flood the log at Warn.
-					slog.Debug("proxy SSO identity is an unlinked local account; using normal login", "username", sanitizeLogValue(username))
 				} else if err != nil && cfg != nil && cfg.HasOIDC() {
 					slog.Warn("proxy SSO login rejected", "username", sanitizeLogValue(username), "error", err)
 				}

@@ -10,7 +10,9 @@ import (
 	"os"
 	"strings"
 
+	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/models"
 	"golang.org/x/crypto/bcrypt"
 	"golang.org/x/term"
 )
@@ -24,7 +26,8 @@ password is unknown. Run it on the server, e.g.:
 
 The new password is prompted for, or read from the first line of stdin when
 stdin is not a terminal. It uses the same database as the server
-(LIBRARR_DB_PATH), which can keep running.
+(LIBRARR_DB_PATH), which can keep running. Sessions the server already
+issued stay valid until it restarts, so restart it if the password leaked.
 
   --unlink-sso   The account signs in with SSO: convert it back to a password
                  account. Do this when the identity provider is unavailable.
@@ -53,14 +56,8 @@ func runResetPassword(args []string, stdin *os.File, stdout, stderr io.Writer) i
 		return 1
 	}
 
-	// Only the database is needed; config.Load would also fetch the sources
-	// registry and read the settings file.
-	dbPath := os.Getenv("LIBRARR_DB_PATH")
-	if dbPath == "" {
-		dbPath = "/data/librarr.db"
-	}
 	slog.SetDefault(slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelWarn})))
-	database, err := db.New(dbPath)
+	database, err := db.New(config.DBPathFromEnv())
 	if err != nil {
 		fmt.Fprintln(stderr, "Error: open database:", err)
 		return 1
@@ -77,8 +74,8 @@ func runResetPassword(args []string, stdin *os.File, stdout, stderr io.Writer) i
 // resetPassword sets username's password. An SSO account is refused unless
 // unlinkSSO is set, in which case it becomes a password account again.
 func resetPassword(database *db.DB, username, password string, unlinkSSO bool, out io.Writer) error {
-	if len(password) < 6 || len(password) > 72 {
-		return errors.New("password must be 6-72 characters")
+	if !models.ValidPasswordLength(password) {
+		return fmt.Errorf("password must be %d-%d characters", models.PasswordMinLength, models.PasswordMaxLength)
 	}
 	user, err := database.GetUserByUsername(username)
 	if err != nil {
@@ -110,6 +107,7 @@ func resetPassword(database *db.DB, username, password string, unlinkSSO bool, o
 	if user.TOTPEnabled {
 		fmt.Fprintln(out, "Two-factor authentication is still on for this account.")
 	}
+	fmt.Fprintln(out, "Sessions already signed in stay valid until Librarr restarts.")
 	return nil
 }
 

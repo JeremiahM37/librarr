@@ -766,12 +766,34 @@ func TestResolveOIDCUser_MatchesBySubject(t *testing.T) {
 	}
 }
 
-func TestResolveOIDCUser_LinksSubjectToProxyCreatedUser(t *testing.T) {
+func TestResolveOIDCUser_ProxyCreatedUserNotLinkedByDefault(t *testing.T) {
 	database := newTestDB(t)
 	seedLocalUser(t, database, "root", "admin")
 	id := seedOIDCUser(t, database, "alice", "", "user")
 
-	user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice")
+	// A direct SSO login whose username claim matches must not bind its
+	// subject to the proxy-created account.
+	_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-mallory")
+	if !errors.Is(err, errOIDCProxyAccountUnlinked) {
+		t.Fatalf("err = %v, want errOIDCProxyAccountUnlinked", err)
+	}
+	if stored, _ := database.GetUser(id); stored.OIDCSubject != "" {
+		t.Fatalf("subject = %q, want it left empty", stored.OIDCSubject)
+	}
+	// Proxy logins keep working.
+	if user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", ""); err != nil || user.ID != id {
+		t.Fatalf("proxy login: user=%v err=%v", user, err)
+	}
+}
+
+func TestResolveOIDCUser_LinksSubjectToProxyCreatedUserWithLinkByUsername(t *testing.T) {
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "", "user")
+
+	user, err := resolveOIDCUser(cfg, database, NewSessionStore(), "alice", "sub-alice")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}

@@ -297,9 +297,16 @@ func (c *Config) probeSettingsFileWritable() {
 	_ = os.Remove(probe)
 }
 
+// DBPathFromEnv returns the SQLite database path: LIBRARR_DB_PATH, or
+// /data/librarr.db. Commands that need only the database use it instead of
+// Load, which also reads settings and fetches the sources registry.
+func DBPathFromEnv() string {
+	return getEnv("LIBRARR_DB_PATH", "/data/librarr.db")
+}
+
 // buildFromEnv returns a Config populated from environment variables and defaults.
 func buildFromEnv() *Config {
-	dbPath := getEnv("LIBRARR_DB_PATH", "/data/librarr.db")
+	dbPath := DBPathFromEnv()
 	cachePath := filepath.Join(filepath.Dir(dbPath), "sources-cache.json")
 	registry := sources.Load(
 		getEnv("LIBRARR_SOURCES_PATH", ""),
@@ -416,7 +423,7 @@ func buildFromEnv() *Config {
 
 		LNCrawlContainer: getEnv("LNCRAWL_CONTAINER", ""),
 
-		SettingsFile: deriveSettingsFile(os.Getenv("SETTINGS_FILE"), getEnv("LIBRARR_DB_PATH", "/data/librarr.db")),
+		SettingsFile: deriveSettingsFile(os.Getenv("SETTINGS_FILE"), dbPath),
 
 		OIDCEnabled:              getEnvBool("OIDC_ENABLED", false),
 		OIDCProviderName:         getEnv("OIDC_PROVIDER_NAME", "SSO"),

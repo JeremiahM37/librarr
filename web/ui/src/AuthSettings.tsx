@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, authStatus } from "./api";
+import { api } from "./api";
 import { useTranslation } from "./i18n";
 
 interface Enrollment {
@@ -15,7 +15,8 @@ interface Result {
   error?: string;
 }
 type Mode = "status" | "enroll" | "disable";
-export function AuthSettings() {
+// sso: the account signs in with SSO, whose provider owns two-factor.
+export function AuthSettings({ sso }: { sso: boolean }) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState<boolean>();
   const [mode, setMode] = useState<Mode>("status");
@@ -24,20 +25,8 @@ export function AuthSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  // SSO accounts get two-factor from their identity provider.
-  const [sso, setSSO] = useState(false);
   useEffect(() => {
-    let active = true;
-    void authStatus()
-      .then((s) => {
-        if (active) setSSO(s.auth_source === "oidc");
-      })
-      .catch(() => undefined);
-    return () => {
-      active = false;
-    };
-  }, []);
-  useEffect(() => {
+    if (sso) return;
     let active = true;
     void api<{ enabled: boolean }>("/api/totp/status")
       .then((d) => {
@@ -49,7 +38,7 @@ export function AuthSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sso]);
   async function setup() {
     setBusy(true);
     setError("");

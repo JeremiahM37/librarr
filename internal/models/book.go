@@ -222,6 +222,18 @@ type User struct {
 	OIDCSubject  string    `json:"-"`           // provider "sub"; "" until first OIDC login
 }
 
+// Password length limits for local accounts. bcrypt reads at most 72 bytes
+// and rejects longer input.
+const (
+	PasswordMinLength = 6
+	PasswordMaxLength = 72
+)
+
+// ValidPasswordLength reports whether password fits the limits above.
+func ValidPasswordLength(password string) bool {
+	return len(password) >= PasswordMinLength && len(password) <= PasswordMaxLength
+}
+
 // IsOIDC reports whether the account signs in through the OIDC provider.
 func (u *User) IsOIDC() bool { return u.AuthSource == AuthSourceOIDC }
 

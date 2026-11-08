@@ -1,14 +1,6 @@
 import { useEffect, useState } from "react";
-import { api,authStatus } from "./api";
+import { api, authStatus, type AuthStatus } from "./api";
 import { useTranslation } from "./i18n";
-interface Status {
-  authenticated: boolean;
-  user_id?: number;
-  role?: "admin" | "user";
-  auth_source?: "local" | "oidc";
-  oidc_enabled?: boolean;
-  oidc_provider_name?: string;
-}
 interface Result {
   success: boolean;
   error?: string;
@@ -47,7 +39,7 @@ async function mutate(path: string, method: string, body?: unknown) {
 }
 
 export function AccountSettings() {
-  const [status, setStatus] = useState<Status>();
+  const [status, setStatus] = useState<AuthStatus>();
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;

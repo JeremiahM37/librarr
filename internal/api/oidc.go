@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/rand"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -380,13 +381,23 @@ func (h *OIDCHandler) completeLink(w http.ResponseWriter, r *http.Request, userI
 		http.Error(w, "Your session ended. Sign in again and retry linking.", http.StatusForbidden)
 		return
 	}
+	const alreadyLinked = "This SSO identity is already linked to another Librarr account"
 	if _, err := h.db.GetUserByOIDCSubject(subject); err == nil {
-		http.Error(w, "This SSO identity is already linked to another Librarr account", http.StatusConflict)
+		http.Error(w, alreadyLinked, http.StatusConflict)
+		return
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		slog.Error("failed to look up OIDC subject", "error", err)
+		http.Error(w, "Failed to link account", http.StatusInternalServerError)
 		return
 	}
 	if err := h.db.LinkUserToOIDC(userID, subject); err != nil {
 		if errors.Is(err, db.ErrUserNotClaimable) {
 			http.Error(w, "This account already signs in with SSO", http.StatusConflict)
+			return
+		}
+		// Another link for the same subject won the race.
+		if strings.Contains(err.Error(), "UNIQUE") {
+			http.Error(w, alreadyLinked, http.StatusConflict)
 			return
 		}
 		slog.Error("failed to link account to OIDC", "id", userID, "error", err)

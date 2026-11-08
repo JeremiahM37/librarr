@@ -144,8 +144,26 @@ var (
 	errOIDCLocalAdmin = errors.New("this username belongs to an admin account, which is never linked by username. " +
 		"Sign in with its password and link SSO under Settings > Account. " +
 		"If the password is unknown, run `librarr reset-password <username>` on the server")
-	errOIDCSubjectMismatch = errors.New("this username is linked to a different SSO identity")
+	errOIDCSubjectMismatch      = errors.New("this username is linked to a different SSO identity")
+	errOIDCProxyAccountUnlinked = errors.New("this account was created through the reverse proxy and is not linked to an SSO identity. " +
+		"Keep signing in through the proxy, or have the operator set OIDC_LINK_BY_USERNAME while you sign in here once")
 )
+
+// requireAdminExists refuses to create or convert accounts through SSO until
+// an admin exists. The admin is created locally on first run, so whoever
+// reaches SSO first can't make themselves admin. This replaces the old
+// "first SSO user becomes admin" bootstrap. It runs only on those paths, not
+// for every proxied request by an existing account.
+func requireAdminExists(database *db.DB) error {
+	admins, err := database.CountAdmins()
+	if err != nil {
+		return fmt.Errorf("count admins: %w", err)
+	}
+	if admins == 0 {
+		return errOIDCNoAdmin
+	}
+	return nil
+}
 
 // resolveOIDCUser returns the Librarr user for an SSO identity, or nil when
 // OIDC is not configured.
@@ -166,17 +184,6 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 		return nil, fmt.Errorf("empty SSO username")
 	}
 
-	// The admin is created locally on first run, so whoever reaches SSO
-	// first can't make themselves admin. This replaces the old "first SSO
-	// user becomes admin" bootstrap.
-	admins, err := database.CountAdmins()
-	if err != nil {
-		return nil, fmt.Errorf("count admins: %w", err)
-	}
-	if admins == 0 {
-		return nil, errOIDCNoAdmin
-	}
-
 	// The subject is the stable identity: it survives username changes at
 	// the provider.
 	if subject != "" {
@@ -192,7 +199,12 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 	case err == nil && user.IsOIDC():
 		switch {
 		case user.OIDCSubject == "" && subject != "":
-			// Created from proxy headers; link it now.
+			// Created from proxy headers, so only the username is known.
+			// Binding a subject on the strength of the username alone is the
+			// takeover OIDC_LINK_BY_USERNAME opts into; without it, refuse.
+			if !cfg.OIDCLinkByUsername {
+				return nil, errOIDCProxyAccountUnlinked
+			}
 			if err := database.SetOIDCSubject(user.ID, subject); err != nil {
 				return nil, fmt.Errorf("link OIDC subject: %w", err)
 			}
@@ -216,6 +228,9 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 	case err == nil:
 		// OIDC_LINK_BY_USERNAME: convert the local non-admin account. The
 		// change is permanent and removes its password and TOTP.
+		if err := requireAdminExists(database); err != nil {
+			return nil, err
+		}
 		if err := database.ClaimUserForOIDC(user.ID, subject); err != nil {
 			return nil, fmt.Errorf("claim user for OIDC: %w", err)
 		}
@@ -234,6 +249,9 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 		return nil, fmt.Errorf("look up user: %w", err)
 	}
 
+	if err := requireAdminExists(database); err != nil {
+		return nil, err
+	}
 	if !cfg.OIDCAutoCreateUsers {
 		return nil, fmt.Errorf("user %q not found and auto-creation is disabled", username)
 	}

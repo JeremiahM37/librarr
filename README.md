@@ -253,6 +253,8 @@ the identity header, the next request will sign the browser back in.
 **Account linking.** Each account signs in one way: with a password (optionally
 with TOTP) or with SSO. SSO accounts are matched by the provider's subject
 (`sub`), so renaming a user at the provider doesn't split their account.
+Proxy-header logins carry only a username, so they match by username: renaming
+a user at the provider gives them a new account there.
 
 - A new SSO user gets a new account (with `OIDC_AUTO_CREATE_USERS`).
 - An existing password account is never taken over by an SSO login just
@@ -260,7 +262,8 @@ with TOTP) or with SSO. SSO accounts are matched by the provider's subject
   it under **Settings > Account > Sign-in method**. That works for admins too.
   Linking removes the password and TOTP, and ends the account's other sessions.
 - `OIDC_LINK_BY_USERNAME=true` instead converts a non-admin password account
-  on the first SSO login with the same username. The username can come from
+  on the first SSO login with the same username, and binds the SSO identity to
+  an account the proxy created (those know only a username). The username can come from
   claims a user may be able to edit at the provider (`preferred_username`,
   `email`, `name`), so turn it on only while migrating, then off. Admin
   accounts are never linked this way.

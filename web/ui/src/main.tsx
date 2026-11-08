@@ -211,7 +211,11 @@ function App(): React.JSX.Element {
           />
         )}
         {tab === "settings" && (
-          <Settings admin={auth.role === "admin"} setNotice={setNotice} />
+          <Settings
+            admin={auth.role === "admin"}
+            sso={auth.auth_source === "oidc"}
+            setNotice={setNotice}
+          />
         )}
         {tab === "library" && <Library setNotice={setNotice} />}
         {tab === "downloads" && <Downloads setNotice={setNotice} />}
@@ -867,9 +871,12 @@ function Wanted({
 
 function Settings({
   admin,
+  sso,
   setNotice,
 }: {
   admin: boolean;
+  // The account signs in with SSO: no password or TOTP settings.
+  sso: boolean;
   setNotice: (message: string) => void;
 }): React.JSX.Element {
   const { locale } = useTranslation();
@@ -903,7 +910,7 @@ function Settings({
   if (!admin)
     return (
       <section id="tab-settings" className="tab-content active">
-        <AuthSettings />
+        <AuthSettings sso={sso} />
         <AccountSettings />
       </section>
     );
@@ -957,7 +964,7 @@ function Settings({
   };
   return (
     <section id="tab-settings" className="tab-content active">
-      <AuthSettings />
+      <AuthSettings sso={sso} />
       <AccountSettings />
       <GeneralSettings />
       <div>

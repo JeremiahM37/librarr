@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -214,4 +215,33 @@ func decodeBody(t *testing.T, rr *httptest.ResponseRecorder) map[string]any {
 		t.Fatalf("decode body %q: %v", rr.Body.String(), err)
 	}
 	return resp
+}
+
+func TestResolveOIDCUser_ExistingAccountSkipsAdminCheck(t *testing.T) {
+	// The admin check guards account creation only; an existing SSO account
+	// resolves without it (it runs on every proxied request).
+	database := newTestDB(t)
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "")
+	if err != nil || user.ID != id {
+		t.Fatalf("user=%v err=%v", user, err)
+	}
+	if _, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "bob", "sub-bob"); !errors.Is(err, errOIDCNoAdmin) {
+		t.Fatalf("creating without an admin: err = %v, want errOIDCNoAdmin", err)
+	}
+}
+
+func TestHandleChangeOwnPassword_RejectsOverlongPassword(t *testing.T) {
+	database := newTestDB(t)
+	id := seedLocalUser(t, database, "root", "admin")
+	long := strings.Repeat("x", 73)
+
+	req := adminRequest(http.MethodPost, "/api/me/password", `{"current_password":"password","new_password":"`+long+`"}`, id)
+	rr := httptest.NewRecorder()
+	handleChangeOwnPassword(database)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400 (bcrypt can't hash it); body=%s", rr.Code, rr.Body.String())
+	}
 }
