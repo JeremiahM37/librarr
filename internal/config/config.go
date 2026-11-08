@@ -168,6 +168,11 @@ type Config struct {
 	OIDCDefaultRole          string
 	OIDCRequireEmailVerified bool
 	OIDCProxyHeaders         bool
+	// OIDCLinkByUsername lets an SSO login convert an existing local
+	// non-admin account with the same username. Off by default: SSO usernames
+	// can come from claims the user controls. Turn it on to migrate accounts
+	// that SSO created before accounts were linked by subject.
+	OIDCLinkByUsername bool
 
 	// Deluge
 	DelugeURL      string
@@ -423,6 +428,8 @@ func buildFromEnv() *Config {
 		OIDCDefaultRole:          getEnv("OIDC_DEFAULT_ROLE", "user"),
 		OIDCRequireEmailVerified: getEnvBool("OIDC_REQUIRE_EMAIL_VERIFIED", true),
 		OIDCProxyHeaders:         getEnvBool("OIDC_PROXY_HEADERS_ENABLED", false),
+
+		OIDCLinkByUsername: getEnvBool("OIDC_LINK_BY_USERNAME", false),
 
 		DelugeURL:      getEnv("DELUGE_URL", ""),
 		DelugePassword: getEnv("DELUGE_PASSWORD", ""),

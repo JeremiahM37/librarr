@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api } from "./api";
+import { api, authStatus } from "./api";
 import { useTranslation } from "./i18n";
 
 interface Enrollment {
@@ -24,6 +24,19 @@ export function AuthSettings() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // SSO accounts get two-factor from their identity provider.
+  const [sso, setSSO] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void authStatus()
+      .then((s) => {
+        if (active) setSSO(s.auth_source === "oidc");
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => {
     let active = true;
     void api<{ enabled: boolean }>("/api/totp/status")
@@ -91,6 +104,7 @@ export function AuthSettings() {
     setCode("");
     setError("");
   }
+  if (sso) return <></>;
   return (
     <section
       id="totp-settings"

@@ -708,17 +708,27 @@ func seedOIDCUser(t *testing.T, database *db.DB, username, subject, role string)
 	return id
 }
 
-func TestResolveOIDCUser_RefusedWithoutLocalAdmin(t *testing.T) {
+func TestResolveOIDCUser_RefusedWithoutAdmin(t *testing.T) {
 	database := newTestDB(t)
-	// An OIDC admin does not count: it cannot sign in when the IdP is down.
-	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+	// A non-admin alone doesn't count: the first SSO user must not become
+	// the only way in.
+	seedLocalUser(t, database, "bob", "user")
 
 	_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice")
-	if !errors.Is(err, errOIDCNoLocalAdmin) {
-		t.Fatalf("err = %v, want errOIDCNoLocalAdmin", err)
+	if !errors.Is(err, errOIDCNoAdmin) {
+		t.Fatalf("err = %v, want errOIDCNoAdmin", err)
 	}
 	if _, err := database.GetUserByUsername("alice"); err == nil {
-		t.Fatal("alice must not be created without a local admin")
+		t.Fatal("alice must not be created without an admin")
+	}
+}
+
+func TestResolveOIDCUser_SSOAdminIsEnough(t *testing.T) {
+	database := newTestDB(t)
+	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+
+	if _, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice"); err != nil {
+		t.Fatalf("resolve: %v", err)
 	}
 }
 
@@ -801,11 +811,14 @@ func TestResolveOIDCUser_SubjectMismatchRejected(t *testing.T) {
 }
 
 func TestResolveOIDCUser_LocalAdminNotClaimable(t *testing.T) {
+	// Not even with OIDC_LINK_BY_USERNAME: admins link only explicitly.
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
 	for _, subject := range []string{"sub-root", ""} {
 		database := newTestDB(t)
 		id := seedLocalUser(t, database, "root", "admin")
 
-		_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "root", subject)
+		_, err := resolveOIDCUser(cfg, database, NewSessionStore(), "root", subject)
 		if !errors.Is(err, errOIDCLocalAdmin) {
 			t.Fatalf("subject %q: err = %v, want errOIDCLocalAdmin", subject, err)
 		}
@@ -816,7 +829,28 @@ func TestResolveOIDCUser_LocalAdminNotClaimable(t *testing.T) {
 	}
 }
 
-func TestResolveOIDCUser_ClaimsLocalUser(t *testing.T) {
+func TestResolveOIDCUser_LocalUserNotLinkedByDefault(t *testing.T) {
+	for _, subject := range []string{"sub-bob", ""} {
+		database := newTestDB(t)
+		seedLocalUser(t, database, "root", "admin")
+		id := seedLocalUser(t, database, "bob", "user")
+		sessions := NewSessionStore()
+		token, _ := sessions.Create(id, "bob", "user")
+
+		_, err := resolveOIDCUser(newOIDCTestConfig(), database, sessions, "bob", subject)
+		if !errors.Is(err, errOIDCLinkRequired) {
+			t.Fatalf("subject %q: err = %v, want errOIDCLinkRequired", subject, err)
+		}
+		stored, _ := database.GetUser(id)
+		if stored.IsOIDC() || !checkPassword("password", stored.PasswordHash) || !sessions.Valid(token) {
+			t.Fatalf("subject %q: the local account must be left alone", subject)
+		}
+	}
+}
+
+func TestResolveOIDCUser_ClaimsLocalUserWithLinkByUsername(t *testing.T) {
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
 	database := newTestDB(t)
 	seedLocalUser(t, database, "root", "admin")
 	id := seedLocalUser(t, database, "bob", "user")
@@ -835,7 +869,7 @@ func TestResolveOIDCUser_ClaimsLocalUser(t *testing.T) {
 	otherToken, _ := sessions.Create(999, "other", "user")
 	pending, _ := sessions.CreatePendingTOTP(id)
 
-	user, err := resolveOIDCUser(newOIDCTestConfig(), database, sessions, "bob", "sub-bob")
+	user, err := resolveOIDCUser(cfg, database, sessions, "bob", "sub-bob")
 	if err != nil {
 		t.Fatalf("resolve: %v", err)
 	}
@@ -862,7 +896,7 @@ func TestResolveOIDCUser_ClaimsLocalUser(t *testing.T) {
 	}
 
 	// The claim is permanent: the next login matches by subject.
-	again, err := resolveOIDCUser(newOIDCTestConfig(), database, sessions, "bob", "sub-bob")
+	again, err := resolveOIDCUser(cfg, database, sessions, "bob", "sub-bob")
 	if err != nil || again.ID != id {
 		t.Fatalf("second login: user=%v err=%v", again, err)
 	}
@@ -930,10 +964,10 @@ func TestHandleUpdateUser_RejectsPasswordForOIDCUser(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateUser_RejectsDemotingLastLocalAdmin(t *testing.T) {
+func TestHandleUpdateUser_RejectsDemotingLastAdmin(t *testing.T) {
 	database := newTestDB(t)
 	id := seedLocalUser(t, database, "root", "admin")
-	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+	seedLocalUser(t, database, "bob", "user")
 
 	req := adminRequest(http.MethodPatch, "/api/users/x", `{"role":"user","password":"newpassword"}`, id)
 	req.SetPathValue("id", strconv.FormatInt(id, 10))
@@ -949,10 +983,11 @@ func TestHandleUpdateUser_RejectsDemotingLastLocalAdmin(t *testing.T) {
 	}
 }
 
-func TestHandleUpdateUser_AllowsDemotingWithAnotherLocalAdmin(t *testing.T) {
+func TestHandleUpdateUser_AllowsDemotingWithAnotherAdmin(t *testing.T) {
 	database := newTestDB(t)
 	id := seedLocalUser(t, database, "root", "admin")
-	seedLocalUser(t, database, "root2", "admin")
+	// An SSO admin counts: the reset-password command recovers it.
+	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
 
 	req := adminRequest(http.MethodPatch, "/api/users/x", `{"role":"user"}`, id)
 	req.SetPathValue("id", strconv.FormatInt(id, 10))
@@ -964,23 +999,18 @@ func TestHandleUpdateUser_AllowsDemotingWithAnotherLocalAdmin(t *testing.T) {
 	}
 }
 
-func TestHandleDeleteUser_RejectsDeletingLastLocalAdmin(t *testing.T) {
+func TestHandleDeleteUser_AllowsDeletingLocalAdminWithSSOAdmin(t *testing.T) {
 	database := newTestDB(t)
 	id := seedLocalUser(t, database, "root", "admin")
 	ssoAdmin := seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
 
-	// Requested by the OIDC admin, so the self-delete and last-admin guards
-	// don't apply; only the local-admin guard does.
 	req := adminRequest(http.MethodDelete, "/api/users/x", "", ssoAdmin)
 	req.SetPathValue("id", strconv.FormatInt(id, 10))
 	rr := httptest.NewRecorder()
 	handleDeleteUser(database)(rr, req)
 
-	if rr.Code != http.StatusConflict {
-		t.Fatalf("status = %d, want 409; body=%s", rr.Code, rr.Body.String())
-	}
-	if _, err := database.GetUser(id); err != nil {
-		t.Fatal("last local admin must not be deleted")
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
 	}
 }
 

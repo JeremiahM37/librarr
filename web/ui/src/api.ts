@@ -7,6 +7,8 @@ export interface AuthStatus {
   has_users: boolean;
   oidc_enabled: boolean;
   oidc_provider_name?: string;
+  // How the signed-in account signs in.
+  auth_source?: "local" | "oidc";
   username?: string;
   role?: Role;
 }

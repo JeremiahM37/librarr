@@ -233,6 +233,7 @@ behind TLS.
 | `OIDC_AUTO_CREATE_USERS` | `true` | Auto-create users on first OIDC login |
 | `OIDC_DEFAULT_ROLE` | `user` | Default role for OIDC-created users |
 | `OIDC_PROXY_HEADERS_ENABLED` | `false` | Trust Authentik identity headers from a reverse proxy |
+| `OIDC_LINK_BY_USERNAME` | `false` | Let an SSO login take over an existing non-admin password account with the same username (see below) |
 | `LIBRARR_TRUSTED_PROXIES` | | Comma-separated IPs/CIDRs of your reverse proxy. **Required for `OIDC_PROXY_HEADERS_ENABLED`**; also gates `X-Forwarded-Proto` |
 
 When `OIDC_PROXY_HEADERS_ENABLED=true` and Librarr sits behind a trusted reverse
@@ -249,14 +250,39 @@ from incoming client requests.
 Local logout only clears Librarr's session cookie; if the proxy keeps sending
 the identity header, the next request will sign the browser back in.
 
-**Account linking.** Each account signs in one way: local (password, optional
-TOTP) or SSO. An SSO login is matched to an account by the provider's subject,
-then by username. A local, non-admin account with the same username is
-converted to SSO permanently: its password and TOTP are removed and its
-sessions end. Local admin accounts are never converted, and SSO stays disabled
-until at least one local admin exists. On a fresh install, register the admin
-account first. The last local admin cannot be demoted or deleted, so the
-instance stays reachable when the identity provider is down.
+**Account linking.** Each account signs in one way: with a password (optionally
+with TOTP) or with SSO. SSO accounts are matched by the provider's subject
+(`sub`), so renaming a user at the provider doesn't split their account.
+
+- A new SSO user gets a new account (with `OIDC_AUTO_CREATE_USERS`).
+- An existing password account is never taken over by an SSO login just
+  because the username matches. Its owner signs in with the password and links
+  it under **Settings > Account > Sign-in method**. That works for admins too.
+  Linking removes the password and TOTP, and ends the account's other sessions.
+- `OIDC_LINK_BY_USERNAME=true` instead converts a non-admin password account
+  on the first SSO login with the same username. The username can come from
+  claims a user may be able to edit at the provider (`preferred_username`,
+  `email`, `name`), so turn it on only while migrating, then off. Admin
+  accounts are never linked this way.
+- On a fresh install, register the admin account first: SSO sign-in is refused
+  until an admin exists.
+
+**Recovering an account.** `librarr reset-password <username>` sets a new
+password from the server's shell, for example
+`docker exec -it librarr librarr reset-password admin`. For an SSO account,
+add `--unlink-sso` to turn it back into a password account, for instance when
+the identity provider is down. The last admin can't be demoted or deleted.
+
+**Upgrading from a version without account linking.** Accounts that SSO
+created earlier become password accounts with an unknown random password, so
+their SSO logins are refused until they are linked:
+
+1. If the admin account was created by SSO, run
+   `librarr reset-password <admin>` and sign in with that password. Link it
+   to SSO under Settings > Account if you want.
+2. For the other users, either set `OIDC_LINK_BY_USERNAME=true` until they
+   have all signed in once with SSO, or set each a password under Users so
+   they can sign in and link their own account.
 
 ### Download Clients
 

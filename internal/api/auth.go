@@ -398,6 +398,14 @@ func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStor
 			}
 		}
 
+		// How the signed-in account signs in, so the UI can offer linking
+		// SSO or hide password and TOTP settings.
+		if userID, _ := resp["user_id"].(int64); userID != 0 {
+			if user, err := database.GetUser(userID); err == nil {
+				resp["auth_source"] = user.AuthSource
+			}
+		}
+
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -491,8 +499,8 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 			})
 			return
 		}
-		if req.Role == "user" && user.Role == "admin" && !user.IsOIDC() {
-			localAdmins, err := database.CountLocalAdmins()
+		if req.Role == "user" && user.Role == "admin" {
+			admins, err := database.CountAdmins()
 			if err != nil {
 				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
 					"success": false,
@@ -500,10 +508,10 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 				})
 				return
 			}
-			if localAdmins <= 1 {
+			if admins <= 1 {
 				writeJSON(w, http.StatusConflict, map[string]interface{}{
 					"success": false,
-					"error":   "Cannot demote the last local admin account",
+					"error":   "Cannot demote the last admin account",
 				})
 				return
 			}
@@ -671,18 +679,6 @@ func handleDeleteUser(database *db.DB) http.HandlerFunc {
 				writeJSON(w, http.StatusConflict, map[string]interface{}{
 					"success": false,
 					"error":   "Cannot delete the last admin account",
-				})
-				return
-			}
-		}
-
-		// Keep at least one admin who can sign in without the OIDC provider.
-		if target, err := database.GetUser(id); err == nil && target.Role == "admin" && !target.IsOIDC() {
-			localAdmins, err := database.CountLocalAdmins()
-			if err != nil || localAdmins <= 1 {
-				writeJSON(w, http.StatusConflict, map[string]interface{}{
-					"success": false,
-					"error":   "Cannot delete the last local admin account",
 				})
 				return
 			}

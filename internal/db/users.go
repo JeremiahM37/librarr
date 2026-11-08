@@ -60,14 +60,28 @@ func (d *DB) GetUserByOIDCSubject(subject string) (*models.User, error) {
 	return scanUser(row)
 }
 
-// ErrUserNotClaimable is returned by ClaimUserForOIDC when the account is not
-// a local non-admin account (it is already OIDC, is an admin, or is gone).
-var ErrUserNotClaimable = errors.New("user cannot be claimed for OIDC")
+// ErrUserNotClaimable is returned by ClaimUserForOIDC and LinkUserToOIDC when
+// the account cannot be converted: it already signs in with SSO, is an admin
+// (claims only), or is gone.
+var ErrUserNotClaimable = errors.New("user cannot be linked to OIDC")
 
-// ClaimUserForOIDC permanently converts a local non-admin account into an OIDC
-// account linked to subject. Its password, TOTP secret and backup codes are
-// removed, so the account can no longer sign in locally.
+// ClaimUserForOIDC converts a local non-admin account into an OIDC account
+// linked to subject. It backs OIDC_LINK_BY_USERNAME, so it never touches
+// admins: an admin links only by signing in and calling LinkUserToOIDC.
 func (d *DB) ClaimUserForOIDC(id int64, subject string) error {
+	return d.convertToOIDC(id, subject, false)
+}
+
+// LinkUserToOIDC converts a local account, admins included, into an OIDC
+// account linked to subject. Callers must have proven the account's password.
+func (d *DB) LinkUserToOIDC(id int64, subject string) error {
+	return d.convertToOIDC(id, subject, true)
+}
+
+// convertToOIDC permanently converts a local account into an OIDC account.
+// Its password, TOTP secret and backup codes are removed, so the account can
+// no longer sign in locally.
+func (d *DB) convertToOIDC(id int64, subject string, allowAdmin bool) error {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
@@ -77,11 +91,12 @@ func (d *DB) ClaimUserForOIDC(id int64, subject string) error {
 	}
 	defer tx.Rollback()
 
-	result, err := tx.Exec(
-		`UPDATE users SET auth_source = ?, oidc_subject = ?, password_hash = ?, totp_enabled = 0, totp_secret = NULL
-		 WHERE id = ? AND auth_source = ? AND role != 'admin'`,
-		models.AuthSourceOIDC, subject, unusablePasswordHash, id, models.AuthSourceLocal,
-	)
+	query := `UPDATE users SET auth_source = ?, oidc_subject = ?, password_hash = ?, totp_enabled = 0, totp_secret = NULL
+		 WHERE id = ? AND auth_source = ?`
+	if !allowAdmin {
+		query += ` AND role != 'admin'`
+	}
+	result, err := tx.Exec(query, models.AuthSourceOIDC, subject, unusablePasswordHash, id, models.AuthSourceLocal)
 	if err != nil {
 		return err
 	}
@@ -96,6 +111,26 @@ func (d *DB) ClaimUserForOIDC(id int64, subject string) error {
 		return err
 	}
 	return tx.Commit()
+}
+
+// ConvertToLocal turns any account back into a local one with the given
+// password hash, unlinking its OIDC subject. It is the recovery path for
+// `librarr reset-password --unlink-sso`.
+func (d *DB) ConvertToLocal(id int64, passwordHash string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	result, err := d.db.Exec(
+		`UPDATE users SET auth_source = ?, oidc_subject = '', password_hash = ? WHERE id = ?`,
+		models.AuthSourceLocal, passwordHash, id,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
 }
 
 // SetOIDCSubject links an OIDC account that has no subject yet (created from
@@ -121,12 +156,11 @@ func (d *DB) SetOIDCSubject(id int64, subject string) error {
 	return nil
 }
 
-// CountLocalAdmins returns the number of admins that sign in with a local
-// password. At least one must always exist so the instance stays reachable
-// when the OIDC provider is down or misconfigured.
-func (d *DB) CountLocalAdmins() (int, error) {
+// CountAdmins returns the number of admin accounts, whatever their sign-in
+// method.
+func (d *DB) CountAdmins() (int, error) {
 	var count int
-	err := d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin' AND auth_source = ?`, models.AuthSourceLocal).Scan(&count)
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&count)
 	return count, err
 }
 

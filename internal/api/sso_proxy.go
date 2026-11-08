@@ -135,9 +135,15 @@ func setSessionCookie(w http.ResponseWriter, r *http.Request, token string, maxA
 }
 
 // Errors returned by resolveOIDCUser when an SSO identity must not sign in.
+// Their text is shown to the user on the SSO callback.
 var (
-	errOIDCNoLocalAdmin    = errors.New("SSO login is unavailable until a local admin account exists: create the local admin account first")
-	errOIDCLocalAdmin      = errors.New("this username belongs to a local admin account, which cannot sign in through SSO")
+	errOIDCNoAdmin      = errors.New("SSO sign-in is unavailable until an admin account exists: create the admin account first")
+	errOIDCLinkRequired = errors.New("an account with this username already exists. " +
+		"Sign in with its password and link SSO under Settings > Account. " +
+		"If the password is unknown, an admin can set one under Users, or run `librarr reset-password <username>` on the server")
+	errOIDCLocalAdmin = errors.New("this username belongs to an admin account, which is never linked by username. " +
+		"Sign in with its password and link SSO under Settings > Account. " +
+		"If the password is unknown, run `librarr reset-password <username>` on the server")
 	errOIDCSubjectMismatch = errors.New("this username is linked to a different SSO identity")
 )
 
@@ -146,8 +152,10 @@ var (
 //
 // subject is the provider's "sub" claim from a verified ID token, or "" when
 // the identity came from trusted reverse-proxy headers (which carry only a
-// username). Every account signs in one way: a local account whose username
-// matches is claimed (converted to OIDC for good) unless it is an admin.
+// username). Every account signs in one way. An existing local account is
+// never taken over by username alone: its owner links it explicitly (see
+// OIDCHandler.HandleLinkStart), or, with OIDC_LINK_BY_USERNAME, a matching
+// non-admin account is converted.
 func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore, username, subject string) (*models.User, error) {
 	if cfg == nil || !cfg.HasOIDC() {
 		return nil, nil
@@ -158,15 +166,15 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 		return nil, fmt.Errorf("empty SSO username")
 	}
 
-	// A local admin must exist before SSO can be used, so the instance can
-	// always be recovered when the provider is unavailable. This replaces the
-	// old "first SSO user becomes admin" bootstrap.
-	localAdmins, err := database.CountLocalAdmins()
+	// The admin is created locally on first run, so whoever reaches SSO
+	// first can't make themselves admin. This replaces the old "first SSO
+	// user becomes admin" bootstrap.
+	admins, err := database.CountAdmins()
 	if err != nil {
-		return nil, fmt.Errorf("count local admins: %w", err)
+		return nil, fmt.Errorf("count admins: %w", err)
 	}
-	if localAdmins == 0 {
-		return nil, errOIDCNoLocalAdmin
+	if admins == 0 {
+		return nil, errOIDCNoAdmin
 	}
 
 	// The subject is the stable identity: it survives username changes at
@@ -184,7 +192,7 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 	case err == nil && user.IsOIDC():
 		switch {
 		case user.OIDCSubject == "" && subject != "":
-			// Created (or claimed) from proxy headers; link it now.
+			// Created from proxy headers; link it now.
 			if err := database.SetOIDCSubject(user.ID, subject); err != nil {
 				return nil, fmt.Errorf("link OIDC subject: %w", err)
 			}
@@ -202,17 +210,20 @@ func resolveOIDCUser(cfg *config.Config, database *db.DB, sessions *SessionStore
 	case err == nil && user.Role == "admin":
 		return nil, errOIDCLocalAdmin
 
+	case err == nil && !cfg.OIDCLinkByUsername:
+		return nil, errOIDCLinkRequired
+
 	case err == nil:
-		// A local non-admin account with this username: claim it. The claim
-		// is permanent and removes its password and TOTP.
+		// OIDC_LINK_BY_USERNAME: convert the local non-admin account. The
+		// change is permanent and removes its password and TOTP.
 		if err := database.ClaimUserForOIDC(user.ID, subject); err != nil {
 			return nil, fmt.Errorf("claim user for OIDC: %w", err)
 		}
 		if sessions != nil {
 			sessions.DeleteForUser(user.ID)
 		}
-		database.LogActivity(user.Username, "sso_claim", user.Username, "Local account converted to SSO sign-in")
-		slog.Info("local user claimed by OIDC", "id", user.ID, "username", user.Username)
+		database.LogActivity(user.Username, "sso_claim", user.Username, "Local account converted to SSO sign-in by username")
+		slog.Info("local user claimed by OIDC username", "id", user.ID, "username", user.Username)
 		claimed, err := database.GetUser(user.ID)
 		if err != nil {
 			return nil, fmt.Errorf("load claimed user: %w", err)
