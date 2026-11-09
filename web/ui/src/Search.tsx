@@ -83,17 +83,28 @@ function Cover({
   const url = result.cover_url || lookedUp;
   // Remember which URL failed so a later URL for the same card gets a chance.
   const [failedURL, setFailedURL] = useState("");
-  return url && url !== failedURL ? (
-    <img
-      src={url}
-      className="w-full h-48 object-cover"
-      alt=""
-      loading="lazy"
-      onError={() => setFailedURL(url ?? "")}
-    />
-  ) : (
-    <div className="cover-placeholder w-full h-48 bg-gradient-to-br from-indigo-600 to-purple-700">
-      {result.title.charAt(0).toUpperCase()}
+  const [loadedURL, setLoadedURL] = useState("");
+  const showImage = !!url && url !== failedURL;
+  return (
+    <div className="relative">
+      {showImage && (
+        <img
+          src={url}
+          className="w-full h-48 object-cover"
+          alt=""
+          loading="lazy"
+          onLoad={() => setLoadedURL(url)}
+          onError={() => setFailedURL(url)}
+        />
+      )}
+      {/* Covers the image until it has loaded, so a slow one never leaves the card blank. */}
+      {loadedURL !== url || !showImage ? (
+        <div
+          className={`cover-placeholder w-full h-48 bg-gradient-to-br from-indigo-600 to-purple-700${showImage ? " absolute inset-0" : ""}`}
+        >
+          {result.title.charAt(0).toUpperCase()}
+        </div>
+      ) : null}
     </div>
   );
 }

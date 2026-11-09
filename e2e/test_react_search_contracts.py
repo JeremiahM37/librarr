@@ -1,4 +1,5 @@
 """Streaming search and download contracts through the actual React UI."""
+import base64
 import json
 import queue
 import threading
@@ -352,6 +353,23 @@ def test_late_url_replaces_failed_image(app,page):
         expect(page.locator('.book-card img')).to_have_attribute('src',PNG)
     finally:
         stream.close()
+
+
+def test_placeholder_stays_until_the_image_loads(app,page):
+    held=[]
+    page.route('https://example.invalid/slow.png',lambda route:held.append(route))
+    page.route('**/api/covers/lookup**',lambda route:route.fulfill(json={'cover_url':'https://example.invalid/slow.png'}))
+    fulfilled_search(page,[cover_row(1)])
+    page.goto(app['base'],wait_until='networkidle')
+    search_for(page)
+    card=page.locator('.book-card')
+    expect(card.locator('img')).to_have_count(1)
+    wait_until(page,lambda:held)
+    assert held
+    expect(card.locator('.cover-placeholder')).to_be_visible()
+    held[0].fulfill(body=base64.b64decode(PNG.split(',',1)[1]),content_type='image/png')
+    expect(card.locator('.cover-placeholder')).to_have_count(0)
+    expect(card.locator('img')).to_be_visible()
 
 
 def test_lookups_run_three_at_a_time_from_the_top(app,page):
