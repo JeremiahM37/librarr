@@ -357,21 +357,39 @@ def test_late_url_replaces_failed_image(app,page):
 
 def test_large_result_set_batches_lookups(app,page):
     lookups=Lookups(page,hold=True)
-    fulfilled_search(page,[cover_row(i) for i in range(45)])
+    fulfilled_search(page,[cover_row(i) for i in range(13)])
     page.goto(app['base'],wait_until='networkidle')
     search_for(page)
-    expect(page.locator('.book-card')).to_have_count(45)
+    expect(page.locator('.book-card')).to_have_count(13)
     page.wait_for_timeout(800)
-    assert [len(b['items']) for b in lookups.bodies]==[20]
+    # Small batches, sent one at a time from the top, so the first covers
+    # arrive while Open Library is still being paced for the rest.
+    assert [len(b['items']) for b in lookups.bodies]==[5]
+    assert lookups.titles(0)==[f'Cover Probe {i}' for i in range(5)]
     lookups.release()
     wait_until(page,lambda:len(lookups.bodies)>=2)
     page.wait_for_timeout(500)
-    assert [len(b['items']) for b in lookups.bodies]==[20,20]
+    assert [len(b['items']) for b in lookups.bodies]==[5,5]
     lookups.release()
     wait_until(page,lambda:len(lookups.bodies)>=3)
-    assert [len(b['items']) for b in lookups.bodies]==[20,20,5]
+    assert [len(b['items']) for b in lookups.bodies]==[5,5,3]
     lookups.release()
-    expect(page.locator('.book-card img')).to_have_count(45)
+    expect(page.locator('.book-card img')).to_have_count(13)
+
+
+def test_lookups_follow_the_displayed_order(app,page):
+    lookups=Lookups(page)
+    fulfilled_search(page,[cover_row(0)])
+    page.goto(app['base'],wait_until='networkidle')
+    search_for(page)
+    expect(page.locator('.book-card img')).to_have_count(1)
+    page.click('[data-action="setSortMode"][data-arg="seeders"]')
+    page.unroute('**/api/search**')
+    fulfilled_search(page,[cover_row(i,seeders=i) for i in range(1,8)])
+    search_for(page,'other')
+    wait_until(page,lambda:len(lookups.bodies)>=3)
+    assert lookups.titles(1)==[f'Cover Probe {i}' for i in (7,6,5,4,3)]
+    assert lookups.titles(2)==['Cover Probe 2','Cover Probe 1']
 
 
 def test_overlong_title_does_not_block_other_lookups(app,page):

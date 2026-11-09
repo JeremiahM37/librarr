@@ -132,6 +132,7 @@ func newCoverStub(t *testing.T, handler http.HandlerFunc) *coverStub {
 		SearchURL:    func() string { return srv.URL + "/search.json" },
 		CoverBaseURL: func() string { return "https://covers.test" },
 		Now:          s.clock.now,
+		MinInterval:  time.Nanosecond,
 	})
 	return s
 }
@@ -686,6 +687,7 @@ func TestResolveAfterLastCancelStartsFresh(t *testing.T) {
 		HTTPClient:   &http.Client{Transport: stall},
 		SearchURL:    func() string { return "http://openlibrary.test/search.json" },
 		CoverBaseURL: func() string { return "https://covers.test" },
+		MinInterval:  time.Nanosecond,
 	})
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -796,6 +798,12 @@ func TestResolveOptionDefaults(t *testing.T) {
 
 	if cap(r.slots) != 3 {
 		t.Errorf("default concurrency = %d, want 3", cap(r.slots))
+	}
+	if r.interval != time.Second {
+		t.Errorf("default interval = %v, want 1s", r.interval)
+	}
+	if r.userAgent != olUserAgent {
+		t.Errorf("User-Agent = %q", r.userAgent)
 	}
 	if got := resolveDune(t, r); got != testCoverURL {
 		t.Errorf("Resolve = %q, want one slash after the base", got)
@@ -980,5 +988,121 @@ func TestCoolDownIsNotShortened(t *testing.T) {
 	s.clock.advance(59 * time.Minute)
 	if s.coolingDown() {
 		t.Error("still cooling down after the longest wait")
+	}
+}
+
+// pacedStub returns a resolver whose searches are spaced by interval, and the
+// times and queries of the requests the stub received.
+func pacedStub(t *testing.T, interval time.Duration) (*CoverResolver, func() ([]time.Time, []string)) {
+	t.Helper()
+	var mu sync.Mutex
+	var times []time.Time
+	var queries []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		times = append(times, time.Now())
+		queries = append(queries, r.URL.Query().Get("q"))
+		mu.Unlock()
+		io.WriteString(w, emptyDocsBody)
+	}))
+	t.Cleanup(srv.Close)
+	r := NewCoverResolver(CoverResolverOptions{
+		Cache:         &memCoverCache{entries: map[string]memCoverEntry{}},
+		HTTPClient:    srv.Client(),
+		SearchURL:     func() string { return srv.URL + "/search.json" },
+		MaxConcurrent: 3,
+		MinInterval:   interval,
+	})
+	return r, func() ([]time.Time, []string) {
+		mu.Lock()
+		defer mu.Unlock()
+		return append([]time.Time(nil), times...), append([]string(nil), queries...)
+	}
+}
+
+func TestResolvePacesSearches(t *testing.T) {
+	const interval = 100 * time.Millisecond
+	r, seen := pacedStub(t, interval)
+	var chans []<-chan resolveResult
+	for i := 0; i < 4; i++ {
+		chans = append(chans, resolveAsync(context.Background(), r, fmt.Sprintf("Book %d", i), "Author"))
+	}
+	for _, ch := range chans {
+		awaitResult(t, ch)
+	}
+	times, _ := seen()
+	if len(times) != 4 {
+		t.Fatalf("requests = %d, want 4", len(times))
+	}
+	for i := 1; i < len(times); i++ {
+		// Allow for timer slack on the stub's side of the clock.
+		if gap := times[i].Sub(times[i-1]); gap < interval-10*time.Millisecond {
+			t.Errorf("gap %d = %v, want at least %v", i, gap, interval)
+		}
+	}
+}
+
+func TestResolveSearchesGoInOrder(t *testing.T) {
+	r, seen := pacedStub(t, 50*time.Millisecond)
+	var chans []<-chan resolveResult
+	for i := 0; i < 5; i++ {
+		chans = append(chans, resolveAsync(context.Background(), r, fmt.Sprintf("Book %d", i), "Author"))
+		time.Sleep(10 * time.Millisecond) // let each one queue before the next
+	}
+	for _, ch := range chans {
+		awaitResult(t, ch)
+	}
+	_, queries := seen()
+	for i, q := range queries {
+		if !strings.Contains(q, fmt.Sprintf("Book %d", i)) {
+			t.Fatalf("request %d searched %q; order = %q", i, q, queries)
+		}
+	}
+}
+
+func TestResolveCancelledWaiterGivesUpItsTurn(t *testing.T) {
+	const interval = 300 * time.Millisecond
+	r, seen := pacedStub(t, interval)
+	awaitResult(t, resolveAsync(context.Background(), r, "First", "Author"))
+
+	ctx, cancel := context.WithCancel(context.Background())
+	abandoned := resolveAsync(ctx, r, "Abandoned", "Author")
+	time.Sleep(20 * time.Millisecond)
+	cancel()
+	if res := awaitResult(t, abandoned); res.err == nil {
+		t.Fatal("cancelled lookup returned no error")
+	}
+	awaitResult(t, resolveAsync(context.Background(), r, "Third", "Author"))
+
+	times, queries := seen()
+	if len(times) != 2 {
+		t.Fatalf("requests = %q, want First and Third only", queries)
+	}
+	if gap := times[1].Sub(times[0]); gap > interval+150*time.Millisecond {
+		t.Errorf("Third waited %v after First; the abandoned turn was not given up", gap)
+	}
+}
+
+func TestResolveContactIdentifiesAndSpeedsUp(t *testing.T) {
+	var ua atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua.Store(r.Header.Get("User-Agent"))
+		io.WriteString(w, duneBody)
+	}))
+	t.Cleanup(srv.Close)
+	r := NewCoverResolver(CoverResolverOptions{
+		Cache:        &memCoverCache{entries: map[string]memCoverEntry{}},
+		HTTPClient:   srv.Client(),
+		SearchURL:    func() string { return srv.URL + "/search.json" },
+		CoverBaseURL: func() string { return "https://covers.test" },
+		Contact:      "ops@example.org",
+	})
+	if r.interval != time.Second/3 {
+		t.Errorf("interval = %v, want a third of a second", r.interval)
+	}
+	resolveDune(t, r)
+	got, _ := ua.Load().(string)
+	if !strings.HasPrefix(got, "Librarr/") || !strings.HasSuffix(got, "; ops@example.org)") {
+		t.Errorf("User-Agent = %q", got)
 	}
 }

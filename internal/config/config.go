@@ -235,6 +235,9 @@ type Config struct {
 	// OpenLibraryURL is the Open Library origin the author monitor queries
 	// (override for a local mirror or a test stub).
 	OpenLibraryURL string
+	// OpenLibraryContact is an email or phone number sent with cover lookups
+	// so Open Library can reach the operator; it raises their rate limit.
+	OpenLibraryContact string
 }
 
 // Load reads configuration from environment variables with sensible defaults,
@@ -478,6 +481,7 @@ func buildFromEnv() *Config {
 		AuthorCheckIntervalDays: getEnvInt("AUTHOR_CHECK_INTERVAL_DAYS", 7),
 		AuthorMonitorAutoAdd:    getEnvBool("AUTHOR_MONITOR_AUTO_ADD", true),
 		OpenLibraryURL:          getEnv("OPENLIBRARY_URL", "https://openlibrary.org"),
+		OpenLibraryContact:      getEnv("OPENLIBRARY_CONTACT", ""),
 	}
 }
 

@@ -123,6 +123,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 			}
 			return defaultCoverBaseURL
 		},
+		Contact: cfg.OpenLibraryContact,
 	})
 
 	s := &Server{

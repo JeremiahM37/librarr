@@ -25,6 +25,10 @@ const (
 	coverDefaultBaseURL   = "https://covers.openlibrary.org"
 	coverCoolDownDefault  = time.Minute
 	coverCoolDownMax      = time.Hour
+	// Open Library allows one request a second, or three when the User-Agent
+	// carries a contact address.
+	coverInterval           = time.Second
+	coverIdentifiedInterval = time.Second / 3
 )
 
 // ErrCoverCoolingDown means Open Library asked Librarr to back off, so a lookup
@@ -46,11 +50,17 @@ type CoverResolverOptions struct {
 	CoverBaseURL  func() string // e.g. https://covers.openlibrary.org
 	MaxConcurrent int           // 0 means 3
 	Now           func() time.Time
+	// Contact is an email or phone number for Open Library to reach the
+	// operator. When set it is added to the User-Agent and allows a faster pace.
+	Contact string
+	// MinInterval is the least time between two searches; 0 picks the pace
+	// Open Library allows.
+	MinInterval time.Duration
 }
 
 // CoverResolver turns titles and authors into Open Library cover URLs. Callers
-// asking for the same book share one request, and only a limited number of
-// requests run at a time.
+// asking for the same book share one request, only a limited number of
+// requests run at a time, and searches are spaced out to Open Library's limit.
 type CoverResolver struct {
 	cache        CoverCache
 	httpClient   *http.Client
@@ -58,6 +68,13 @@ type CoverResolver struct {
 	coverBaseURL func() string
 	now          func() time.Time
 	slots        chan struct{}
+	userAgent    string
+	interval     time.Duration
+
+	// turn is held by the next search to go out. Blocked senders on a channel
+	// are served in order, so searches leave in the order they asked.
+	turn     chan struct{}
+	lastSent time.Time // guarded by turn
 
 	mu        sync.Mutex
 	inflight  map[string]*coverLookup
@@ -84,6 +101,18 @@ func NewCoverResolver(o CoverResolverOptions) *CoverResolver {
 		coverBaseURL: o.CoverBaseURL,
 		now:          o.Now,
 		inflight:     make(map[string]*coverLookup),
+		userAgent:    olUserAgent,
+		interval:     o.MinInterval,
+		turn:         make(chan struct{}, 1),
+	}
+	if o.Contact != "" {
+		r.userAgent = strings.TrimSuffix(olUserAgent, ")") + "; " + o.Contact + ")"
+	}
+	if r.interval <= 0 {
+		r.interval = coverInterval
+		if o.Contact != "" {
+			r.interval = coverIdentifiedInterval
+		}
 	}
 	if r.httpClient == nil {
 		r.httpClient = &http.Client{Timeout: coverLookupTimeout}
@@ -260,7 +289,10 @@ func (r *CoverResolver) lookup(ctx context.Context, key, query string, readings 
 	if found {
 		return url, nil
 	}
-	// The cool-down may have started while this lookup waited for its slot.
+	if err := r.waitTurn(ctx); err != nil {
+		return "", err
+	}
+	// The cool-down may have started while this lookup waited.
 	if r.coolingDown() {
 		return "", ErrCoverCoolingDown
 	}
@@ -278,6 +310,29 @@ func (r *CoverResolver) lookup(ctx context.Context, key, query string, readings 
 	return url, nil
 }
 
+// waitTurn blocks until this search may go out: after every search that asked
+// earlier, and at least the interval after the previous one. A caller that gives
+// up while waiting leaves without using a turn.
+func (r *CoverResolver) waitTurn(ctx context.Context) error {
+	select {
+	case r.turn <- struct{}{}:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	defer func() { <-r.turn }()
+	if wait := time.Until(r.lastSent.Add(r.interval)); wait > 0 {
+		t := time.NewTimer(wait)
+		defer t.Stop()
+		select {
+		case <-t.C:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+	}
+	r.lastSent = time.Now()
+	return nil
+}
+
 // search runs one Open Library query. A response that is too large or is not a
 // search result is an error, so that it is never cached as a miss.
 func (r *CoverResolver) search(ctx context.Context, query string) ([]olSearchDoc, error) {
@@ -290,7 +345,7 @@ func (r *CoverResolver) search(ctx context.Context, query string) ([]olSearchDoc
 	q.Set("fields", coverSearchFields)
 	q.Set("limit", coverSearchLimit)
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("User-Agent", olUserAgent)
+	req.Header.Set("User-Agent", r.userAgent)
 
 	resp, err := r.httpClient.Do(req)
 	if err != nil {

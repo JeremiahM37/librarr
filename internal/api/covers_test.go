@@ -52,6 +52,7 @@ func coverTestServer(t *testing.T, maxConcurrent int, handler http.HandlerFunc) 
 		SearchURL:     func() string { return stub.URL + "/search.json" },
 		CoverBaseURL:  func() string { return "https://covers.test" },
 		MaxConcurrent: maxConcurrent,
+		MinInterval:   time.Nanosecond,
 	})
 	return s, &hits
 }

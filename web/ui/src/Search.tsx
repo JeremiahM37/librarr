@@ -67,7 +67,9 @@ function formatSize(value?: number | string) {
   }
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
-const coverBatch = 20;
+// Small batches go one at a time, top results first. The server paces Open
+// Library to about one search a second, so a batch of 5 answers within seconds.
+const coverBatch = 5;
 const coverFieldMax = 300;
 const encoder = new TextEncoder();
 function Cover({
@@ -214,7 +216,8 @@ export function Search({
     if (coverMedia.current === "manga") return;
     const timer = window.setTimeout(() => {
       const fresh: { key: string; row: SearchResult }[] = [];
-      for (const row of results) {
+      // In display order, so the cards at the top are looked up first.
+      for (const row of rendered) {
         const key = keyOf(row);
         if (row.cover_url || asked.current.has(key)) continue;
         asked.current.add(key);
@@ -260,7 +263,7 @@ export function Search({
       });
     }, 300);
     return () => window.clearTimeout(timer);
-  }, [results]);
+  }, [rendered]);
   async function search(value: string, kind: MediaType) {
     if (!value.trim()) return;
     abort.current?.abort();
