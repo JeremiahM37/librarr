@@ -90,7 +90,8 @@ def sse(results,event='results'):
 
 
 class Lookups:
-    """Records /api/covers/lookup bodies; optionally holds them until released."""
+    """Records /api/covers/lookup bodies (one result each); optionally holds
+    them until released."""
     def __init__(self,page,hold=False,status=200):
         self.bodies=[]
         self.held=[]
@@ -110,14 +111,18 @@ class Lookups:
         if self.status!=200:
             route.fulfill(status=self.status,json={'error':'boom'})
             return
-        route.fulfill(json={'covers':{item['id']:PNG for item in body['items']}})
+        route.fulfill(json={'cover_url':PNG})
 
-    def release(self):
-        held,self.held=self.held,[]
+    def release(self,n=None):
+        """Answer every held lookup, or only the n-th one held."""
+        if n is None:
+            held,self.held=self.held,[]
+        else:
+            held=[self.held.pop(n)]
         for route,body in held: self.answer(route,body)
 
-    def titles(self,n):
-        return [item['title'] for item in self.bodies[n]['items']]
+    def titles(self):
+        return [body['title'] for body in self.bodies]
 
 
 class Stream:
@@ -217,9 +222,7 @@ def test_new_results_in_stream_are_looked_up_once(app,page):
         stream.send([cover_row(1),cover_row(2)],'complete')
         expect(page.locator('.book-card img')).to_have_count(2)
         page.wait_for_timeout(700)
-        assert len(lookups.bodies)==2
-        assert lookups.titles(0)==['Cover Probe 1']
-        assert lookups.titles(1)==['Cover Probe 2']
+        assert lookups.titles()==['Cover Probe 1','Cover Probe 2']
     finally:
         stream.close()
 
@@ -230,8 +233,7 @@ def test_source_cover_wins_and_is_not_looked_up(app,page):
     page.goto(app['base'],wait_until='networkidle')
     search_for(page)
     expect(page.locator('.book-card img')).to_have_count(2)
-    assert len(lookups.bodies)==1
-    assert lookups.titles(0)==['Cover Probe 2']
+    assert lookups.titles()==['Cover Probe 2']
 
 
 STALE_URL=PNG+'#stale'
@@ -247,7 +249,7 @@ def same_row_searches(page):
 
 
 def answer_lookup(route,url):
-    route.fulfill(json={'covers':{item['id']:url for item in route.request.post_data_json['items']}})
+    route.fulfill(json={'cover_url':url})
 
 
 def test_new_search_cancels_cover_requests(app,page):
@@ -260,9 +262,7 @@ def test_new_search_cancels_cover_requests(app,page):
     wait_until(page,lambda:len(routes)==1)
     assert len(routes)==1
     search_for(page,'second')
-    # The first lookup holds the queue until it is aborted, so a second one
-    # arriving at all shows the abort worked.
-    wait_until(page,lambda:len(routes)==2)
+    wait_until(page,lambda:len(routes)==2 and aborted)
     assert len(routes)==2
     assert aborted==[routes[0].request]
     answer_lookup(routes[1],FRESH_URL)
@@ -292,11 +292,10 @@ def test_stale_cover_answer_is_ignored_without_an_abort(app,page):
     assert len(routes)==1
     search_for(page,'second')
     expect(card.locator('.cover-placeholder')).to_be_visible()
-    page.wait_for_timeout(500)
-    answer_lookup(routes[0],STALE_URL)
-    # Once answered, the first lookup frees the queue for the new search's own.
     wait_until(page,lambda:len(routes)==2)
     assert len(routes)==2
+    answer_lookup(routes[0],STALE_URL)
+    page.wait_for_timeout(300)
     expect(card.locator('img')).to_have_count(0)
     answer_lookup(routes[1],FRESH_URL)
     expect(card.locator('img')).to_have_attribute('src',FRESH_URL)
@@ -339,7 +338,7 @@ def test_late_url_replaces_failed_image(app,page):
         def bad(route):
             body=route.request.post_data_json
             seen.append(body)
-            route.fulfill(json={'covers':{item['id']:'https://example.invalid/bad.png' for item in body['items']}})
+            route.fulfill(json={'cover_url':'https://example.invalid/bad.png'})
         page.route('**/api/covers/lookup**',bad)
         page.goto(app['base'],wait_until='networkidle')
         search_for(page)
@@ -355,41 +354,47 @@ def test_late_url_replaces_failed_image(app,page):
         stream.close()
 
 
-def test_large_result_set_batches_lookups(app,page):
+def test_lookups_run_three_at_a_time_from_the_top(app,page):
     lookups=Lookups(page,hold=True)
-    fulfilled_search(page,[cover_row(i) for i in range(13)])
+    fulfilled_search(page,[cover_row(i) for i in range(7)])
     page.goto(app['base'],wait_until='networkidle')
     search_for(page)
-    expect(page.locator('.book-card')).to_have_count(13)
+    expect(page.locator('.book-card')).to_have_count(7)
     page.wait_for_timeout(800)
-    # Small batches, sent one at a time from the top, so the first covers
-    # arrive while Open Library is still being paced for the rest.
-    assert [len(b['items']) for b in lookups.bodies]==[5]
-    assert lookups.titles(0)==[f'Cover Probe {i}' for i in range(5)]
-    lookups.release()
-    wait_until(page,lambda:len(lookups.bodies)>=2)
-    page.wait_for_timeout(500)
-    assert [len(b['items']) for b in lookups.bodies]==[5,5]
-    lookups.release()
-    wait_until(page,lambda:len(lookups.bodies)>=3)
-    assert [len(b['items']) for b in lookups.bodies]==[5,5,3]
-    lookups.release()
-    expect(page.locator('.book-card img')).to_have_count(13)
+    assert lookups.titles()==[f'Cover Probe {i}' for i in range(3)]
+    # One answer shows its cover at once and lets the next card's lookup start.
+    lookups.release(1)
+    expect(page.locator('.book-card img')).to_have_count(1)
+    expect(page.locator('.book-card').nth(1).locator('img')).to_have_count(1)
+    wait_until(page,lambda:len(lookups.bodies)>=4)
+    page.wait_for_timeout(300)
+    assert lookups.titles()==[f'Cover Probe {i}' for i in range(4)]
+    for _ in range(4):
+        lookups.release()
+        page.wait_for_timeout(300)
+    expect(page.locator('.book-card img')).to_have_count(7)
+    assert lookups.titles()==[f'Cover Probe {i}' for i in range(7)]
 
 
 def test_lookups_follow_the_displayed_order(app,page):
-    lookups=Lookups(page)
+    lookups=Lookups(page,hold=True)
     fulfilled_search(page,[cover_row(0)])
     page.goto(app['base'],wait_until='networkidle')
     search_for(page)
+    wait_until(page,lambda:lookups.held)
+    lookups.release()
     expect(page.locator('.book-card img')).to_have_count(1)
     page.click('[data-action="setSortMode"][data-arg="seeders"]')
     page.unroute('**/api/search**')
     fulfilled_search(page,[cover_row(i,seeders=i) for i in range(1,8)])
     search_for(page,'other')
-    wait_until(page,lambda:len(lookups.bodies)>=3)
-    assert lookups.titles(1)==[f'Cover Probe {i}' for i in (7,6,5,4,3)]
-    assert lookups.titles(2)==['Cover Probe 2','Cover Probe 1']
+    wait_until(page,lambda:len(lookups.bodies)>=4)
+    page.wait_for_timeout(300)
+    assert lookups.titles()[1:]==['Cover Probe 7','Cover Probe 6','Cover Probe 5']
+    for _ in range(4):
+        lookups.release()
+        page.wait_for_timeout(300)
+    assert lookups.titles()[1:]==[f'Cover Probe {i}' for i in (7,6,5,4,3,2,1)]
 
 
 def test_overlong_title_does_not_block_other_lookups(app,page):
@@ -402,6 +407,5 @@ def test_overlong_title_does_not_block_other_lookups(app,page):
     search_for(page)
     expect(page.locator('.book-card')).to_have_count(3)
     expect(page.locator('.book-card img')).to_have_count(2)
-    assert len(lookups.bodies)==1
-    assert lookups.titles(0)==['Cover Probe 1','Cover Probe 3']
+    assert lookups.titles()==['Cover Probe 1','Cover Probe 3']
     expect(page.locator('.book-card',has_text=long_title).locator('.cover-placeholder')).to_be_visible()

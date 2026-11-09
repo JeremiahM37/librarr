@@ -77,39 +77,46 @@ func postLookup(s *Server, ctx context.Context, body string) *httptest.ResponseR
 	return rr
 }
 
-func decodeCovers(t *testing.T, rr *httptest.ResponseRecorder) map[string]string {
+func decodeCover(t *testing.T, rr *httptest.ResponseRecorder) string {
 	t.Helper()
 	var resp struct {
-		Covers map[string]string `json:"covers"`
+		CoverURL *string `json:"cover_url"`
 	}
 	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
 		t.Fatalf("decode: %v\n%s", err, rr.Body.String())
 	}
-	if resp.Covers == nil {
-		t.Fatalf("covers missing or null: %s", rr.Body.String())
+	if resp.CoverURL == nil {
+		t.Fatalf("cover_url missing: %s", rr.Body.String())
 	}
-	return resp.Covers
+	return *resp.CoverURL
 }
 
 func TestCoverLookupReturnsMatches(t *testing.T) {
 	s, _ := coverTestServer(t, 3, olStub)
-	rr := postLookup(s, context.Background(), `{"items":[
-		{"id":"0","title":"Dune","author":"Frank Herbert","media_type":"ebook"},
-		{"id":"1","title":"Nothing Here","author":"Nobody","media_type":"audiobook"},
-		{"id":"2","title":"Broken","author":"Nobody","media_type":"ebook"}]}`)
-	if rr.Code != 200 {
-		t.Fatalf("HTTP %d: %s", rr.Code, rr.Body.String())
+	cases := []struct {
+		body string
+		hit  bool
+	}{
+		{`{"title":"Dune","author":"Frank Herbert","media_type":"ebook"}`, true},
+		{`{"title":"Nothing Here","author":"Nobody","media_type":"audiobook"}`, false},
+		{`{"title":"Broken","author":"Nobody","media_type":"ebook"}`, false},
 	}
-	got := decodeCovers(t, rr)
-	if len(got) != 1 || !strings.HasPrefix(got["0"], "https://") {
-		t.Fatalf("covers = %v, want only id 0", got)
+	for _, c := range cases {
+		rr := postLookup(s, context.Background(), c.body)
+		if rr.Code != 200 {
+			t.Fatalf("%s: HTTP %d: %s", c.body, rr.Code, rr.Body.String())
+		}
+		got := decodeCover(t, rr)
+		if c.hit != strings.HasPrefix(got, "https://") || (!c.hit && got != "") {
+			t.Errorf("%s: cover_url = %q", c.body, got)
+		}
 	}
 }
 
 func TestCoverLookupSkipsManga(t *testing.T) {
 	s, hits := coverTestServer(t, 3, olStub)
-	rr := postLookup(s, context.Background(), `{"items":[{"id":"0","title":"Dune","author":"Frank Herbert","media_type":"manga"}]}`)
-	if rr.Code != 200 || len(decodeCovers(t, rr)) != 0 {
+	rr := postLookup(s, context.Background(), `{"title":"Dune","author":"Frank Herbert","media_type":"manga"}`)
+	if rr.Code != 200 || decodeCover(t, rr) != "" {
 		t.Fatalf("HTTP %d: %s", rr.Code, rr.Body.String())
 	}
 	if n := hits.Load(); n != 0 {
@@ -120,28 +127,25 @@ func TestCoverLookupSkipsManga(t *testing.T) {
 func TestCoverLookupValidation(t *testing.T) {
 	s, _ := coverTestServer(t, 3, olStub)
 	long := strings.Repeat("x", 301)
-	var many []string
-	for i := 0; i < 21; i++ {
-		many = append(many, fmt.Sprintf(`{"id":"%d","title":"T","media_type":"ebook"}`, i))
-	}
 	bad := map[string]string{
-		"too many items": `{"items":[` + strings.Join(many, ",") + `]}`,
-		"long title":     `{"items":[{"id":"0","title":"` + long + `","media_type":"ebook"}]}`,
-		"long author":    `{"items":[{"id":"0","title":"T","author":"` + long + `","media_type":"ebook"}]}`,
-		"long id":        `{"items":[{"id":"` + strings.Repeat("i", 65) + `","title":"T","media_type":"ebook"}]}`,
-		"malformed":      `{"items":[`,
+		"long title":  `{"title":"` + long + `","media_type":"ebook"}`,
+		"long author": `{"title":"T","author":"` + long + `","media_type":"ebook"}`,
+		"too large":   `{"title":"T","pad":"` + strings.Repeat("p", 5000) + `"}`,
+		"malformed":   `{"title":`,
 	}
 	for name, body := range bad {
 		if rr := postLookup(s, context.Background(), body); rr.Code != 400 {
 			t.Errorf("%s: HTTP %d, want 400", name, rr.Code)
 		}
 	}
-	rr := postLookup(s, context.Background(), `{"items":[]}`)
-	if rr.Code != 200 || len(decodeCovers(t, rr)) != 0 {
-		t.Errorf("empty items: HTTP %d: %s", rr.Code, rr.Body.String())
+	rr := postLookup(s, context.Background(), `{"title":"","media_type":"ebook"}`)
+	if rr.Code != 200 || decodeCover(t, rr) != "" {
+		t.Errorf("empty title: HTTP %d: %s", rr.Code, rr.Body.String())
 	}
 }
 
+// A client that gives up while its lookup is queued behind another must not
+// send a request of its own.
 func TestCoverLookupStopsOnDisconnect(t *testing.T) {
 	release := make(chan struct{})
 	arrived := make(chan struct{}, 20)
@@ -155,23 +159,21 @@ func TestCoverLookupStopsOnDisconnect(t *testing.T) {
 	})
 	t.Cleanup(func() { close(release) })
 
-	ctx, cancel := context.WithCancel(context.Background())
-	var items []string
-	for i := 0; i < 5; i++ {
-		items = append(items, fmt.Sprintf(`{"id":"%d","title":"Book %d","author":"A","media_type":"ebook"}`, i, i))
-	}
-	done := make(chan *httptest.ResponseRecorder, 1)
-	go func() { done <- postLookup(s, ctx, `{"items":[`+strings.Join(items, ",")+`]}`) }()
-
+	go postLookup(s, context.Background(), `{"title":"Holding","author":"A","media_type":"ebook"}`)
 	select {
 	case <-arrived:
 	case <-time.After(5 * time.Second):
 		t.Fatal("no lookup reached the stub")
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan *httptest.ResponseRecorder, 1)
+	go func() { done <- postLookup(s, ctx, `{"title":"Queued","author":"A","media_type":"ebook"}`) }()
+	time.Sleep(50 * time.Millisecond)
 	cancel()
 	select {
 	case rr := <-done:
-		if rr.Code != 200 || len(decodeCovers(t, rr)) != 0 {
+		if rr.Code != 200 || decodeCover(t, rr) != "" {
 			t.Errorf("HTTP %d: %s", rr.Code, rr.Body.String())
 		}
 	case <-time.After(5 * time.Second):
@@ -179,7 +181,7 @@ func TestCoverLookupStopsOnDisconnect(t *testing.T) {
 	}
 	time.Sleep(100 * time.Millisecond)
 	if n := hits.Load(); n != 1 {
-		t.Errorf("stub requests = %d, want 1 (queued lookups should not run)", n)
+		t.Errorf("stub requests = %d, want 1 (the queued lookup should not run)", n)
 	}
 }
 
@@ -200,10 +202,10 @@ func TestCoverLookupRequiresAuth(t *testing.T) {
 		h.ServeHTTP(rr, req)
 		return rr.Code
 	}
-	if code := do("POST", "/api/covers/lookup", `{"items":[]}`, false); code != 401 {
+	if code := do("POST", "/api/covers/lookup", `{"title":""}`, false); code != 401 {
 		t.Errorf("without key = %d, want 401", code)
 	}
-	if code := do("POST", "/api/covers/lookup", `{"items":[]}`, true); code != 200 {
+	if code := do("POST", "/api/covers/lookup", `{"title":""}`, true); code != 200 {
 		t.Errorf("with key = %d, want 200", code)
 	}
 }

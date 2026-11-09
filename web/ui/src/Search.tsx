@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
-  lookupCovers,
+  lookupCover,
   request,
   type DownloadJob,
   type SearchResult,
@@ -67,9 +67,10 @@ function formatSize(value?: number | string) {
   }
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
-// Small batches go one at a time, top results first. The server paces Open
-// Library to about one search a second, so a batch of 5 answers within seconds.
-const coverBatch = 5;
+// Lookups run a few at a time, top cards first, and each card fills in as soon
+// as its own answer arrives. The server paces Open Library, so more at once
+// would only queue there.
+const coverConcurrency = 3;
 const coverFieldMax = 300;
 const encoder = new TextEncoder();
 function Cover({
@@ -120,7 +121,8 @@ export function Search({
   const [covers, setCovers] = useState<Record<string, string>>({});
   const asked = useRef(new Set<string>());
   const coverMedia = useRef<MediaType>("ebook");
-  const coverQueue = useRef<Promise<void>>(Promise.resolve());
+  const coverQueue = useRef<{ key: string; row: SearchResult }[]>([]);
+  const coverActive = useRef(0);
   const rendered = useMemo(
     () =>
       [...results].sort((a, b) =>
@@ -212,55 +214,55 @@ export function Search({
     return () => window.clearTimeout(timer);
   }, [completedKeys]);
   useEffect(() => () => abort.current?.abort(), []);
+  // Starts queued lookups until coverConcurrency are running. Each one belongs
+  // to the search that started it; a newer search ignores its answer and its
+  // place in the count.
+  function pumpCovers() {
+    const controller = abort.current;
+    if (!controller) return;
+    const id = generation.current;
+    const kind = coverMedia.current;
+    const current = () => !controller.signal.aborted && id === generation.current;
+    while (
+      coverActive.current < coverConcurrency &&
+      coverQueue.current.length
+    ) {
+      const { key, row } = coverQueue.current.shift()!;
+      asked.current.add(key);
+      coverActive.current++;
+      lookupCover(
+        { title: row.title, author: row.author || "", media_type: kind },
+        controller.signal,
+      )
+        .then((url) => {
+          if (url && current()) setCovers((old) => ({ ...old, [key]: url }));
+        })
+        .catch(() => {
+          /* Covers are best-effort; the placeholder stays. */
+        })
+        .finally(() => {
+          if (id !== generation.current) return;
+          coverActive.current--;
+          pumpCovers();
+        });
+    }
+  }
   useEffect(() => {
     if (coverMedia.current === "manga") return;
     const timer = window.setTimeout(() => {
-      const fresh: { key: string; row: SearchResult }[] = [];
-      // In display order, so the cards at the top are looked up first.
-      for (const row of rendered) {
-        const key = keyOf(row);
-        if (row.cover_url || asked.current.has(key)) continue;
-        asked.current.add(key);
-        // One over-long field would make the server reject the whole batch.
-        if (
-          encoder.encode(row.title).length > coverFieldMax ||
-          encoder.encode(row.author || "").length > coverFieldMax
+      // Rebuilt in display order each time, so the cards at the top go next
+      // even after a re-sort or a stream update.
+      coverQueue.current = rendered
+        .filter(
+          (row) =>
+            !row.cover_url &&
+            !asked.current.has(keyOf(row)) &&
+            // The server rejects an over-long field.
+            encoder.encode(row.title).length <= coverFieldMax &&
+            encoder.encode(row.author || "").length <= coverFieldMax,
         )
-          continue;
-        fresh.push({ key, row });
-      }
-      if (!fresh.length) return;
-      const controller = abort.current;
-      const id = generation.current;
-      const kind = coverMedia.current;
-      const current = () =>
-        !!controller && !controller.signal.aborted && id === generation.current;
-      coverQueue.current = coverQueue.current.then(async () => {
-        for (let i = 0; i < fresh.length && current(); i += coverBatch) {
-          const batch = fresh.slice(i, i + coverBatch);
-          try {
-            const found = await lookupCovers(
-              batch.map(({ row }, n) => ({
-                id: String(n),
-                title: row.title,
-                author: row.author || "",
-                media_type: kind,
-              })),
-              controller!.signal,
-            );
-            if (!current()) return;
-            const mapped: Record<string, string> = {};
-            batch.forEach(({ key }, n) => {
-              const url = found[String(n)];
-              if (url) mapped[key] = url;
-            });
-            if (Object.keys(mapped).length)
-              setCovers((old) => ({ ...old, ...mapped }));
-          } catch {
-            /* Covers are best-effort; the placeholder stays. */
-          }
-        }
-      });
+        .map((row) => ({ key: keyOf(row), row }));
+      pumpCovers();
     }, 300);
     return () => window.clearTimeout(timer);
   }, [rendered]);
@@ -271,6 +273,8 @@ export function Search({
     abort.current = controller;
     const id = ++generation.current;
     asked.current = new Set();
+    coverQueue.current = [];
+    coverActive.current = 0;
     coverMedia.current = kind;
     setCovers({});
     setLoading(true);

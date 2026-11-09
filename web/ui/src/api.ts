@@ -42,8 +42,7 @@ export interface SearchResult {
   leechers?: number;
   indexer?: string;
 }
-export interface CoverLookupItem {
-  id: string;
+export interface CoverLookup {
   title: string;
   author: string;
   media_type: MediaType;
@@ -202,15 +201,16 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   return body as T;
 }
 
-export async function lookupCovers(
-  items: CoverLookupItem[],
+export async function lookupCover(
+  item: CoverLookup,
   signal: AbortSignal,
-): Promise<Record<string, string>> {
-  const data = await api<{ covers?: Record<string, string> }>(
-    "/api/covers/lookup",
-    { method: "POST", body: JSON.stringify({ items }), signal },
-  );
-  return data.covers || {};
+): Promise<string> {
+  const data = await api<{ cover_url?: string }>("/api/covers/lookup", {
+    method: "POST",
+    body: JSON.stringify(item),
+    signal,
+  });
+  return data.cover_url || "";
 }
 
 // /auth/status is intentionally public and skips API-key middleware. Validate a
