@@ -20,7 +20,7 @@ const (
 	coverDefaultLimit     = 3
 	coverLookupTimeout    = 15 * time.Second
 	coverSearchLimit      = "20"
-	coverSearchFields     = "title,author_name,cover_i"
+	coverSearchFields     = "title,subtitle,author_name,cover_i"
 	coverMaxResponseBytes = 2 << 20 // 2 MiB
 	coverDefaultBaseURL   = "https://covers.openlibrary.org"
 	coverCoolDownDefault  = time.Minute

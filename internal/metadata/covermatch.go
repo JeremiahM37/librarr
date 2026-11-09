@@ -21,7 +21,12 @@ const (
 )
 
 // coverReading is one way of reading a release name as a title and an author.
-type coverReading struct{ Title, Author string }
+// Volume records that the raw name mentions a volume, so its subtitle may say
+// which one and can't be dropped.
+type coverReading struct {
+	Title, Author string
+	Volume        bool
+}
 
 var (
 	coverBracketRe = regexp.MustCompile(`\[[^\]]*\]|\([^)]*\)|\{[^}]*\}`)
@@ -31,6 +36,14 @@ var (
 	coverDashRe    = regexp.MustCompile(`\s+[-–—]\s+`)
 	coverByRe      = regexp.MustCompile(`(?i)\s+by\s+`)
 	coverSpaceRe   = regexp.MustCompile(`\s+`)
+	// Edition phrases aren't part of the title, and they keep Open Library's
+	// search from finding the book at all ("10th-Anniversary Edition").
+	coverEditionRe = regexp.MustCompile(`(?i)\b(?:(?:\d+(?:st|nd|rd|th)|first|second|third|tenth|twentieth|twenty-fifth|fiftieth)[\s-]+)?(?:anniversary|special|deluxe|revised|expanded|collector'?s|illustrated|annotated|updated|kindle)[\s-]+edition\b`)
+	// Punctuation an edition phrase left hanging before " by ", " - " or the end.
+	coverDanglingRe = regexp.MustCompile(`\s*[:;,]+(\s+(?i:by)\s|\s+[-–—]\s|\s*$)`)
+	coverPunctGapRe = regexp.MustCompile(`\s+([:;,])`)
+	coverSubtitleRe = regexp.MustCompile(`[:;]`)
+	coverVolumeRe   = regexp.MustCompile(`(?i)\b(?:vol(?:ume)?|book|part|tome|episode)\.?\s*(?:\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten)\b|#\s*\d+`)
 )
 
 // cleanReleaseName strips the tags torrent and audiobook names carry around the
@@ -46,6 +59,9 @@ func cleanReleaseName(raw string) string {
 		s = strings.NewReplacer(".", " ", "_", " ").Replace(s)
 	}
 	s = coverNoiseRe.ReplaceAllString(s, " ")
+	s = coverEditionRe.ReplaceAllString(s, " ")
+	s = coverDanglingRe.ReplaceAllString(s, "$1")
+	s = coverPunctGapRe.ReplaceAllString(s, "$1")
 
 	var kept []string
 	for _, part := range coverDashRe.Split(s, -1) {
@@ -78,6 +94,8 @@ func coverReadings(title, author string) []coverReading {
 		return nil
 	}
 	author = strings.TrimSpace(author)
+	vol := coverVolumeRe.MatchString(title)
+	r := func(t, a string) coverReading { return coverReading{Title: t, Author: a, Volume: vol} }
 
 	parts := strings.Split(cleaned, " - ")
 	byAuthor := false
@@ -90,10 +108,10 @@ func coverReadings(title, author string) []coverReading {
 	}
 
 	if author != "" {
-		readings := []coverReading{{cleaned, author}}
+		readings := []coverReading{r(cleaned, author)}
 		if len(parts) > 1 {
 			for _, p := range parts {
-				readings = append(readings, coverReading{p, author})
+				readings = append(readings, r(p, author))
 			}
 		}
 		return readings
@@ -103,15 +121,15 @@ func coverReadings(title, author string) []coverReading {
 	switch {
 	case byAuthor:
 		// "Title by Author" has only one direction.
-		readings = append(readings, coverReading{parts[0], parts[1]})
+		readings = append(readings, r(parts[0], parts[1]))
 	case len(parts) == 2:
 		readings = append(readings,
-			coverReading{parts[0], parts[1]},
-			coverReading{parts[1], parts[0]})
+			r(parts[0], parts[1]),
+			r(parts[1], parts[0]))
 	case len(parts) > 2:
-		readings = append(readings, coverReading{parts[len(parts)-1], parts[0]})
+		readings = append(readings, r(parts[len(parts)-1], parts[0]))
 	}
-	return append(readings, coverReading{cleaned, ""})
+	return append(readings, r(cleaned, ""))
 }
 
 // CoverKey identifies a cover lookup by the words of its cleaned title and
@@ -195,56 +213,100 @@ func coverAuthorID(name string) string {
 	return strings.Join(t, " ")
 }
 
-// matchCoverDoc returns the first record, in Open Library's order, that passes
-// every rule under the earliest reading that has one and carries a cover.
+// coverDocMatches reports whether a record is the queried title, counting Open
+// Library's separate subtitle as part of the title.
+func coverDocMatches(query map[string]bool, d *olSearchDoc) bool {
+	if coverTitleMatches(query, d.Title) {
+		return true
+	}
+	return d.Subtitle != "" && olSameWords(query, olWordSet(olTitleWords(d.Title+" "+d.Subtitle)))
+}
+
+// coverMainTitle returns the words of a reading's title before its subtitle, or
+// nil when there is no subtitle or the name mentions a volume, which the
+// subtitle may be what names.
+func coverMainTitle(r coverReading) map[string]bool {
+	if r.Volume {
+		return nil
+	}
+	loc := coverSubtitleRe.FindStringIndex(r.Title)
+	if loc == nil {
+		return nil
+	}
+	words := olTitleWords(r.Title[:loc[0]])
+	if len(words) == 0 {
+		return nil
+	}
+	return olWordSet(words)
+}
+
+// matchCoverDoc returns the record whose cover to show, or nil. Every reading is
+// first tried against full titles, subtitles included. Only if none matches is
+// a release's main title (before its subtitle) tried, and then only against
+// records that have no subtitle of their own, so "Star Wars: Thrawn" never takes
+// the cover of another "Star Wars" book.
 func matchCoverDoc(readings []coverReading, docs []olSearchDoc) *olSearchDoc {
 	for _, r := range readings {
 		query := olWordSet(olTitleWords(r.Title))
-		wantCollection := olCollectionRe.MatchString(r.Title)
-
-		var candidates []*olSearchDoc
-		for i := range docs {
-			d := &docs[i]
-			if !coverTitleMatches(query, d.Title) {
-				continue
-			}
-			if olCollectionRe.MatchString(d.Title) && !wantCollection {
-				continue
-			}
-			candidates = append(candidates, d)
+		if d := pickCoverDoc(r, docs, func(d *olSearchDoc) bool { return coverDocMatches(query, d) }); d != nil {
+			return d
 		}
-
-		if r.Author != "" {
-			for _, d := range candidates {
-				if d.CoverI <= 0 {
-					continue
-				}
-				for _, a := range d.AuthorName {
-					if coverAuthorMatches(r.Author, a) {
-						return d
-					}
-				}
-			}
+	}
+	for _, r := range readings {
+		main := coverMainTitle(r)
+		if main == nil {
 			continue
 		}
-
-		// Without an author, every same-titled record must agree on one, or
-		// "Monster" could be Naoki Urasawa's or anybody else's.
-		agreed := true
-		for _, d := range candidates {
-			if len(d.AuthorName) == 0 || coverAuthorID(d.AuthorName[0]) == "" ||
-				coverAuthorID(d.AuthorName[0]) != coverAuthorID(candidates[0].AuthorName[0]) {
-				agreed = false
-				break
-			}
+		if d := pickCoverDoc(r, docs, func(d *olSearchDoc) bool {
+			return d.Subtitle == "" && olSameWords(main, olWordSet(olTitleWords(d.Title)))
+		}); d != nil {
+			return d
 		}
-		if !agreed {
+	}
+	return nil
+}
+
+// pickCoverDoc returns the first record, in Open Library's order, whose title
+// matches and that passes the author and box set rules and carries a cover.
+func pickCoverDoc(r coverReading, docs []olSearchDoc, titleMatches func(*olSearchDoc) bool) *olSearchDoc {
+	wantCollection := olCollectionRe.MatchString(r.Title)
+	var candidates []*olSearchDoc
+	for i := range docs {
+		d := &docs[i]
+		if !titleMatches(d) {
 			continue
 		}
+		if olCollectionRe.MatchString(d.Title) && !wantCollection {
+			continue
+		}
+		candidates = append(candidates, d)
+	}
+
+	if r.Author != "" {
 		for _, d := range candidates {
-			if d.CoverI > 0 {
-				return d
+			if d.CoverI <= 0 {
+				continue
 			}
+			for _, a := range d.AuthorName {
+				if coverAuthorMatches(r.Author, a) {
+					return d
+				}
+			}
+		}
+		return nil
+	}
+
+	// Without an author, every same-titled record must agree on one, or
+	// "Monster" could be Naoki Urasawa's or anybody else's.
+	for _, d := range candidates {
+		if len(d.AuthorName) == 0 || coverAuthorID(d.AuthorName[0]) == "" ||
+			coverAuthorID(d.AuthorName[0]) != coverAuthorID(candidates[0].AuthorName[0]) {
+			return nil
+		}
+	}
+	for _, d := range candidates {
+		if d.CoverI > 0 {
+			return d
 		}
 	}
 	return nil

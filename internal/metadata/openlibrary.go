@@ -231,6 +231,7 @@ type olSearchResponse struct {
 type olSearchDoc struct {
 	Key                 string   `json:"key"`
 	Title               string   `json:"title"`
+	Subtitle            string   `json:"subtitle"`
 	AuthorName          []string `json:"author_name"`
 	FirstPublishYear    int      `json:"first_publish_year"`
 	CoverI              int      `json:"cover_i"`

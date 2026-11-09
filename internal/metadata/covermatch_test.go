@@ -25,6 +25,10 @@ func TestCleanReleaseName(t *testing.T) {
 		{"Mistborn - 1984 - Someone", "Mistborn - Someone"},
 		{"1984 - George Orwell", "1984 - George Orwell"},
 		{"1984 - 1985", "1984 - 1985"},
+		// Edition phrases go, along with the punctuation they leave behind.
+		{"Eat Pray Love: 10th-Anniversary Edition by Elizabeth Gilbert", "Eat Pray Love by Elizabeth Gilbert"},
+		{"Sapiens Tenth Anniversary Edition: A Brief History of Humankind", "Sapiens: A Brief History of Humankind"},
+		{"Dune - Deluxe Edition", "Dune"},
 	}
 	for _, tt := range tests {
 		if got := cleanReleaseName(tt.in); got != tt.want {
@@ -34,7 +38,7 @@ func TestCleanReleaseName(t *testing.T) {
 }
 
 func TestCoverReadings(t *testing.T) {
-	r := func(title, author string) coverReading { return coverReading{title, author} }
+	r := func(title, author string) coverReading { return coverReading{Title: title, Author: author} }
 	tests := []struct {
 		title, author string
 		want          []coverReading
@@ -156,6 +160,63 @@ func TestMatchCoverDoc(t *testing.T) {
 				t.Fatalf("miss, want cover %d", tt.want)
 			case got != nil && got.CoverI != tt.want:
 				t.Fatalf("cover %d, want %d", got.CoverI, tt.want)
+			}
+		})
+	}
+}
+
+// Release names and Open Library records seen in real searches.
+func TestMatchCoverDocSubtitles(t *testing.T) {
+	sub := func(title, subtitle string, coverID int, authors ...string) olSearchDoc {
+		return olSearchDoc{Title: title, Subtitle: subtitle, CoverI: coverID, AuthorName: authors}
+	}
+	eatPrayLove := []olSearchDoc{
+		sub("Eat, Pray, Love", "One Woman's Search for Everything Across Italy, India and Indonesia", 111433, "Elizabeth Gilbert"),
+		sub("Eat, Pray, Love by Elizabeth Gilbert", "", 0, "Trivia-on-Books Staff"),
+		sub("Eat pray love made me do it", "", 10210421, "Rebecca Asher"),
+		sub("Eat Pray Love Made Me Do It", "", 13657572, "Elizabeth Gilbert"),
+	}
+	sapiens := []olSearchDoc{
+		sub("Sapiens", "A Brief History of Humankind", 8634250, "Yuval Noah Harari"),
+		sub("Summary of Sapiens by Yuval Noah Harari", "", 0, "FlashBooks Book Summaries"),
+		sub("Summary of Sapiens A Brief History of Humankind", "", 0, "Book Addict"),
+		sub("Sapiens and Homo Deus : the e-Book Collection", "", 0, "Yuval Noah Harari"),
+		sub("Sapiens", "A Graphic History, Volume 2: The Pillars of Civilization", 15252176, "Yuval Noah Harari", "Daniel Casanave", "David VanderMeulen"),
+	}
+	tests := []struct {
+		name          string
+		title, author string
+		docs          []olSearchDoc
+		want          int
+	}{
+		{"subtitle in its own field", "Eat, Pray, Love: One Woman’s Search for Everything Across Italy, India and Indonesia", "Elizabeth Gilbert", eatPrayLove, 111433},
+		{"subtitle in its own field, no author", "Eat, Pray, Love: One Woman’s Search for Everything Across Italy, India and Indonesia", "", eatPrayLove, 111433},
+		{"by-author name with a subtitle", "Sapiens: A Brief History of Humankind by Yuval Noah Harari", "", sapiens, 8634250},
+		{"edition in brackets", "Sapiens [Tenth Anniversary Edition]: A Brief History of Humankind by Yuval Noah Harari", "", sapiens, 8634250},
+		{"author first, semicolon subtitle", "Yuval Noah Harari - Sapiens; A Brief History Of Humankind", "", sapiens, 8634250},
+		{"no subtitle, no author", "Sapiens - Yuval Noah Harari", "", sapiens, 8634250},
+		{"edition phrase", "Eat Pray Love: 10th-Anniversary Edition by Elizabeth Gilbert", "", eatPrayLove, 111433},
+		{"main title when the record has no subtitle", "Eat Pray Love Made Me Do It: Life Journeys Inspired by the Bestselling Memoir by Elizabeth Gilbert", "", eatPrayLove, 13657572},
+		{"volume picks its own record", "Sapiens: A Graphic History, Volume 2: The Pillars of Civilization by Yuval Noah Harari, David Vandermeulen, Daniel Casanave", "", sapiens, 15252176},
+
+		// Each of these would show the wrong book's cover.
+		{"volume in stripped brackets", "Sapiens: A Graphic History: The Birth of Humankind (Vol. 1) by Yuval Noah Harari, David Vandermeulen, Daniel Casanave", "", sapiens, 0},
+		{"collection", "Sapiens and Homo Deus: The E-book Collection: A Brief History of Humankind and A Brief History of Tomorrow by Yuval Noah Harari", "", sapiens, 0},
+		{"cookbook", "Eat Pray Love Cookbook: Attraversiamo! by Sharon Powell", "", eatPrayLove, 0},
+		{"different book with a subtitle", "Eat, Pray, Love Pasta!: 40 Tempting Trattoria Recipes to Celebrate National Spaghetti Day by Martha Stephenson", "", eatPrayLove, 0},
+		{"main title of a record with its own subtitle", "Star Wars: Thrawn", "Timothy Zahn",
+			[]olSearchDoc{sub("Star Wars: Heir to the Empire", "", 5, "Timothy Zahn"), sub("Star Wars", "Dark Force Rising", 6, "Timothy Zahn")}, 0},
+		{"volume named in the subtitle", "Red Rising: Book 2", "Pierce Brown",
+			[]olSearchDoc{sub("Red Rising", "", 7, "Pierce Brown")}, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := matchCoverDoc(coverReadings(tt.title, tt.author), tt.docs)
+			switch {
+			case got == nil && tt.want != 0:
+				t.Fatalf("miss, want cover %d", tt.want)
+			case got != nil && got.CoverI != tt.want:
+				t.Fatalf("cover %d (%q), want %d", got.CoverI, got.Title, tt.want)
 			}
 		})
 	}
