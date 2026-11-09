@@ -42,6 +42,12 @@ export interface SearchResult {
   leechers?: number;
   indexer?: string;
 }
+export interface CoverLookupItem {
+  id: string;
+  title: string;
+  author: string;
+  media_type: MediaType;
+}
 export interface WishlistItem {
   id: number;
   title: string;
@@ -194,6 +200,17 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, message);
   }
   return body as T;
+}
+
+export async function lookupCovers(
+  items: CoverLookupItem[],
+  signal: AbortSignal,
+): Promise<Record<string, string>> {
+  const data = await api<{ covers?: Record<string, string> }>(
+    "/api/covers/lookup",
+    { method: "POST", body: JSON.stringify({ items }), signal },
+  );
+  return data.covers || {};
 }
 
 // /auth/status is intentionally public and skips API-key middleware. Validate a

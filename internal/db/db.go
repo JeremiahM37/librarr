@@ -363,6 +363,8 @@ func (d *DB) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_wishlist_library_item ON wishlist(library_item_id)`,
 		// One account per OIDC subject. Unlinked rows hold '' and are exempt.
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_subject ON users(oidc_subject) WHERE oidc_subject != ''`,
+		// Cached cover searches; an empty url records a miss.
+		`CREATE TABLE IF NOT EXISTS cover_lookups (key TEXT PRIMARY KEY, url TEXT NOT NULL DEFAULT '', fetched_at REAL NOT NULL)`,
 	}
 	for _, m := range postMigrations {
 		if _, err := d.db.Exec(m); err != nil {

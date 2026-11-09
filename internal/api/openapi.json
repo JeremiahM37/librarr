@@ -392,6 +392,12 @@
         "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
       }
     },
+    "/api/covers/lookup": {
+      "post": {
+        "summary": "Look up cover URLs for a batch of search results",
+        "description": "Body: {\"items\": [{\"id\", \"title\", \"author\", \"media_type\"}]}, at most 20 items; title and author up to 300 bytes, id up to 64 bytes. Only ebook and audiobook items are looked up. Returns {\"covers\": {id: url}}; misses and failures are omitted."
+      }
+    },
     "/api/library/manga": {
       "get": {
         "summary": "List manga"

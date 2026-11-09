@@ -49,6 +49,7 @@ type Server struct {
 	wishlistClean  *scheduler.WishlistCleaner
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
+	coverResolver  *metadata.CoverResolver
 }
 
 // NewServer creates the HTTP API server.
@@ -107,6 +108,23 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
 	authorMon.SetOpenLibraryURL(cfg.OpenLibraryURL)
 
+	coverResolver := metadata.NewCoverResolver(metadata.CoverResolverOptions{
+		Cache:      database,
+		HTTPClient: &http.Client{Timeout: 15 * time.Second},
+		SearchURL: func() string {
+			if cfg.Sources != nil && cfg.Sources.OpenLibrary.SearchURL != "" {
+				return cfg.Sources.OpenLibrary.SearchURL
+			}
+			return defaultCoverSearchURL
+		},
+		CoverBaseURL: func() string {
+			if cfg.Sources != nil && cfg.Sources.OpenLibrary.CoverURL != "" {
+				return cfg.Sources.OpenLibrary.CoverURL
+			}
+			return defaultCoverBaseURL
+		},
+	})
+
 	s := &Server{
 		cfg:            cfg,
 		db:             database,
@@ -127,6 +145,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		wishlistClean:  wishlistClean,
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
+		coverResolver:  coverResolver,
 	}
 
 	// Initialize OIDC handler if configured.
@@ -147,6 +166,11 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	return s
 }
 
+const (
+	defaultCoverSearchURL = "https://openlibrary.org/search.json"
+	defaultCoverBaseURL   = "https://covers.openlibrary.org"
+)
+
 // StartScheduler starts the background scheduler loop.
 func (s *Server) StartScheduler(ctx context.Context) {
 	// Start author monitor in a separate goroutine.
@@ -156,6 +180,7 @@ func (s *Server) StartScheduler(ctx context.Context) {
 	if s.wishlistClean != nil && s.cfg.WishlistCleanupEnabled {
 		go s.wishlistClean.Start(ctx)
 	}
+	go s.pruneCoverLookups(ctx)
 	// Scheduler.Start blocks until ctx is cancelled.
 	if s.scheduler != nil {
 		s.scheduler.Start(ctx)
@@ -318,6 +343,7 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("DELETE /api/library/book/{id}", s.handleDeleteBook)
 	s.mux.HandleFunc("DELETE /api/library/audiobook/{id}", s.handleDeleteAudiobook)
 	s.mux.HandleFunc("DELETE /api/library/manga/{id}", s.handleDeleteManga)
+	s.mux.HandleFunc("POST /api/covers/lookup", s.handleCoverLookup)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
 

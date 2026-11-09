@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  lookupCovers,
   request,
   type DownloadJob,
   type SearchResult,
@@ -66,15 +67,26 @@ function formatSize(value?: number | string) {
   }
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
-function Cover({ result }: { result: SearchResult }) {
-  const [failed, setFailed] = useState(false);
-  return result.cover_url && !failed ? (
+const coverBatch = 20;
+const coverFieldMax = 300;
+const encoder = new TextEncoder();
+function Cover({
+  result,
+  lookedUp,
+}: {
+  result: SearchResult;
+  lookedUp?: string;
+}) {
+  const url = result.cover_url || lookedUp;
+  // Remember which URL failed so a later URL for the same card gets a chance.
+  const [failedURL, setFailedURL] = useState("");
+  return url && url !== failedURL ? (
     <img
-      src={result.cover_url}
+      src={url}
       className="w-full h-48 object-cover"
       alt=""
       loading="lazy"
-      onError={() => setFailed(true)}
+      onError={() => setFailedURL(url ?? "")}
     />
   ) : (
     <div className="cover-placeholder w-full h-48 bg-gradient-to-br from-indigo-600 to-purple-700">
@@ -103,6 +115,10 @@ export function Search({
   const abort = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const pending = useRef(new Set<string>());
+  const [covers, setCovers] = useState<Record<string, string>>({});
+  const asked = useRef(new Set<string>());
+  const coverMedia = useRef<MediaType>("ebook");
+  const coverQueue = useRef<Promise<void>>(Promise.resolve());
   const rendered = useMemo(
     () =>
       [...results].sort((a, b) =>
@@ -194,12 +210,66 @@ export function Search({
     return () => window.clearTimeout(timer);
   }, [completedKeys]);
   useEffect(() => () => abort.current?.abort(), []);
+  useEffect(() => {
+    if (coverMedia.current === "manga") return;
+    const timer = window.setTimeout(() => {
+      const fresh: { key: string; row: SearchResult }[] = [];
+      for (const row of results) {
+        const key = keyOf(row);
+        if (row.cover_url || asked.current.has(key)) continue;
+        asked.current.add(key);
+        // One over-long field would make the server reject the whole batch.
+        if (
+          encoder.encode(row.title).length > coverFieldMax ||
+          encoder.encode(row.author || "").length > coverFieldMax
+        )
+          continue;
+        fresh.push({ key, row });
+      }
+      if (!fresh.length) return;
+      const controller = abort.current;
+      const id = generation.current;
+      const kind = coverMedia.current;
+      const current = () =>
+        !!controller && !controller.signal.aborted && id === generation.current;
+      coverQueue.current = coverQueue.current.then(async () => {
+        for (let i = 0; i < fresh.length && current(); i += coverBatch) {
+          const batch = fresh.slice(i, i + coverBatch);
+          try {
+            const found = await lookupCovers(
+              batch.map(({ row }, n) => ({
+                id: String(n),
+                title: row.title,
+                author: row.author || "",
+                media_type: kind,
+              })),
+              controller!.signal,
+            );
+            if (!current()) return;
+            const mapped: Record<string, string> = {};
+            batch.forEach(({ key }, n) => {
+              const url = found[String(n)];
+              if (url) mapped[key] = url;
+            });
+            if (Object.keys(mapped).length)
+              setCovers((old) => ({ ...old, ...mapped }));
+          } catch {
+            /* Covers are best-effort; the placeholder stays. */
+          }
+        }
+      });
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [results]);
   async function search(value: string, kind: MediaType) {
     if (!value.trim()) return;
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
     const id = ++generation.current;
+    asked.current = new Set();
+    coverMedia.current = kind;
+    setCovers({});
     setLoading(true);
     setSearched(true);
     setResults([]);
@@ -479,7 +549,7 @@ export function Search({
               key={`${keyOf(result)}:${index}`}
             >
               <div className="relative">
-                <Cover result={result} />
+                <Cover result={result} lookedUp={covers[keyOf(result)]} />
                 <span className="absolute top-2 left-2 bg-slate-800 text-white text-xs px-2 py-1 rounded">
                   {result.source}
                 </span>
