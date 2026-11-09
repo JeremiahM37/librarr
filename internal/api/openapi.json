@@ -392,6 +392,22 @@
         "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
       }
     },
+    "/api/library/{id}/cover": {
+      "get": {
+        "summary": "Saved cover image for a library item",
+        "description": "Returns the image with its detected content type, or 404 when the item has no saved cover.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/library/manga": {
       "get": {
         "summary": "List manga"

@@ -20,7 +20,7 @@ import (
 // --- Library Items ---
 
 const libraryItemColumns = `id, title, author, file_path, original_path, file_size,
-	file_format, media_type, source, source_id, metadata, content_hash, added_at`
+	file_format, media_type, source, source_id, metadata, content_hash, added_at, cover_file`
 
 // AddItemOutcome describes whether AddItem inserted a new row or reused an
 // existing file-level identity.
@@ -529,7 +529,7 @@ func scanLibraryItems(rows *sql.Rows) ([]models.LibraryItem, error) {
 			&item.ID, &item.Title, &item.Author, &item.FilePath,
 			&item.OriginalPath, &item.FileSize, &item.FileFormat,
 			&item.MediaType, &item.Source, &item.SourceID,
-			&metadataStr, &item.ContentHash, &ts,
+			&metadataStr, &item.ContentHash, &ts, &item.CoverFile,
 		); err != nil {
 			return nil, err
 		}
@@ -552,6 +552,9 @@ func ItemToJSON(item models.LibraryItem) map[string]interface{} {
 		"source":        item.Source,
 		"source_id":     item.SourceID,
 		"added_at":      item.AddedAt.Format(time.RFC3339),
+	}
+	if item.CoverFile != "" {
+		m["cover_url"] = fmt.Sprintf("/api/library/%d/cover", item.ID)
 	}
 	if item.Metadata != "" && item.Metadata != "{}" {
 		var meta map[string]interface{}
