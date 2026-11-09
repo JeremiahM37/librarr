@@ -103,6 +103,22 @@ func TestCoverQueryText(t *testing.T) {
 	if got, want := coverQueryText("Dune", "Frank Herbert"), "Dune Frank Herbert"; got != want {
 		t.Errorf("coverQueryText = %q, want %q", got, want)
 	}
+	// Open Library ranks study guides above the book when the query has "by"
+	// or the release's punctuation in it.
+	tests := []struct{ title, want string }{
+		{"Sapiens: A Brief History of Humankind by Yuval Noah Harari [ENG / EPUB]",
+			"Sapiens A Brief History of Humankind Yuval Noah Harari"},
+		{"Sapiens: A Graphic History, Volume 2: The Pillars of Civilization by Yuval Noah Harari, David Vandermeulen, Daniel Casanave",
+			"Sapiens A Graphic History Volume 2 The Pillars of Civilization Yuval Noah Harari David Vandermeulen Daniel Casanave"},
+		// Only the "by" before the author goes.
+		{"Stand by Me by Stephen King", "Stand by Me Stephen King"},
+		{"Stand by Me - Stephen King", "Stand by Me Stephen King"},
+	}
+	for _, tt := range tests {
+		if got := coverQueryText(tt.title, ""); got != tt.want {
+			t.Errorf("coverQueryText(%q) = %q, want %q", tt.title, got, tt.want)
+		}
+	}
 }
 
 func TestMatchCoverDoc(t *testing.T) {

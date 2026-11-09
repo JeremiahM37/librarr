@@ -43,6 +43,7 @@ var (
 	coverDanglingRe = regexp.MustCompile(`\s*[:;,]+(\s+(?i:by)\s|\s+[-–—]\s|\s*$)`)
 	coverPunctGapRe = regexp.MustCompile(`\s+([:;,])`)
 	coverSubtitleRe = regexp.MustCompile(`[:;]`)
+	coverQueryPunct = regexp.MustCompile(`[:;,]`)
 	coverVolumeRe   = regexp.MustCompile(`(?i)\b(?:vol(?:ume)?|book|part|tome|episode)\.?\s*(?:\d+|[ivxlc]+|one|two|three|four|five|six|seven|eight|nine|ten)\b|#\s*\d+`)
 )
 
@@ -152,9 +153,21 @@ func CoverKey(kind CoverKind, title, author string) string {
 	return string(kind) + ":" + strings.Join(words, " ")
 }
 
-// coverQueryText is the free-text query sent to Open Library for a release name.
+// coverQueryText is the free-text query sent to Open Library for a release name:
+// its words without the separators. A "by" before the author is dropped, as
+// coverReadings reads it, because it ranks study guides ("Summary of Sapiens by
+// Yuval Noah Harari") above the book itself, often pushing the book out of the
+// results.
 func coverQueryText(title, author string) string {
-	text := coverDashRe.ReplaceAllString(cleanReleaseName(title), " ") + " " + author
+	text := cleanReleaseName(title)
+	if !strings.Contains(text, " - ") {
+		if loc := coverByRe.FindAllStringIndex(text, -1); len(loc) > 0 {
+			last := loc[len(loc)-1]
+			text = text[:last[0]] + " " + text[last[1]:]
+		}
+	}
+	text = coverDashRe.ReplaceAllString(text, " ")
+	text = coverQueryPunct.ReplaceAllString(text, " ") + " " + author
 	return strings.TrimSpace(coverSpaceRe.ReplaceAllString(text, " "))
 }
 
