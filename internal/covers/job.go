@@ -16,7 +16,6 @@ import (
 const (
 	jobBatchSize     = 25
 	jobRetryAfter    = 24 * time.Hour
-	jobItemDelay     = time.Second
 	jobStartDelay    = 30 * time.Second
 	jobCheckInterval = 5 * time.Minute
 )
@@ -31,7 +30,6 @@ type Job struct {
 	db         *db.DB
 	store      *Store
 	mediaTypes func() []string
-	delay      time.Duration
 	now        func() time.Time
 }
 
@@ -41,7 +39,6 @@ func NewJob(database *db.DB, store *Store, mediaTypes func() []string) *Job {
 		db:         database,
 		store:      store,
 		mediaTypes: mediaTypes,
-		delay:      jobItemDelay,
 		now:        time.Now,
 	}
 }
@@ -90,9 +87,6 @@ func (j *Job) RunOnce(ctx context.Context) {
 			}
 			if !j.process(ctx, &items[i]) {
 				return
-			}
-			if !sleepCtx(ctx, j.delay) {
-				break
 			}
 		}
 	}

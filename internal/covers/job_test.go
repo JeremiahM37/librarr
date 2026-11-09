@@ -38,7 +38,6 @@ func newJobEnv(t *testing.T) *jobEnv {
 		types: []string{"ebook"},
 	}
 	e.job = NewJob(database, e.store, func() []string { return e.types })
-	e.job.delay = 0
 	e.job.now = func() time.Time { return e.now }
 	return e
 }
@@ -241,33 +240,38 @@ func TestJobRegeneratesMissingFiles(t *testing.T) {
 
 func TestJobStopsOnCancel(t *testing.T) {
 	e := newJobEnv(t)
-	e.job.delay = time.Hour
 	a := e.add(t, "A", "ebook", epubWithCover(t, pngBytes))
-	b := e.add(t, "B", "ebook", epubWithCover(t, pngBytes))
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { e.job.RunOnce(ctx); close(done) }()
-	for i := 0; i < 200 && e.cover(t, a)+e.cover(t, b) == ""; i++ {
-		time.Sleep(10 * time.Millisecond)
-	}
 	cancel()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("RunOnce did not return")
-	}
-	n := 0
-	for _, id := range []int64{a, b} {
-		if e.cover(t, id) != "" {
-			n++
-		}
-	}
-	if n != 1 {
-		t.Fatalf("%d items processed, want 1", n)
+	e.job.RunOnce(ctx)
+	if got := e.cover(t, a); got != "" {
+		t.Fatalf("cover = %q after cancel", got)
 	}
 	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-24*time.Hour), 10)
 	if len(items) != 1 {
 		t.Fatalf("%d items left unmarked, want 1", len(items))
+	}
+}
+
+// Reading an embedded cover needs no network, so a pass doesn't pause between
+// items: a library is done in one quick pass, past the first batch.
+func TestJobDoesNotPauseForEmbeddedCovers(t *testing.T) {
+	e := newJobEnv(t)
+	var ids []int64
+	for i := 0; i < jobBatchSize+5; i++ {
+		ids = append(ids, e.add(t, fmt.Sprintf("Book %d", i), "ebook", epubWithCover(t, pngBytes)))
+	}
+	done := make(chan struct{})
+	go func() { e.job.RunOnce(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("pass took longer than 5s")
+	}
+	for _, id := range ids {
+		if e.cover(t, id) == "" {
+			t.Fatalf("item %d has no cover", id)
+		}
 	}
 }
 
