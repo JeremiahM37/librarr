@@ -1,11 +1,6 @@
 import { useEffect, useState } from "react";
-import { api,authStatus } from "./api";
+import { api, authStatus, type AuthStatus } from "./api";
 import { useTranslation } from "./i18n";
-interface Status {
-  authenticated: boolean;
-  user_id?: number;
-  role?: "admin" | "user";
-}
 interface Result {
   success: boolean;
   error?: string;
@@ -14,6 +9,7 @@ interface User {
   id: number;
   username: string;
   role: "admin" | "user";
+  auth_source?: "local" | "oidc";
   totp_enabled: boolean;
   last_login?: string;
 }
@@ -43,7 +39,7 @@ async function mutate(path: string, method: string, body?: unknown) {
 }
 
 export function AccountSettings() {
-  const [status, setStatus] = useState<Status>();
+  const [status, setStatus] = useState<AuthStatus>();
   const [error, setError] = useState("");
   useEffect(() => {
     let active = true;
@@ -62,9 +58,101 @@ export function AccountSettings() {
   if (!status?.authenticated) return null;
   return (
     <>
-      {status.user_id && <PasswordSettings />}
+      {status.user_id && (
+        <SignInMethod
+          sso={status.auth_source === "oidc"}
+          oidcEnabled={!!status.oidc_enabled}
+          provider={status.oidc_provider_name || "SSO"}
+        />
+      )}
+      {status.user_id && status.auth_source !== "oidc" && <PasswordSettings />}
       {status.role === "admin" && <UserSettings />}
     </>
+  );
+}
+// SignInMethod shows how the account signs in and lets a password account
+// link itself to SSO. Linking is permanent: the password and two-factor
+// settings are removed.
+function SignInMethod({
+  sso,
+  oidcEnabled,
+  provider,
+}: {
+  sso: boolean;
+  oidcEnabled: boolean;
+  provider: string;
+}) {
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+  if (sso)
+    return (
+      <section id="sign-in-method-section" className={card}>
+        <h3 className="text-lg font-semibold text-white">Sign-in method</h3>
+        <p>
+          You sign in with {provider}. Manage your password and two-factor
+          authentication there.
+        </p>
+      </section>
+    );
+  if (!oidcEnabled) return null;
+  async function link() {
+    setError("");
+    if (!password) {
+      setError("Enter your current password");
+      return;
+    }
+    setBusy(true);
+    try {
+      const result = await api<Result & { redirect?: string }>(
+        "/api/me/sso-link",
+        { method: "POST", body: JSON.stringify({ password }) },
+      );
+      if (!result.success || !result.redirect)
+        throw new Error(result.error || "Could not start linking");
+      window.location.assign(result.redirect);
+    } catch (error) {
+      setError(message(error));
+      setBusy(false);
+    }
+  }
+  return (
+    <section id="sign-in-method-section" className={card}>
+      <h3 className="text-lg font-semibold text-white">Sign-in method</h3>
+      <p>
+        You sign in with a password. Link this account to {provider} to sign
+        in there instead. This can't be undone from here: your password and
+        two-factor authentication are removed.
+      </p>
+      <form
+        id="sso-link-form"
+        className="space-y-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          void link();
+        }}
+      >
+        <label className="block">
+          Current password
+          <input
+            id="sso-link-password"
+            className={input}
+            type="password"
+            autoComplete="current-password"
+            value={password}
+            onChange={(event) => setPassword(event.target.value)}
+          />
+        </label>
+        {error && (
+          <p role="alert" className="text-red-400">
+            {error}
+          </p>
+        )}
+        <button disabled={busy} className={button}>
+          {busy ? "Redirecting…" : `Link to ${provider}`}
+        </button>
+      </form>
+    </section>
   );
 }
 function PasswordSettings() {
@@ -248,6 +336,9 @@ function UserSettings() {
           >
             <div>
               <strong>{user.username}</strong>
+              {user.auth_source === "oidc" && (
+                <span className="ml-2 text-sky-400">SSO</span>
+              )}
               {user.totp_enabled && (
                 <span className="ml-2 text-emerald-400">2FA</span>
               )}

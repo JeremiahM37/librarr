@@ -166,7 +166,7 @@ Resolved — OPDS Basic Auth is implemented, so the root catalog requires creden
 
 ### L2: OIDC sub not stored for account linking
 
-No DB column for OIDC `sub` yet; username collision possible across IdP changes. Document for future migration.
+Resolved — accounts store the provider's `sub` and OIDC logins match on it first. A username that is already linked to a different subject is rejected. An existing password account is linked only explicitly: its owner signs in with the password and links it, or an operator opts into `OIDC_LINK_BY_USERNAME` (off by default, never for admins) for a migration. Subjects are scoped to a single issuer: switching identity providers requires re-linking OIDC accounts.
 
 ### L3: DNS rebinding
 

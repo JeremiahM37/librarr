@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strconv"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/JeremiahM37/librarr/internal/config"
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/models"
 	"golang.org/x/crypto/bcrypt"
 )
 
@@ -253,10 +255,10 @@ func handleRegister(database *db.DB, sessions *SessionStore) http.HandlerFunc {
 			})
 			return
 		}
-		if len(req.Password) < 6 || len(req.Password) > 72 {
+		if !models.ValidPasswordLength(req.Password) {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 				"success": false,
-				"error":   "Password must be 6-72 characters",
+				"error":   fmt.Sprintf("Password must be %d-%d characters", models.PasswordMinLength, models.PasswordMaxLength),
 			})
 			return
 		}
@@ -398,6 +400,14 @@ func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStor
 			}
 		}
 
+		// How the signed-in account signs in, so the UI can offer linking
+		// SSO or hide password and TOTP settings.
+		if userID, _ := resp["user_id"].(int64); userID != 0 {
+			if user, err := database.GetUser(userID); err == nil {
+				resp["auth_source"] = user.AuthSource
+			}
+		}
+
 		writeJSON(w, http.StatusOK, resp)
 	}
 }
@@ -419,6 +429,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 			ID          int64  `json:"id"`
 			Username    string `json:"username"`
 			Role        string `json:"role"`
+			AuthSource  string `json:"auth_source"`
 			TOTPEnabled bool   `json:"totp_enabled"`
 			CreatedAt   string `json:"created_at"`
 			LastLogin   string `json:"last_login,omitempty"`
@@ -430,6 +441,7 @@ func handleListUsers(database *db.DB) http.HandlerFunc {
 				ID:          u.ID,
 				Username:    u.Username,
 				Role:        u.Role,
+				AuthSource:  u.AuthSource,
 				TOTPEnabled: u.TOTPEnabled,
 				CreatedAt:   u.CreatedAt.Format(time.RFC3339),
 			}
@@ -478,6 +490,40 @@ func handleUpdateUser(database *db.DB) http.HandlerFunc {
 				"error":   "User not found",
 			})
 			return
+		}
+
+		// Validate everything before writing anything, so a rejected request
+		// leaves the account untouched.
+		if req.Password != "" && !models.ValidPasswordLength(req.Password) {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   fmt.Sprintf("Password must be %d-%d characters", models.PasswordMinLength, models.PasswordMaxLength),
+			})
+			return
+		}
+		if req.Password != "" && user.IsOIDC() {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "This account signs in through SSO and cannot have a password",
+			})
+			return
+		}
+		if req.Role == "user" && user.Role == "admin" {
+			admins, err := database.CountAdmins()
+			if err != nil {
+				writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+					"success": false,
+					"error":   "Failed to update user",
+				})
+				return
+			}
+			if admins <= 1 {
+				writeJSON(w, http.StatusConflict, map[string]interface{}{
+					"success": false,
+					"error":   "Cannot demote the last admin account",
+				})
+				return
+			}
 		}
 
 		if req.Role != "" && (req.Role == "admin" || req.Role == "user") {
@@ -546,10 +592,10 @@ func handleChangeOwnPassword(database *db.DB) http.HandlerFunc {
 			return
 		}
 
-		if len(req.NewPassword) < 6 {
+		if !models.ValidPasswordLength(req.NewPassword) {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 				"success": false,
-				"error":   "New password must be at least 6 characters",
+				"error":   fmt.Sprintf("Password must be %d-%d characters", models.PasswordMinLength, models.PasswordMaxLength),
 			})
 			return
 		}
@@ -559,6 +605,14 @@ func handleChangeOwnPassword(database *db.DB) http.HandlerFunc {
 			writeJSON(w, http.StatusNotFound, map[string]interface{}{
 				"success": false,
 				"error":   "User not found",
+			})
+			return
+		}
+
+		if user.IsOIDC() {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "This account signs in through SSO; change your password with your identity provider",
 			})
 			return
 		}
@@ -619,18 +673,8 @@ func handleDeleteUser(database *db.DB) http.HandlerFunc {
 		// userID (id=0), so the self-delete check above does not protect them;
 		// without this guard, a leaked API key (or a misclicked SPA button)
 		// could nuke the only admin.
-		if users, err := database.ListUsers(); err == nil {
-			admins := 0
-			targetIsAdmin := false
-			for _, u := range users {
-				if u.Role == "admin" {
-					admins++
-					if u.ID == id {
-						targetIsAdmin = true
-					}
-				}
-			}
-			if targetIsAdmin && admins <= 1 {
+		if target, err := database.GetUser(id); err == nil && target.Role == "admin" {
+			if admins, err := database.CountAdmins(); err != nil || admins <= 1 {
 				writeJSON(w, http.StatusConflict, map[string]interface{}{
 					"success": false,
 					"error":   "Cannot delete the last admin account",

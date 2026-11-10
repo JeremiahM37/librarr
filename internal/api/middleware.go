@@ -82,7 +82,7 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 				username = ""
 			}
 			if username != "" {
-				if user, err := resolveOIDCUser(cfg, database, username); err == nil && user != nil {
+				if user, err := resolveOIDCUser(cfg, database, sessions, username, ""); err == nil && user != nil {
 					if sessions != nil {
 						if ensureSessionForUser(w, r, sessions, user) {
 							_ = database.UpdateLastLogin(user.ID)

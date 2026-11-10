@@ -15,7 +15,8 @@ interface Result {
   error?: string;
 }
 type Mode = "status" | "enroll" | "disable";
-export function AuthSettings() {
+// sso: the account signs in with SSO, whose provider owns two-factor.
+export function AuthSettings({ sso }: { sso: boolean }) {
   const { t } = useTranslation();
   const [enabled, setEnabled] = useState<boolean>();
   const [mode, setMode] = useState<Mode>("status");
@@ -25,6 +26,7 @@ export function AuthSettings() {
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   useEffect(() => {
+    if (sso) return;
     let active = true;
     void api<{ enabled: boolean }>("/api/totp/status")
       .then((d) => {
@@ -36,7 +38,7 @@ export function AuthSettings() {
     return () => {
       active = false;
     };
-  }, []);
+  }, [sso]);
   async function setup() {
     setBusy(true);
     setError("");
@@ -91,6 +93,7 @@ export function AuthSettings() {
     setCode("");
     setError("");
   }
+  if (sso) return <></>;
   return (
     <section
       id="totp-settings"

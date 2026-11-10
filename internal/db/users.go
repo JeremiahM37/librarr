@@ -2,6 +2,7 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"time"
 
@@ -9,6 +10,14 @@ import (
 )
 
 // --- Users ---
+
+// userColumns is the column list every user SELECT reads, in the order
+// scanUser and scanUserFromRows scan them.
+const userColumns = `id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login, auth_source, oidc_subject`
+
+// unusablePasswordHash is stored for OIDC accounts. It is not a valid bcrypt
+// hash, so bcrypt.CompareHashAndPassword rejects every password against it.
+const unusablePasswordHash = "!"
 
 // CreateUser inserts a new user. Returns the new user ID.
 func (d *DB) CreateUser(username, passwordHash, role string) (int64, error) {
@@ -25,10 +34,140 @@ func (d *DB) CreateUser(username, passwordHash, role string) (int64, error) {
 	return result.LastInsertId()
 }
 
+// CreateOIDCUser inserts an account that signs in only through the OIDC
+// provider. subject may be "" when the identity came from proxy headers; it is
+// filled in on the account's first direct OIDC login.
+func (d *DB) CreateOIDCUser(username, subject, role string) (int64, error) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	result, err := d.db.Exec(
+		`INSERT INTO users (username, password_hash, role, created_at, auth_source, oidc_subject) VALUES (?, ?, ?, ?, ?, ?)`,
+		username, unusablePasswordHash, role, float64(time.Now().Unix()), models.AuthSourceOIDC, subject,
+	)
+	if err != nil {
+		return 0, err
+	}
+	return result.LastInsertId()
+}
+
+// GetUserByOIDCSubject retrieves the account linked to an OIDC subject.
+func (d *DB) GetUserByOIDCSubject(subject string) (*models.User, error) {
+	if subject == "" {
+		return nil, sql.ErrNoRows
+	}
+	row := d.db.QueryRow(`SELECT `+userColumns+` FROM users WHERE oidc_subject = ?`, subject)
+	return scanUser(row)
+}
+
+// ErrUserNotClaimable is returned by ClaimUserForOIDC and LinkUserToOIDC when
+// the account cannot be converted: it already signs in with SSO, is an admin
+// (claims only), or is gone.
+var ErrUserNotClaimable = errors.New("user cannot be linked to OIDC")
+
+// ClaimUserForOIDC converts a local non-admin account into an OIDC account
+// linked to subject. It backs OIDC_LINK_BY_USERNAME, so it never touches
+// admins: an admin links only by signing in and calling LinkUserToOIDC.
+func (d *DB) ClaimUserForOIDC(id int64, subject string) error {
+	return d.convertToOIDC(id, subject, false)
+}
+
+// LinkUserToOIDC converts a local account, admins included, into an OIDC
+// account linked to subject. Callers must have proven the account's password.
+func (d *DB) LinkUserToOIDC(id int64, subject string) error {
+	return d.convertToOIDC(id, subject, true)
+}
+
+// convertToOIDC permanently converts a local account into an OIDC account.
+// Its password, TOTP secret and backup codes are removed, so the account can
+// no longer sign in locally.
+func (d *DB) convertToOIDC(id int64, subject string, allowAdmin bool) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	tx, err := d.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	query := `UPDATE users SET auth_source = ?, oidc_subject = ?, password_hash = ?, totp_enabled = 0, totp_secret = NULL
+		 WHERE id = ? AND auth_source = ?`
+	if !allowAdmin {
+		query += ` AND role != 'admin'`
+	}
+	result, err := tx.Exec(query, models.AuthSourceOIDC, subject, unusablePasswordHash, id, models.AuthSourceLocal)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return ErrUserNotClaimable
+	}
+	if _, err := tx.Exec(`DELETE FROM backup_codes WHERE user_id = ?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+// ConvertToLocal turns any account back into a local one with the given
+// password hash, unlinking its OIDC subject. It is the recovery path for
+// `librarr reset-password --unlink-sso`.
+func (d *DB) ConvertToLocal(id int64, passwordHash string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	result, err := d.db.Exec(
+		`UPDATE users SET auth_source = ?, oidc_subject = '', password_hash = ? WHERE id = ?`,
+		models.AuthSourceLocal, passwordHash, id,
+	)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return fmt.Errorf("user not found")
+	}
+	return nil
+}
+
+// SetOIDCSubject links an OIDC account that has no subject yet (created from
+// proxy headers) to subject. It never overwrites an existing link.
+func (d *DB) SetOIDCSubject(id int64, subject string) error {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	result, err := d.db.Exec(
+		`UPDATE users SET oidc_subject = ? WHERE id = ? AND auth_source = ? AND oidc_subject = ''`,
+		subject, id, models.AuthSourceOIDC,
+	)
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return fmt.Errorf("user %d is not an unlinked OIDC account", id)
+	}
+	return nil
+}
+
+// CountAdmins returns the number of admin accounts, whatever their sign-in
+// method.
+func (d *DB) CountAdmins() (int, error) {
+	var count int
+	err := d.db.QueryRow(`SELECT COUNT(*) FROM users WHERE role = 'admin'`).Scan(&count)
+	return count, err
+}
+
 // GetUser retrieves a user by ID.
 func (d *DB) GetUser(id int64) (*models.User, error) {
 	row := d.db.QueryRow(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users WHERE id = ?`, id,
+		`SELECT `+userColumns+` FROM users WHERE id = ?`, id,
 	)
 	return scanUser(row)
 }
@@ -36,7 +175,7 @@ func (d *DB) GetUser(id int64) (*models.User, error) {
 // GetUserByUsername retrieves a user by username (case-insensitive).
 func (d *DB) GetUserByUsername(username string) (*models.User, error) {
 	row := d.db.QueryRow(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users WHERE username = ? COLLATE NOCASE`, username,
+		`SELECT `+userColumns+` FROM users WHERE username = ? COLLATE NOCASE`, username,
 	)
 	return scanUser(row)
 }
@@ -44,7 +183,7 @@ func (d *DB) GetUserByUsername(username string) (*models.User, error) {
 // ListUsers returns all users.
 func (d *DB) ListUsers() ([]models.User, error) {
 	rows, err := d.db.Query(
-		`SELECT id, username, password_hash, role, totp_secret, totp_enabled, created_at, last_login FROM users ORDER BY created_at ASC`,
+		`SELECT ` + userColumns + ` FROM users ORDER BY created_at ASC`,
 	)
 	if err != nil {
 		return nil, err
@@ -181,7 +320,7 @@ func scanUser(row *sql.Row) (*models.User, error) {
 	var lastLogin sql.NullFloat64
 	var totpSecret sql.NullString
 
-	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
+	err := row.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin, &u.AuthSource, &u.OIDCSubject)
 	if err != nil {
 		return nil, err
 	}
@@ -201,7 +340,7 @@ func scanUserFromRows(rows *sql.Rows) (*models.User, error) {
 	var lastLogin sql.NullFloat64
 	var totpSecret sql.NullString
 
-	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin)
+	err := rows.Scan(&u.ID, &u.Username, &u.PasswordHash, &u.Role, &totpSecret, &u.TOTPEnabled, &createdAt, &lastLogin, &u.AuthSource, &u.OIDCSubject)
 	if err != nil {
 		return nil, err
 	}

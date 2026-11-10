@@ -202,6 +202,12 @@ type UploadRecord struct {
 	CreatedAt    time.Time `json:"created_at"`
 }
 
+// Auth sources for a User. Every account signs in exactly one way.
+const (
+	AuthSourceLocal = "local" // username + password (optionally TOTP)
+	AuthSourceOIDC  = "oidc"  // the configured OpenID Connect provider
+)
+
 // User represents a registered user.
 type User struct {
 	ID           int64     `json:"id"`
@@ -212,7 +218,24 @@ type User struct {
 	TOTPEnabled  bool      `json:"totp_enabled"`
 	CreatedAt    time.Time `json:"created_at"`
 	LastLogin    time.Time `json:"last_login,omitempty"`
+	AuthSource   string    `json:"auth_source"` // AuthSourceLocal or AuthSourceOIDC
+	OIDCSubject  string    `json:"-"`           // provider "sub"; "" until first OIDC login
 }
+
+// Password length limits for local accounts. bcrypt reads at most 72 bytes
+// and rejects longer input.
+const (
+	PasswordMinLength = 6
+	PasswordMaxLength = 72
+)
+
+// ValidPasswordLength reports whether password fits the limits above.
+func ValidPasswordLength(password string) bool {
+	return len(password) >= PasswordMinLength && len(password) <= PasswordMaxLength
+}
+
+// IsOIDC reports whether the account signs in through the OIDC provider.
+func (u *User) IsOIDC() bool { return u.AuthSource == AuthSourceOIDC }
 
 // DownloadRequest is the payload for the POST /api/download endpoint.
 type DownloadRequest struct {

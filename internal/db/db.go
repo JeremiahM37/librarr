@@ -334,6 +334,10 @@ func (d *DB) migrate() error {
 		`ALTER TABLE quality_profiles ADD COLUMN builtin INTEGER NOT NULL DEFAULT 0`,
 		// Author monitoring can add new works to the wanted list.
 		`ALTER TABLE monitored_authors ADD COLUMN auto_add INTEGER NOT NULL DEFAULT 1`,
+		// Each account signs in one way: a local password or the OIDC
+		// provider. Rows that predate this column are local until claimed.
+		`ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`,
+		`ALTER TABLE users ADD COLUMN oidc_subject TEXT NOT NULL DEFAULT ''`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := d.db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {
@@ -357,6 +361,8 @@ func (d *DB) migrate() error {
 		)`,
 		`CREATE INDEX IF NOT EXISTS idx_wishlist_active_job ON wishlist(active_job_id)`,
 		`CREATE INDEX IF NOT EXISTS idx_wishlist_library_item ON wishlist(library_item_id)`,
+		// One account per OIDC subject. Unlinked rows hold '' and are exempt.
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_subject ON users(oidc_subject) WHERE oidc_subject != ''`,
 	}
 	for _, m := range postMigrations {
 		if _, err := d.db.Exec(m); err != nil {

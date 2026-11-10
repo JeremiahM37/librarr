@@ -168,6 +168,11 @@ type Config struct {
 	OIDCDefaultRole          string
 	OIDCRequireEmailVerified bool
 	OIDCProxyHeaders         bool
+	// OIDCLinkByUsername lets an SSO login convert an existing local
+	// non-admin account with the same username. Off by default: SSO usernames
+	// can come from claims the user controls. Turn it on to migrate accounts
+	// that SSO created before accounts were linked by subject.
+	OIDCLinkByUsername bool
 
 	// Deluge
 	DelugeURL      string
@@ -292,9 +297,16 @@ func (c *Config) probeSettingsFileWritable() {
 	_ = os.Remove(probe)
 }
 
+// DBPathFromEnv returns the SQLite database path: LIBRARR_DB_PATH, or
+// /data/librarr.db. Commands that need only the database use it instead of
+// Load, which also reads settings and fetches the sources registry.
+func DBPathFromEnv() string {
+	return getEnv("LIBRARR_DB_PATH", "/data/librarr.db")
+}
+
 // buildFromEnv returns a Config populated from environment variables and defaults.
 func buildFromEnv() *Config {
-	dbPath := getEnv("LIBRARR_DB_PATH", "/data/librarr.db")
+	dbPath := DBPathFromEnv()
 	cachePath := filepath.Join(filepath.Dir(dbPath), "sources-cache.json")
 	registry := sources.Load(
 		getEnv("LIBRARR_SOURCES_PATH", ""),
@@ -411,7 +423,7 @@ func buildFromEnv() *Config {
 
 		LNCrawlContainer: getEnv("LNCRAWL_CONTAINER", ""),
 
-		SettingsFile: deriveSettingsFile(os.Getenv("SETTINGS_FILE"), getEnv("LIBRARR_DB_PATH", "/data/librarr.db")),
+		SettingsFile: deriveSettingsFile(os.Getenv("SETTINGS_FILE"), dbPath),
 
 		OIDCEnabled:              getEnvBool("OIDC_ENABLED", false),
 		OIDCProviderName:         getEnv("OIDC_PROVIDER_NAME", "SSO"),
@@ -423,6 +435,8 @@ func buildFromEnv() *Config {
 		OIDCDefaultRole:          getEnv("OIDC_DEFAULT_ROLE", "user"),
 		OIDCRequireEmailVerified: getEnvBool("OIDC_REQUIRE_EMAIL_VERIFIED", true),
 		OIDCProxyHeaders:         getEnvBool("OIDC_PROXY_HEADERS_ENABLED", false),
+
+		OIDCLinkByUsername: getEnvBool("OIDC_LINK_BY_USERNAME", false),
 
 		DelugeURL:      getEnv("DELUGE_URL", ""),
 		DelugePassword: getEnv("DELUGE_PASSWORD", ""),

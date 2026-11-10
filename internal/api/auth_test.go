@@ -4,9 +4,12 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -440,6 +443,9 @@ func TestAuthMiddleware_AcceptsAuthentikProxyHeaders(t *testing.T) {
 	setTrustedProxies([]string{"192.0.2.1"})
 	t.Cleanup(func() { setTrustedProxies(nil) })
 
+	// SSO needs a local admin to exist first.
+	seedLocalUser(t, database, "root", "admin")
+
 	var gotUsername, gotRole string
 	var gotUserID int64
 	handler := authMiddleware(newOIDCTestConfig(), database, sessions, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -460,14 +466,16 @@ func TestAuthMiddleware_AcceptsAuthentikProxyHeaders(t *testing.T) {
 	if gotUsername != "alice" {
 		t.Fatalf("username = %q, want alice", gotUsername)
 	}
-	if gotRole != "admin" {
-		t.Fatalf("role = %q, want admin for first SSO user", gotRole)
+	if gotRole != "user" {
+		t.Fatalf("role = %q, want the OIDC default role", gotRole)
 	}
 	if gotUserID == 0 {
 		t.Fatal("expected a resolved user ID")
 	}
-	if _, err := database.GetUserByUsername("alice"); err != nil {
+	if u, err := database.GetUserByUsername("alice"); err != nil {
 		t.Fatalf("expected alice user to be created: %v", err)
+	} else if !u.IsOIDC() {
+		t.Fatalf("auth_source = %q, want oidc", u.AuthSource)
 	}
 
 	var sessionCookie bool
@@ -566,7 +574,8 @@ func TestHandleAuthStatus_AuthentikProxyHeaders(t *testing.T) {
 	t.Cleanup(func() { database.Close() })
 	sessions := NewSessionStore()
 
-	user, err := resolveOIDCUser(newOIDCTestConfig(), database, "alice")
+	seedLocalUser(t, database, "root", "admin")
+	user, err := resolveOIDCUser(newOIDCTestConfig(), database, sessions, "alice", "")
 	if err != nil {
 		t.Fatalf("seed SSO user: %v", err)
 	}
@@ -592,8 +601,8 @@ func TestHandleAuthStatus_AuthentikProxyHeaders(t *testing.T) {
 	if got, _ := resp["username"].(string); got != "alice" {
 		t.Fatalf("username = %q, want alice", got)
 	}
-	if got, _ := resp["role"].(string); got != "admin" {
-		t.Fatalf("role = %q, want admin", got)
+	if got, _ := resp["role"].(string); got != "user" {
+		t.Fatalf("role = %q, want user", got)
 	}
 	if got, _ := resp["user_id"].(float64); got == 0 {
 		t.Fatal("expected a resolved user_id")
@@ -661,5 +670,425 @@ func TestAuthMiddleware_OpenInstanceGrantsAdmin(t *testing.T) {
 	}
 	if gotRole != "admin" {
 		t.Fatalf("role = %q, want admin on an open instance", gotRole)
+	}
+}
+
+// --- OIDC account identity ---
+
+func newTestDB(t *testing.T) *db.DB {
+	t.Helper()
+	database, err := db.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatalf("create test db: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+	return database
+}
+
+// seedLocalUser creates a local account with password "password".
+func seedLocalUser(t *testing.T, database *db.DB, username, role string) int64 {
+	t.Helper()
+	hash, err := hashPassword("password")
+	if err != nil {
+		t.Fatalf("hash password: %v", err)
+	}
+	id, err := database.CreateUser(username, hash, role)
+	if err != nil {
+		t.Fatalf("seed user %s: %v", username, err)
+	}
+	return id
+}
+
+func seedOIDCUser(t *testing.T, database *db.DB, username, subject, role string) int64 {
+	t.Helper()
+	id, err := database.CreateOIDCUser(username, subject, role)
+	if err != nil {
+		t.Fatalf("seed OIDC user %s: %v", username, err)
+	}
+	return id
+}
+
+func TestResolveOIDCUser_RefusedWithoutAdmin(t *testing.T) {
+	database := newTestDB(t)
+	// A non-admin alone doesn't count: the first SSO user must not become
+	// the only way in.
+	seedLocalUser(t, database, "bob", "user")
+
+	_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice")
+	if !errors.Is(err, errOIDCNoAdmin) {
+		t.Fatalf("err = %v, want errOIDCNoAdmin", err)
+	}
+	if _, err := database.GetUserByUsername("alice"); err == nil {
+		t.Fatal("alice must not be created without an admin")
+	}
+}
+
+func TestResolveOIDCUser_SSOAdminIsEnough(t *testing.T) {
+	database := newTestDB(t)
+	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+
+	if _, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice"); err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+}
+
+func TestResolveOIDCUser_CreatesOIDCUserWithSubject(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+
+	user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-alice")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if !user.IsOIDC() || user.OIDCSubject != "sub-alice" || user.Role != "user" {
+		t.Fatalf("got source=%q subject=%q role=%q", user.AuthSource, user.OIDCSubject, user.Role)
+	}
+	if checkPassword("", user.PasswordHash) || checkPassword("!", user.PasswordHash) {
+		t.Fatal("OIDC account must have an unusable password hash")
+	}
+}
+
+func TestResolveOIDCUser_MatchesBySubject(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	// The IdP renamed the user; the subject still identifies them.
+	user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice-renamed", "sub-alice")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if user.ID != id {
+		t.Fatalf("user ID = %d, want %d", user.ID, id)
+	}
+	if _, err := database.GetUserByUsername("alice-renamed"); err == nil {
+		t.Fatal("subject match must not create a second account")
+	}
+}
+
+func TestResolveOIDCUser_ProxyCreatedUserNotLinkedByDefault(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "", "user")
+
+	// A direct SSO login whose username claim matches must not bind its
+	// subject to the proxy-created account.
+	_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-mallory")
+	if !errors.Is(err, errOIDCProxyAccountUnlinked) {
+		t.Fatalf("err = %v, want errOIDCProxyAccountUnlinked", err)
+	}
+	if stored, _ := database.GetUser(id); stored.OIDCSubject != "" {
+		t.Fatalf("subject = %q, want it left empty", stored.OIDCSubject)
+	}
+	// Proxy logins keep working.
+	if user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", ""); err != nil || user.ID != id {
+		t.Fatalf("proxy login: user=%v err=%v", user, err)
+	}
+}
+
+func TestResolveOIDCUser_LinksSubjectToProxyCreatedUserWithLinkByUsername(t *testing.T) {
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "", "user")
+
+	user, err := resolveOIDCUser(cfg, database, NewSessionStore(), "alice", "sub-alice")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if user.ID != id {
+		t.Fatalf("user ID = %d, want %d", user.ID, id)
+	}
+	stored, _ := database.GetUser(id)
+	if stored.OIDCSubject != "sub-alice" {
+		t.Fatalf("stored subject = %q, want sub-alice", stored.OIDCSubject)
+	}
+}
+
+func TestResolveOIDCUser_ProxyMatchesOIDCUserByUsername(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	user, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if user.ID != id {
+		t.Fatalf("user ID = %d, want %d", user.ID, id)
+	}
+}
+
+func TestResolveOIDCUser_SubjectMismatchRejected(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	// A different IdP identity that claims the same username.
+	_, err := resolveOIDCUser(newOIDCTestConfig(), database, NewSessionStore(), "alice", "sub-mallory")
+	if !errors.Is(err, errOIDCSubjectMismatch) {
+		t.Fatalf("err = %v, want errOIDCSubjectMismatch", err)
+	}
+}
+
+func TestResolveOIDCUser_LocalAdminNotClaimable(t *testing.T) {
+	// Not even with OIDC_LINK_BY_USERNAME: admins link only explicitly.
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
+	for _, subject := range []string{"sub-root", ""} {
+		database := newTestDB(t)
+		id := seedLocalUser(t, database, "root", "admin")
+
+		_, err := resolveOIDCUser(cfg, database, NewSessionStore(), "root", subject)
+		if !errors.Is(err, errOIDCLocalAdmin) {
+			t.Fatalf("subject %q: err = %v, want errOIDCLocalAdmin", subject, err)
+		}
+		stored, _ := database.GetUser(id)
+		if stored.IsOIDC() || !checkPassword("password", stored.PasswordHash) {
+			t.Fatalf("subject %q: local admin was modified", subject)
+		}
+	}
+}
+
+func TestResolveOIDCUser_LocalUserNotLinkedByDefault(t *testing.T) {
+	for _, subject := range []string{"sub-bob", ""} {
+		database := newTestDB(t)
+		seedLocalUser(t, database, "root", "admin")
+		id := seedLocalUser(t, database, "bob", "user")
+		sessions := NewSessionStore()
+		token, _ := sessions.Create(id, "bob", "user")
+
+		_, err := resolveOIDCUser(newOIDCTestConfig(), database, sessions, "bob", subject)
+		if !errors.Is(err, errOIDCLinkRequired) {
+			t.Fatalf("subject %q: err = %v, want errOIDCLinkRequired", subject, err)
+		}
+		stored, _ := database.GetUser(id)
+		if stored.IsOIDC() || !checkPassword("password", stored.PasswordHash) || !sessions.Valid(token) {
+			t.Fatalf("subject %q: the local account must be left alone", subject)
+		}
+	}
+}
+
+func TestResolveOIDCUser_ClaimsLocalUserWithLinkByUsername(t *testing.T) {
+	cfg := newOIDCTestConfig()
+	cfg.OIDCLinkByUsername = true
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedLocalUser(t, database, "bob", "user")
+	if err := database.SetTOTPSecret(id, "JBSWY3DPEHPK3PXP"); err != nil {
+		t.Fatalf("set totp: %v", err)
+	}
+	if err := database.EnableTOTP(id); err != nil {
+		t.Fatalf("enable totp: %v", err)
+	}
+	if err := database.SaveBackupCodes(id, []string{hashBackupCode("12345678")}); err != nil {
+		t.Fatalf("save backup codes: %v", err)
+	}
+
+	sessions := NewSessionStore()
+	oldToken, _ := sessions.Create(id, "bob", "user")
+	otherToken, _ := sessions.Create(999, "other", "user")
+	pending, _ := sessions.CreatePendingTOTP(id)
+
+	user, err := resolveOIDCUser(cfg, database, sessions, "bob", "sub-bob")
+	if err != nil {
+		t.Fatalf("resolve: %v", err)
+	}
+	if user.ID != id || !user.IsOIDC() || user.OIDCSubject != "sub-bob" {
+		t.Fatalf("got id=%d source=%q subject=%q", user.ID, user.AuthSource, user.OIDCSubject)
+	}
+	if checkPassword("password", user.PasswordHash) {
+		t.Fatal("claimed account must not accept its old password")
+	}
+	if user.TOTPEnabled || user.TOTPSecret != "" {
+		t.Fatal("claimed account must have TOTP cleared")
+	}
+	if used, _ := database.UseBackupCode(id, hashBackupCode("12345678")); used {
+		t.Fatal("claimed account must have its backup codes removed")
+	}
+	if sessions.Valid(oldToken) {
+		t.Fatal("old local session must be revoked")
+	}
+	if _, ok := sessions.ValidatePendingTOTP(pending); ok {
+		t.Fatal("pending TOTP login must be revoked")
+	}
+	if !sessions.Valid(otherToken) {
+		t.Fatal("other users' sessions must be kept")
+	}
+
+	// The claim is permanent: the next login matches by subject.
+	again, err := resolveOIDCUser(cfg, database, sessions, "bob", "sub-bob")
+	if err != nil || again.ID != id {
+		t.Fatalf("second login: user=%v err=%v", again, err)
+	}
+}
+
+func TestResolveOIDCUser_NoAutoCreate(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	cfg := newOIDCTestConfig()
+	cfg.OIDCAutoCreateUsers = false
+
+	if _, err := resolveOIDCUser(cfg, database, NewSessionStore(), "alice", "sub-alice"); err == nil {
+		t.Fatal("expected an error when auto-creation is disabled")
+	}
+}
+
+func TestAuthMiddleware_ProxyHeaderForLocalAdminFallsThrough(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	setTrustedProxies([]string{"192.0.2.1"})
+	t.Cleanup(func() { setTrustedProxies(nil) })
+
+	called := false
+	handler := authMiddleware(newOIDCTestConfig(), database, NewSessionStore(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	req := httptest.NewRequest(http.MethodGet, "/api/config", nil)
+	req.Header.Set("X-Authentik-Username", "root")
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+
+	if called || rr.Code != http.StatusUnauthorized {
+		t.Fatalf("called=%v status=%d, want the normal 401 without a session", called, rr.Code)
+	}
+}
+
+// adminRequest builds a request carrying an admin session context.
+func adminRequest(method, target, body string, adminID int64) *http.Request {
+	req := httptest.NewRequest(method, target, strings.NewReader(body))
+	ctx := context.WithValue(req.Context(), ctxUserID, adminID)
+	ctx = context.WithValue(ctx, ctxUserRole, "admin")
+	ctx = context.WithValue(ctx, ctxUsername, "admin")
+	return req.WithContext(ctx)
+}
+
+func TestHandleUpdateUser_RejectsPasswordForOIDCUser(t *testing.T) {
+	database := newTestDB(t)
+	adminID := seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	req := adminRequest(http.MethodPatch, "/api/users/x", `{"role":"admin","password":"newpassword"}`, adminID)
+	req.SetPathValue("id", strconv.FormatInt(id, 10))
+	rr := httptest.NewRecorder()
+	handleUpdateUser(database)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	stored, _ := database.GetUser(id)
+	if stored.Role != "user" {
+		t.Fatal("role must not change when the request is rejected")
+	}
+	if checkPassword("newpassword", stored.PasswordHash) {
+		t.Fatal("OIDC account must not get a password")
+	}
+}
+
+func TestHandleUpdateUser_RejectsDemotingLastAdmin(t *testing.T) {
+	database := newTestDB(t)
+	id := seedLocalUser(t, database, "root", "admin")
+	seedLocalUser(t, database, "bob", "user")
+
+	req := adminRequest(http.MethodPatch, "/api/users/x", `{"role":"user","password":"newpassword"}`, id)
+	req.SetPathValue("id", strconv.FormatInt(id, 10))
+	rr := httptest.NewRecorder()
+	handleUpdateUser(database)(rr, req)
+
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409; body=%s", rr.Code, rr.Body.String())
+	}
+	stored, _ := database.GetUser(id)
+	if stored.Role != "admin" || !checkPassword("password", stored.PasswordHash) {
+		t.Fatal("rejected request must not change the role or password")
+	}
+}
+
+func TestHandleUpdateUser_AllowsDemotingWithAnotherAdmin(t *testing.T) {
+	database := newTestDB(t)
+	id := seedLocalUser(t, database, "root", "admin")
+	// An SSO admin counts: the reset-password command recovers it.
+	seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+
+	req := adminRequest(http.MethodPatch, "/api/users/x", `{"role":"user"}`, id)
+	req.SetPathValue("id", strconv.FormatInt(id, 10))
+	rr := httptest.NewRecorder()
+	handleUpdateUser(database)(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleDeleteUser_AllowsDeletingLocalAdminWithSSOAdmin(t *testing.T) {
+	database := newTestDB(t)
+	id := seedLocalUser(t, database, "root", "admin")
+	ssoAdmin := seedOIDCUser(t, database, "sso-admin", "sub-admin", "admin")
+
+	req := adminRequest(http.MethodDelete, "/api/users/x", "", ssoAdmin)
+	req.SetPathValue("id", strconv.FormatInt(id, 10))
+	rr := httptest.NewRecorder()
+	handleDeleteUser(database)(rr, req)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleChangeOwnPassword_RejectsOIDCUser(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	req := adminRequest(http.MethodPost, "/api/me/password", `{"current_password":"x","new_password":"newpassword"}`, id)
+	rr := httptest.NewRecorder()
+	handleChangeOwnPassword(database)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+}
+
+func TestHandleTOTPSetup_RejectsOIDCUser(t *testing.T) {
+	database := newTestDB(t)
+	seedLocalUser(t, database, "root", "admin")
+	id := seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	req := adminRequest(http.MethodPost, "/api/totp/setup", "", id)
+	rr := httptest.NewRecorder()
+	handleTOTPSetup(database)(rr, req)
+
+	if rr.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400; body=%s", rr.Code, rr.Body.String())
+	}
+	if stored, _ := database.GetUser(id); stored.TOTPSecret != "" {
+		t.Fatal("OIDC account must not get a TOTP secret")
+	}
+}
+
+func TestHandleListUsers_IncludesAuthSource(t *testing.T) {
+	database := newTestDB(t)
+	adminID := seedLocalUser(t, database, "root", "admin")
+	seedOIDCUser(t, database, "alice", "sub-alice", "user")
+
+	rr := httptest.NewRecorder()
+	handleListUsers(database)(rr, adminRequest(http.MethodGet, "/api/users", "", adminID))
+
+	var resp struct {
+		Users []map[string]any `json:"users"`
+	}
+	if err := json.Unmarshal(rr.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	got := map[string]string{}
+	for _, u := range resp.Users {
+		got[u["username"].(string)], _ = u["auth_source"].(string)
+		if _, leaked := u["oidc_subject"]; leaked {
+			t.Fatal("oidc_subject must not be exposed")
+		}
+	}
+	if got["root"] != "local" || got["alice"] != "oidc" {
+		t.Fatalf("auth_source = %v", got)
 	}
 }

@@ -74,6 +74,14 @@ func handleTOTPSetup(database *db.DB) http.HandlerFunc {
 			return
 		}
 
+		if user.IsOIDC() {
+			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
+				"success": false,
+				"error":   "This account signs in through SSO; set up two-factor authentication with your identity provider",
+			})
+			return
+		}
+
 		if user.TOTPEnabled {
 			writeJSON(w, http.StatusBadRequest, map[string]interface{}{
 				"success": false,

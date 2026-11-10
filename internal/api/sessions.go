@@ -156,3 +156,21 @@ func (s *SessionStore) Delete(token string) {
 	delete(s.sessions, token)
 	s.mu.Unlock()
 }
+
+// DeleteForUser revokes every session and pending TOTP login belonging to
+// userID. It is used when an account changes how it signs in, so sessions
+// minted under the old method stop working at once.
+func (s *SessionStore) DeleteForUser(userID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for token, data := range s.sessions {
+		if data.UserID == userID {
+			delete(s.sessions, token)
+		}
+	}
+	for token, pending := range s.pendingTOTP {
+		if pending.UserID == userID {
+			delete(s.pendingTOTP, token)
+		}
+	}
+}
