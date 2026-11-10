@@ -132,7 +132,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	// Initialize OIDC handler if configured.
 	s.oidc = NewOIDCHandler(cfg, database, sessions)
 	if cfg.LocalAuthDisabled && s.oidc == nil {
-		slog.Warn("LOCAL_AUTH_DISABLED is set but OIDC is not available; local sign-in stays enabled")
+		slog.Warn("LOCAL_AUTH_DISABLED is set but OIDC is not available; local sign-in stays enabled until restart")
 	}
 
 	// Initialize rate limiter if enabled.

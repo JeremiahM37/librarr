@@ -297,8 +297,12 @@ their SSO logins are refused until they are linked:
 **SSO-only sign-in.** With `LOCAL_AUTH_DISABLED=true` the login page goes
 straight to the identity provider. Password sign-in and registration are
 refused for everyone except local admins, who sign in at `/login?local=1`. The
-first-run admin account can still be registered. If the provider fails to
-initialise at startup, local sign-in stays enabled so you are not locked out.
+first-run admin account can still be registered. Librarr tries to reach the
+provider up to three times at startup, five seconds apart (configuration
+errors such as a wrong issuer are not retried). If it still can't, local
+sign-in stays enabled until the next restart, so you are not locked out. When
+the provider starts alongside Librarr, start it first (in Compose,
+`depends_on` with a health check).
 Non-admin password accounts can no longer sign in to link themselves, so have
 them link first, or migrate them with `OIDC_LINK_BY_USERNAME`.
 

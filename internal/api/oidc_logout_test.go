@@ -2,10 +2,12 @@ package api
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
 )
@@ -159,5 +161,96 @@ func TestHandleLogout_ProxySessionUsesOverride(t *testing.T) {
 
 	if got := decodeBody(t, rr)["logout_url"]; got != "/outpost.goauthentik.io/sign_out" {
 		t.Fatalf("logout_url = %v", got)
+	}
+}
+
+func TestNewOIDCHandler_RetriesDiscovery(t *testing.T) {
+	// The provider answers only from the second request on, as one that is
+	// still starting would.
+	var requests int
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                srv.URL,
+			"authorization_endpoint":                srv.URL + "/authorize",
+			"token_endpoint":                        srv.URL + "/token",
+			"jwks_uri":                              srv.URL + "/jwks",
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+	cfg := newOIDCTestConfig()
+	cfg.OIDCIssuer = srv.URL
+
+	var waits []time.Duration
+	sleep := func(d time.Duration) { waits = append(waits, d) }
+	if h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), sleep); h == nil {
+		t.Fatal("expected the handler to initialise on the retry")
+	}
+	if requests != 2 || len(waits) != 1 || waits[0] != oidcDiscoveryRetryWait {
+		t.Fatalf("requests=%d waits=%v", requests, waits)
+	}
+}
+
+func TestNewOIDCHandler_GivesUpAfterRetries(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := newOIDCTestConfig()
+	cfg.OIDCIssuer = srv.URL
+
+	var waits int
+	if h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ }); h != nil {
+		t.Fatal("expected nil when the provider never answers")
+	}
+	if requests != oidcDiscoveryAttempts || waits != oidcDiscoveryAttempts-1 {
+		t.Fatalf("requests=%d waits=%d", requests, waits)
+	}
+}
+
+func TestNewOIDCHandler_DoesNotRetryConfigErrors(t *testing.T) {
+	var requests int
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		http.NotFound(w, r)
+	}))
+	t.Cleanup(srv.Close)
+	cfg := newOIDCTestConfig()
+	cfg.OIDCIssuer = srv.URL
+
+	var waits int
+	if h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ }); h != nil {
+		t.Fatal("expected nil for a provider without a discovery document")
+	}
+	if requests != 1 || waits != 0 {
+		t.Fatalf("a 404 is a configuration error: requests=%d waits=%d, want 1 and 0", requests, waits)
+	}
+}
+
+func TestTransientDiscoveryError(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{&url.Error{Op: "Get", URL: "https://idp", Err: errors.New("connection refused")}, true},
+		{errors.New("503 Service Unavailable: starting"), true},
+		{errors.New("502 Bad Gateway: "), true},
+		{errors.New("429 Too Many Requests: slow down"), true},
+		{errors.New("404 Not Found: "), false},
+		{errors.New(`oidc: issuer URL provided to client ("a") did not match the issuer URL returned by provider ("b")`), false},
+		{errors.New("oidc: failed to decode provider discovery object: bad json"), false},
+	}
+	for _, tt := range tests {
+		if got := transientDiscoveryError(tt.err); got != tt.want {
+			t.Errorf("transientDiscoveryError(%q) = %v, want %v", tt.err, got, tt.want)
+		}
 	}
 }

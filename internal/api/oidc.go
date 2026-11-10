@@ -48,19 +48,32 @@ type oidcState struct {
 	linkUserID int64
 }
 
+// Provider discovery at startup is retried, since the provider is often
+// deployed alongside Librarr and may not be answering yet. It runs before the
+// HTTP server listens, so the worst case (about 25s) stays short enough for
+// container health checks.
+const (
+	oidcDiscoveryAttempts  = 3
+	oidcDiscoveryTimeout   = 5 * time.Second
+	oidcDiscoveryRetryWait = 5 * time.Second
+)
+
 // NewOIDCHandler initializes the OIDC provider and returns a handler.
-// Returns nil if OIDC is not configured.
+// Returns nil if OIDC is not configured, or if the provider could not be
+// reached after a few attempts.
 func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore) *OIDCHandler {
+	return newOIDCHandler(cfg, database, sessions, time.Sleep)
+}
+
+func newOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore, sleep func(time.Duration)) *OIDCHandler {
 	if !cfg.HasOIDC() {
 		return nil
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-
-	provider, err := oidc.NewProvider(ctx, cfg.OIDCIssuer)
+	provider, err := discoverOIDCProvider(cfg.OIDCIssuer, sleep)
 	if err != nil {
-		slog.Error("failed to initialize OIDC provider", "issuer", cfg.OIDCIssuer, "error", err)
+		slog.Error("failed to initialize OIDC provider; SSO is unavailable until restart",
+			"issuer", cfg.OIDCIssuer, "attempts", oidcDiscoveryAttempts, "error", err)
 		return nil
 	}
 
@@ -115,6 +128,45 @@ func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore)
 	}()
 
 	return h
+}
+
+// discoverOIDCProvider fetches the issuer's discovery document, retrying a
+// few times so a provider that is still starting doesn't leave SSO off.
+func discoverOIDCProvider(issuer string, sleep func(time.Duration)) (*oidc.Provider, error) {
+	var err error
+	for attempt := 1; attempt <= oidcDiscoveryAttempts; attempt++ {
+		ctx, cancel := context.WithTimeout(context.Background(), oidcDiscoveryTimeout)
+		var provider *oidc.Provider
+		provider, err = oidc.NewProvider(ctx, issuer)
+		cancel()
+		if err == nil {
+			return provider, nil
+		}
+		if !transientDiscoveryError(err) {
+			return nil, err
+		}
+		if attempt < oidcDiscoveryAttempts {
+			slog.Warn("OIDC provider not reachable; retrying", "issuer", issuer,
+				"attempt", attempt, "retry_in", oidcDiscoveryRetryWait, "error", err)
+			sleep(oidcDiscoveryRetryWait)
+		}
+	}
+	return nil, err
+}
+
+// transientDiscoveryError reports whether a discovery failure may clear up on
+// its own: the provider is unreachable, or answers 5xx/429 while starting.
+// A 4xx, a malformed document or an issuer mismatch is a configuration error,
+// and retrying it only delays startup.
+func transientDiscoveryError(err error) bool {
+	var urlErr *url.Error
+	if errors.As(err, &urlErr) {
+		return true
+	}
+	// go-oidc reports a non-200 answer only as "<status>: <body>".
+	msg := err.Error()
+	return strings.HasPrefix(msg, "5") || strings.HasPrefix(msg, "429 ") ||
+		strings.HasPrefix(msg, "unable to read response body")
 }
 
 // generateState creates a random state string for CSRF protection. It returns
