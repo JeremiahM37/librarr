@@ -68,8 +68,9 @@
     /* Search bar */
     #search-input { font-size: 16px; } /* Prevent iOS zoom on focus */
 
-    /* Results grid — stack vertically */
-    #search-results { grid-template-columns: 1fr 1fr !important; gap: 0.5rem; }
+    /* Results grid: columns come from the Tailwind classes shared with the
+       Library grid (grid-cols-2 on phones), so don't override them here. */
+    #search-results { gap: 0.5rem; }
 
     /* Sub-tabs scroll */
     .sub-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; }
@@ -80,11 +81,6 @@
     /* Larger touch targets for buttons */
     button, a.sub-tab, .nav-tab { min-height: 44px; }
 
-    /* Full width cards on very small screens */
-    @media (max-width: 400px) {
-      #search-results { grid-template-columns: 1fr !important; }
-    }
-
     /* Library and download list items */
     .book-card { margin-bottom: 0.5rem; }
 
@@ -92,7 +88,3 @@
     main.flex-1 { padding-left: 0.75rem; padding-right: 0.75rem; }
   }
 
-  @media (max-width: 768px) {
-    /* Slightly smaller grid for tablets */
-    #search-results { grid-template-columns: repeat(3, 1fr) !important; }
-  }
