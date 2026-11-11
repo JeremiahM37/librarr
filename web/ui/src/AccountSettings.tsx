@@ -124,6 +124,10 @@ function SignInMethod({
         in there instead. This can't be undone from here: your password and
         two-factor authentication are removed.
       </p>
+      <p className="text-amber-300">
+        E-reader apps using the OPDS feed sign in with your password, so they
+        will stop working once the account is linked.
+      </p>
       <form
         id="sso-link-form"
         className="space-y-3"

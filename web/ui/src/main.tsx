@@ -24,6 +24,25 @@ import "./style.css";
 
 type Tab = "search" | "library" | "downloads" | "wishlist" | "settings";
 type AuthView = "login" | "register" | "totp";
+const oidcLoginPath = "/auth/oidc/login";
+// Set on explicit sign-out so the login page doesn't bounce straight back to
+// the identity provider, which would sign the browser in again.
+const signedOutKey = "librarr_signed_out";
+function readSignedOut(): boolean {
+  try {
+    return sessionStorage.getItem(signedOutKey) === "1";
+  } catch {
+    return false;
+  }
+}
+function writeSignedOut(value: boolean): void {
+  try {
+    if (value) sessionStorage.setItem(signedOutKey, "1");
+    else sessionStorage.removeItem(signedOutKey);
+  } catch {
+    // Storage unavailable: the login page just redirects as usual.
+  }
+}
 const tabs: readonly Tab[] = [
   "search",
   "library",
@@ -39,6 +58,7 @@ interface LoginResponse {
   needs_totp?: boolean;
   session_pending?: string;
   backup_code_used?: boolean;
+  redirect?: string;
   error?: string;
 }
 interface RegisterResponse {
@@ -88,6 +108,12 @@ function App(): React.JSX.Element {
     );
     return () => setUnauthorizedHandler(undefined);
   }, []);
+  // However the user got back in (the SSO button, a dashboard link, the
+  // proxy), a later session expiry should redirect again, not show the
+  // signed-out screen.
+  useEffect(() => {
+    if (auth?.authenticated) writeSignedOut(false);
+  }, [auth?.authenticated]);
   if (auth === null)
     return (
       <main className="p-8 text-slate-200" aria-busy="true">
@@ -151,8 +177,17 @@ function App(): React.JSX.Element {
             <button
               data-action="doLogout"
               onClick={() =>
-                void api("/api/logout", { method: "POST" })
-                  .then(() => setAuth({ ...auth, authenticated: false }))
+                void api<{ logout_url?: string }>("/api/logout", {
+                  method: "POST",
+                })
+                  .then((result) => {
+                    writeSignedOut(true);
+                    // SSO sessions also end at the identity provider (or
+                    // the proxy), or it would sign the browser back in.
+                    if (result.logout_url)
+                      window.location.assign(result.logout_url);
+                    else setAuth({ ...auth, authenticated: false });
+                  })
                   .catch((e) => setNotice(String(e)))
               }
             >
@@ -264,6 +299,19 @@ function AuthScreen({
     () => setView(auth.has_users ? "login" : "register"),
     [auth.has_users],
   );
+  // With LOCAL_AUTH_DISABLED everyone signs in through SSO, except local
+  // admins, who open /login?local=1. First-run setup is always local.
+  const ssoOnly =
+    auth.has_users &&
+    auth.oidc_enabled &&
+    auth.local_login_enabled === false &&
+    new URLSearchParams(window.location.search).get("local") !== "1";
+  const [signedOut] = useState(readSignedOut);
+  const autoRedirect = ssoOnly && !signedOut;
+  useEffect(() => {
+    if (autoRedirect) window.location.assign(oidcLoginPath);
+  }, [autoRedirect]);
+  const ssoLabel = `Continue with ${auth.oidc_provider_name || "SSO"}`;
   async function login(event: FormEvent): Promise<void> {
     event.preventDefault();
     if (!username.trim() || !password)
@@ -274,6 +322,11 @@ function AuthScreen({
         method: "POST",
         body: JSON.stringify({ username: username.trim(), password }),
       });
+      if (result.redirect) {
+        // An SSO account: hand off to the identity provider.
+        window.location.assign(result.redirect);
+        return;
+      }
       if (!result.success)
         return setNotice(result.error ?? "Invalid credentials");
       if (result.needs_totp) {
@@ -366,12 +419,31 @@ function AuthScreen({
               ? "Two-factor authentication"
               : "Sign in to continue"}
         </p>
+        {ssoOnly && (
+          <div id="sso-only" className="space-y-4">
+            <p className="text-sm text-slate-300">
+              {autoRedirect
+                ? "Redirecting to sign in…"
+                : "You have signed out."}
+            </p>
+            {!autoRedirect && (
+              <a
+                id="oidc-login-link"
+                href={oidcLoginPath}
+                onClick={() => writeSignedOut(false)}
+                className="block text-center"
+              >
+                {ssoLabel}
+              </a>
+            )}
+          </div>
+        )}
         {!auth.has_users && (
           <p id="first-run-banner" className="mb-4 text-sm text-indigo-200">
             First-run setup: the first account becomes administrator.
           </p>
         )}
-        {view === "login" && (
+        {!ssoOnly && view === "login" && (
           <form id="login-form" onSubmit={login} className="space-y-4">
             <Field
               id="login-username"
@@ -394,13 +466,17 @@ function AuthScreen({
             {auth.oidc_enabled && (
               <a
                 id="oidc-login-link"
-                href="/auth/oidc/login"
+                href={oidcLoginPath}
+                onClick={() => writeSignedOut(false)}
                 className="block text-center"
               >
-                Continue with {auth.oidc_provider_name || "SSO"}
+                {ssoLabel}
               </a>
             )}
-            <p id="login-register-link">
+            <p
+              id="login-register-link"
+              hidden={auth.local_login_enabled === false}
+            >
               No account?{" "}
               <button
                 type="button"
@@ -412,7 +488,7 @@ function AuthScreen({
             </p>
           </form>
         )}
-        {view === "register" && (
+        {!ssoOnly && view === "register" && (
           <form id="register-form" onSubmit={register} className="space-y-4">
             <Field
               id="register-username"
@@ -450,7 +526,7 @@ function AuthScreen({
             )}
           </form>
         )}
-        {view === "totp" && (
+        {!ssoOnly && view === "totp" && (
           <form id="totp-form" onSubmit={verifyTOTP} className="space-y-4">
             <Field
               id="totp-code"
