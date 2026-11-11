@@ -15,6 +15,7 @@ import (
 // exemptPaths are paths that do not require authentication.
 var exemptPaths = map[string]bool{
 	"/":                 true, // Web UI (handles its own login)
+	"/login":            true, // Web UI login page (?local=1 for local admins)
 	"/health":           true,
 	"/api/health":       true,
 	"/api/login":        true,
@@ -75,13 +76,7 @@ func authMiddleware(cfg *config.Config, database *db.DB, sessions *SessionStore,
 		// like any other — never rejected outright, so a direct connection
 		// with a valid session or API key keeps working.
 		if cfg != nil && cfg.HasOIDCProxyHeaders() {
-			username := proxyIdentityFromRequest(r)
-			if username != "" && !remoteFromTrustedProxy(r) {
-				slog.Warn("ignoring SSO identity header from a peer outside LIBRARR_TRUSTED_PROXIES",
-					"remote", sanitizeLogValue(r.RemoteAddr), "username", sanitizeLogValue(username))
-				username = ""
-			}
-			if username != "" {
+			if username := trustedProxyIdentity(cfg, r); username != "" {
 				if user, err := resolveOIDCUser(cfg, database, sessions, username, ""); err == nil && user != nil {
 					if sessions != nil {
 						if ensureSessionForUser(w, r, sessions, user) {

@@ -229,3 +229,27 @@ func TestLocalEbookLegacyOffset(t *testing.T) {
 		}
 	}
 }
+
+func TestCoverMediaTypes(t *testing.T) {
+	cases := []struct {
+		name string
+		cfg  config.Config
+		want []string
+	}{
+		{"no integrations", config.Config{}, []string{"ebook"}},
+		{"abs without ebook library", config.Config{ABSURL: "http://abs", ABSToken: "t"}, []string{"ebook"}},
+		{"abs with ebook library", config.Config{ABSURL: "http://abs", ABSToken: "t", ABSEbookLibraryID: "lib"}, []string{}},
+	}
+	for _, tc := range cases {
+		got := coverMediaTypes(&tc.cfg)
+		if len(got) != len(tc.want) {
+			t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+			continue
+		}
+		for i := range got {
+			if got[i] != tc.want[i] {
+				t.Errorf("%s: got %v want %v", tc.name, got, tc.want)
+			}
+		}
+	}
+}

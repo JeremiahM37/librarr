@@ -338,6 +338,9 @@ func (d *DB) migrate() error {
 		// provider. Rows that predate this column are local until claimed.
 		`ALTER TABLE users ADD COLUMN auth_source TEXT NOT NULL DEFAULT 'local'`,
 		`ALTER TABLE users ADD COLUMN oidc_subject TEXT NOT NULL DEFAULT ''`,
+		// Cover image file name (empty when none) and when we last looked.
+		`ALTER TABLE library_items ADD COLUMN cover_file TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE library_items ADD COLUMN cover_checked_at REAL NOT NULL DEFAULT 0`,
 	}
 	for _, stmt := range addColumns {
 		if _, err := d.db.Exec(stmt); err != nil && !strings.Contains(strings.ToLower(err.Error()), "duplicate column") {

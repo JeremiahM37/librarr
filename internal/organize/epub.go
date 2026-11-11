@@ -21,7 +21,33 @@ func ExtractEPUBMeta(path string) (*EPUBMeta, error) {
 	}
 	defer r.Close()
 
-	// Find the .opf file.
+	opfFile := findOPF(&r.Reader)
+	if opfFile == nil {
+		return nil, fmt.Errorf("no .opf file found in epub")
+	}
+
+	rc, err := opfFile.Open()
+	if err != nil {
+		return nil, fmt.Errorf("open opf: %w", err)
+	}
+	defer rc.Close()
+
+	var pkg opfPackage
+	if err := xml.NewDecoder(rc).Decode(&pkg); err != nil {
+		return nil, fmt.Errorf("parse opf: %w", err)
+	}
+
+	author := normalizeAuthor(strings.TrimSpace(pkg.Metadata.Creator))
+
+	return &EPUBMeta{
+		Title:  strings.TrimSpace(pkg.Metadata.Title),
+		Author: author,
+	}, nil
+}
+
+// findOPF locates the package document in an EPUB, by extension first and
+// then through META-INF/container.xml. It returns nil when there is none.
+func findOPF(r *zip.Reader) *zip.File {
 	var opfFile *zip.File
 	for _, f := range r.File {
 		ext := strings.ToLower(filepath.Ext(f.Name))
@@ -58,28 +84,7 @@ func ExtractEPUBMeta(path string) (*EPUBMeta, error) {
 			}
 		}
 	}
-
-	if opfFile == nil {
-		return nil, fmt.Errorf("no .opf file found in epub")
-	}
-
-	rc, err := opfFile.Open()
-	if err != nil {
-		return nil, fmt.Errorf("open opf: %w", err)
-	}
-	defer rc.Close()
-
-	var pkg opfPackage
-	if err := xml.NewDecoder(rc).Decode(&pkg); err != nil {
-		return nil, fmt.Errorf("parse opf: %w", err)
-	}
-
-	author := normalizeAuthor(strings.TrimSpace(pkg.Metadata.Creator))
-
-	return &EPUBMeta{
-		Title:  strings.TrimSpace(pkg.Metadata.Title),
-		Author: author,
-	}, nil
+	return opfFile
 }
 
 // normalizeAuthor cleans up common author name formats from EPUB metadata.

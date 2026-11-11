@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/covers"
 	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/JeremiahM37/librarr/internal/download"
 	"github.com/JeremiahM37/librarr/internal/metadata"
@@ -50,6 +52,8 @@ type Server struct {
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
 	coverResolver  *metadata.CoverResolver
+	coverJob       *covers.Job
+	coverStore     *covers.Store
 }
 
 // NewServer creates the HTTP API server.
@@ -125,6 +129,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		},
 		Contact: cfg.OpenLibraryContact,
 	})
+	coverStore := covers.NewStore(filepath.Join(filepath.Dir(database.GetDBPath()), "covers"))
 
 	s := &Server{
 		cfg:            cfg,
@@ -147,10 +152,15 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
 		coverResolver:  coverResolver,
+		coverStore:     coverStore,
+		coverJob:       covers.NewJob(database, coverStore, func() []string { return coverMediaTypes(cfg) }),
 	}
 
 	// Initialize OIDC handler if configured.
 	s.oidc = NewOIDCHandler(cfg, database, sessions)
+	if cfg.LocalAuthDisabled && s.oidc == nil {
+		slog.Warn("LOCAL_AUTH_DISABLED is set but OIDC is not available; local sign-in stays enabled until restart")
+	}
 
 	// Initialize rate limiter if enabled.
 	if cfg.RateLimitEnabled {
@@ -172,6 +182,17 @@ const (
 	defaultCoverBaseURL   = "https://covers.openlibrary.org"
 )
 
+// coverMediaTypes lists the media types the cover job fills: local ebooks,
+// mirroring the routing in handleLibrary. Only EPUBs carry a cover to extract.
+func coverMediaTypes(cfg *config.Config) []string {
+	types := []string{}
+	absEbooks := cfg.HasAudiobookshelf() && cfg.ABSEbookLibraryID != ""
+	if !absEbooks {
+		types = append(types, "ebook")
+	}
+	return types
+}
+
 // StartScheduler starts the background scheduler loop.
 func (s *Server) StartScheduler(ctx context.Context) {
 	// Start author monitor in a separate goroutine.
@@ -182,6 +203,9 @@ func (s *Server) StartScheduler(ctx context.Context) {
 		go s.wishlistClean.Start(ctx)
 	}
 	go s.pruneCoverLookups(ctx)
+	if s.coverJob != nil {
+		go s.coverJob.Start(ctx)
+	}
 	// Scheduler.Start blocks until ctx is cancelled.
 	if s.scheduler != nil {
 		s.scheduler.Start(ctx)
@@ -240,6 +264,9 @@ func (s *Server) registerRoutes() {
 func (s *Server) registerCoreRoutes() {
 	// Root -- API info page.
 	s.mux.HandleFunc("GET /{$}", s.handleRoot)
+	// The same page; /login?local=1 is the admin's password sign-in when
+	// LOCAL_AUTH_DISABLED sends everyone else to SSO.
+	s.mux.HandleFunc("GET /login", s.handleRoot)
 
 	// Frontend assets (CSS/JS/fonts), embedded in the binary. Served without
 	// auth (isExempt allows /static/) — the login screen needs them too.
@@ -270,11 +297,15 @@ func (s *Server) registerCoreRoutes() {
 // registerAuthRoutes wires authentication, account, and user management.
 func (s *Server) registerAuthRoutes() {
 	// Authentication.
-	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/register", handleRegister(s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/logout", handleLogout(s.sessions, s.db))
-	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.cfg, s.db, s.sessions))
+	// The OIDC handler is nil when the provider failed to initialise; local
+	// sign-in then stays open even with LOCAL_AUTH_DISABLED, so the instance
+	// is never locked out.
+	oidcReady := s.oidc != nil
+	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/register", handleRegister(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/logout", handleLogout(s.cfg, s.oidc, s.sessions, s.db))
+	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.cfg, s.db, s.sessions, oidcReady))
 	s.mux.HandleFunc("POST /api/me/sso-link", s.oidc.HandleLinkStart)
 
 	// User management (admin only).
@@ -345,6 +376,7 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("DELETE /api/library/audiobook/{id}", s.handleDeleteAudiobook)
 	s.mux.HandleFunc("DELETE /api/library/manga/{id}", s.handleDeleteManga)
 	s.mux.HandleFunc("POST /api/covers/lookup", s.handleCoverLookup)
+	s.mux.HandleFunc("GET /api/library/{id}/cover", s.handleLibraryCover)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
 

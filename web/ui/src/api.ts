@@ -9,6 +9,8 @@ export interface AuthStatus {
   oidc_provider_name?: string;
   // How the signed-in account signs in.
   auth_source?: "local" | "oidc";
+  // false when LOCAL_AUTH_DISABLED sends sign-in to SSO (admins: ?local=1).
+  local_login_enabled?: boolean;
   username?: string;
   role?: Role;
 }
@@ -166,6 +168,15 @@ export function setUnauthorizedHandler(
   handler: (() => void) | undefined,
 ): void {
   onUnauthorized = handler;
+}
+// Images cannot send headers, so API paths carry the saved key in the URL.
+export function assetUrl(path: string): string {
+  if (!path.startsWith("/api/")) return path;
+  const apiKey = localStorage.getItem("librarr_apikey");
+  if (!apiKey) return path;
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("apikey", apiKey);
+  return url.pathname + url.search;
 }
 export async function request(
   path: string,

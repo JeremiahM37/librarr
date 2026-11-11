@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { api, type LibraryItem, type LibraryResponse } from "./api";
+import { api, assetUrl, type LibraryItem, type LibraryResponse } from "./api";
 import { useTranslation } from "./i18n";
 
 type Category = "ebooks" | "audiobooks" | "manga";
@@ -74,7 +74,7 @@ function Cover({
     );
   return (
     <img
-      src={item.cover_url}
+      src={assetUrl(item.cover_url)}
       alt=""
       className="w-full h-48 object-cover"
       loading="lazy"
