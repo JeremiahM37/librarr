@@ -169,6 +169,21 @@ func TestJobFallsBackToLookup(t *testing.T) {
 	}
 }
 
+func TestJobWithoutResolverUsesEmbeddedOnly(t *testing.T) {
+	e := newJobEnv(t)
+	e.job = NewJob(e.db, e.store, nil, func() []string { return e.types })
+	e.job.delay = 0
+	embedded := e.add(t, "Embedded", "ebook", epubWithCover(t, jpegBytes))
+	pdf := e.add(t, "Pdf", "ebook", "/x/book.pdf")
+	e.job.RunOnce(context.Background())
+	if got := e.cover(t, embedded); got != fmt.Sprintf("%d.jpg", embedded) {
+		t.Errorf("embedded cover = %q", got)
+	}
+	if got := e.cover(t, pdf); got != "" {
+		t.Errorf("pdf cover = %q, want none", got)
+	}
+}
+
 func TestJobRejectsNonImageEmbedded(t *testing.T) {
 	e := newJobEnv(t)
 	id := e.add(t, "Html", "ebook", epubWithCover(t, []byte("<html>hi</html>")))

@@ -46,7 +46,8 @@ type Job struct {
 	now        func() time.Time
 }
 
-// NewJob returns a Job. mediaTypes is read on every pass.
+// NewJob returns a Job. mediaTypes is read on every pass. A nil resolver
+// limits the job to embedded covers.
 func NewJob(database *db.DB, store *Store, resolver Resolver, mediaTypes func() []string) *Job {
 	return &Job{
 		db:         database,
@@ -181,6 +182,9 @@ func (j *Job) fetch(ctx context.Context, item *models.LibraryItem) (file string,
 		}
 	}
 	if image == nil {
+		if j.resolver == nil {
+			return "", false, nil
+		}
 		coverURL, err := j.resolver.Resolve(ctx, metadata.CoverKindBook, item.Title, item.Author)
 		if errors.Is(err, metadata.ErrCoverCoolingDown) {
 			return "", false, err

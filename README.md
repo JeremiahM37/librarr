@@ -539,7 +539,7 @@ Legacy per-source env vars (e.g. `PROWLARR_URL` and other per-driver overrides) 
 | `AUTHOR_CHECK_INTERVAL_DAYS` | `7` | Default check interval for newly followed authors |
 | `AUTHOR_MONITOR_AUTO_ADD` | `true` | Put newly found works on the wanted list (otherwise only notify) |
 | `OPENLIBRARY_URL` | `https://openlibrary.org` | Open Library origin used by the author monitor |
-| `COVER_LOOKUP_ENABLED` | `true` | Look up covers on Open Library for search results that have none. `false` sends no cover requests |
+| `COVER_LOOKUP_ENABLED` | `true` | Look up covers on Open Library for search results and library items that have none. `false` sends no cover requests; library items still get covers embedded in their EPUBs |
 | `OPENLIBRARY_CONTACT` | (empty) | Email or phone number added to the User-Agent of cover lookups. Open Library then allows 3 searches a second instead of 1 |
 
 ### Wanted List & Quality Profiles

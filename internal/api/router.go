@@ -130,6 +130,11 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		CoverBaseURL: coverBaseURL,
 		Contact:      cfg.OpenLibraryContact,
 	})
+	// With lookups off, the cover job saves embedded covers only.
+	var coverJobResolver covers.Resolver
+	if cfg.CoverLookupEnabled {
+		coverJobResolver = coverResolver
+	}
 	coverStore := covers.NewStore(
 		filepath.Join(filepath.Dir(database.GetDBPath()), "covers"),
 		&http.Client{Timeout: 30 * time.Second},
@@ -158,7 +163,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		authorMonitor:  authorMon,
 		coverResolver:  coverResolver,
 		coverStore:     coverStore,
-		coverJob:       covers.NewJob(database, coverStore, coverResolver, func() []string { return coverMediaTypes(cfg) }),
+		coverJob:       covers.NewJob(database, coverStore, coverJobResolver, func() []string { return coverMediaTypes(cfg) }),
 	}
 
 	// Initialize OIDC handler if configured.
