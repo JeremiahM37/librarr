@@ -40,6 +40,7 @@ func (c *apiCoverCache) PutCoverLookup(key, url string, _ time.Time) error {
 func coverTestServer(t *testing.T, maxConcurrent int, handler http.HandlerFunc) (*Server, *atomic.Int64) {
 	t.Helper()
 	s := libraryMediaTypeTestSetup(t)
+	s.cfg.CoverLookupEnabled = true
 	var hits atomic.Int64
 	stub := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		hits.Add(1)
@@ -116,6 +117,18 @@ func TestCoverLookupReturnsMatches(t *testing.T) {
 func TestCoverLookupSkipsManga(t *testing.T) {
 	s, hits := coverTestServer(t, 3, olStub)
 	rr := postLookup(s, context.Background(), `{"title":"Dune","author":"Frank Herbert","media_type":"manga"}`)
+	if rr.Code != 200 || decodeCover(t, rr) != "" {
+		t.Fatalf("HTTP %d: %s", rr.Code, rr.Body.String())
+	}
+	if n := hits.Load(); n != 0 {
+		t.Errorf("stub requests = %d, want 0", n)
+	}
+}
+
+func TestCoverLookupDisabled(t *testing.T) {
+	s, hits := coverTestServer(t, 3, olStub)
+	s.cfg.CoverLookupEnabled = false
+	rr := postLookup(s, context.Background(), `{"title":"Dune","author":"Frank Herbert","media_type":"ebook"}`)
 	if rr.Code != 200 || decodeCover(t, rr) != "" {
 		t.Fatalf("HTTP %d: %s", rr.Code, rr.Body.String())
 	}

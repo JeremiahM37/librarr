@@ -36,7 +36,7 @@ func (s *Server) handleCoverLookup(w http.ResponseWriter, r *http.Request) {
 	}
 
 	url := ""
-	if req.MediaType == "ebook" || req.MediaType == "audiobook" {
+	if s.cfg.CoverLookupEnabled && (req.MediaType == "ebook" || req.MediaType == "audiobook") {
 		found, err := s.coverResolver.Resolve(r.Context(), metadata.CoverKindBook, req.Title, req.Author)
 		if err != nil {
 			slog.Debug("cover lookup failed", "error", err)

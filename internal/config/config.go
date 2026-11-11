@@ -238,6 +238,9 @@ type Config struct {
 	// OpenLibraryContact is an email or phone number sent with cover lookups
 	// so Open Library can reach the operator; it raises their rate limit.
 	OpenLibraryContact string
+	// CoverLookupEnabled lets search results without a cover look one up on
+	// Open Library. Off means no cover requests leave the server.
+	CoverLookupEnabled bool
 }
 
 // Load reads configuration from environment variables with sensible defaults,
@@ -482,6 +485,7 @@ func buildFromEnv() *Config {
 		AuthorMonitorAutoAdd:    getEnvBool("AUTHOR_MONITOR_AUTO_ADD", true),
 		OpenLibraryURL:          getEnv("OPENLIBRARY_URL", "https://openlibrary.org"),
 		OpenLibraryContact:      getEnv("OPENLIBRARY_CONTACT", ""),
+		CoverLookupEnabled:      getEnvBool("COVER_LOOKUP_ENABLED", true),
 	}
 }
 
