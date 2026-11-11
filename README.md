@@ -133,7 +133,7 @@ Without Audiobookshelf or Kavita configured, the library tabs show locally impor
 - **Series grouping** -- groups related books/volumes in the library view
 - **EPUB verification** -- checks title word overlap to detect wrong-book downloads
 
-Local EPUBs show the cover embedded in the file. Covers are stored in `covers/` beside the database.
+Local items get covers from their EPUB or, failing that, from Open Library. Covers are stored in `covers/` beside the database.
 
 ### Notifications and Webhooks
 
