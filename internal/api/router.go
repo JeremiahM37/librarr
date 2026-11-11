@@ -51,6 +51,7 @@ type Server struct {
 	wishlistClean  *scheduler.WishlistCleaner
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
+	coverResolver  *metadata.CoverResolver
 	coverJob       *covers.Job
 	coverStore     *covers.Store
 }
@@ -111,6 +112,23 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
 	authorMon.SetOpenLibraryURL(cfg.OpenLibraryURL)
 
+	coverResolver := metadata.NewCoverResolver(metadata.CoverResolverOptions{
+		Cache:      database,
+		HTTPClient: &http.Client{Timeout: 15 * time.Second},
+		SearchURL: func() string {
+			if cfg.Sources != nil && cfg.Sources.OpenLibrary.SearchURL != "" {
+				return cfg.Sources.OpenLibrary.SearchURL
+			}
+			return defaultCoverSearchURL
+		},
+		CoverBaseURL: func() string {
+			if cfg.Sources != nil && cfg.Sources.OpenLibrary.CoverURL != "" {
+				return cfg.Sources.OpenLibrary.CoverURL
+			}
+			return defaultCoverBaseURL
+		},
+		Contact: cfg.OpenLibraryContact,
+	})
 	coverStore := covers.NewStore(filepath.Join(filepath.Dir(database.GetDBPath()), "covers"))
 
 	s := &Server{
@@ -133,6 +151,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		wishlistClean:  wishlistClean,
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
+		coverResolver:  coverResolver,
 		coverStore:     coverStore,
 		coverJob:       covers.NewJob(database, coverStore, func() []string { return coverMediaTypes(cfg) }),
 	}
@@ -158,6 +177,11 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	return s
 }
 
+const (
+	defaultCoverSearchURL = "https://openlibrary.org/search.json"
+	defaultCoverBaseURL   = "https://covers.openlibrary.org"
+)
+
 // coverMediaTypes lists the media types the cover job fills: local ebooks,
 // mirroring the routing in handleLibrary. Only EPUBs carry a cover to extract.
 func coverMediaTypes(cfg *config.Config) []string {
@@ -178,6 +202,7 @@ func (s *Server) StartScheduler(ctx context.Context) {
 	if s.wishlistClean != nil && s.cfg.WishlistCleanupEnabled {
 		go s.wishlistClean.Start(ctx)
 	}
+	go s.pruneCoverLookups(ctx)
 	if s.coverJob != nil {
 		go s.coverJob.Start(ctx)
 	}
@@ -350,6 +375,7 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("DELETE /api/library/book/{id}", s.handleDeleteBook)
 	s.mux.HandleFunc("DELETE /api/library/audiobook/{id}", s.handleDeleteAudiobook)
 	s.mux.HandleFunc("DELETE /api/library/manga/{id}", s.handleDeleteManga)
+	s.mux.HandleFunc("POST /api/covers/lookup", s.handleCoverLookup)
 	s.mux.HandleFunc("GET /api/library/{id}/cover", s.handleLibraryCover)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)

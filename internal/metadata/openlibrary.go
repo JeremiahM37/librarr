@@ -32,6 +32,7 @@ const (
 	olSearchAPI = "https://openlibrary.org/search.json"
 	olWorksAPI  = "https://openlibrary.org/works/"
 	cacheTTL    = 30 * time.Minute
+	olUserAgent = "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)"
 )
 
 type cacheEntry struct {
@@ -142,7 +143,7 @@ func (c *Client) searchOL(ctx context.Context, title, author string) (*olSearchD
 	// ranked below one or more box sets, and pickBestDoc has to be able to see it.
 	q.Set("limit", "10")
 	req.URL.RawQuery = q.Encode()
-	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
+	req.Header.Set("User-Agent", olUserAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -169,7 +170,7 @@ func (c *Client) enrichFromWork(ctx context.Context, workKey string, meta *BookM
 	if err != nil {
 		return
 	}
-	req.Header.Set("User-Agent", "Librarr/2.0 (book download manager; github.com/JeremiahM37/librarr)")
+	req.Header.Set("User-Agent", olUserAgent)
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
@@ -230,6 +231,7 @@ type olSearchResponse struct {
 type olSearchDoc struct {
 	Key                 string   `json:"key"`
 	Title               string   `json:"title"`
+	Subtitle            string   `json:"subtitle"`
 	AuthorName          []string `json:"author_name"`
 	FirstPublishYear    int      `json:"first_publish_year"`
 	CoverI              int      `json:"cover_i"`

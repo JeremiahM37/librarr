@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   api,
+  lookupCover,
   request,
   type DownloadJob,
   type SearchResult,
@@ -66,19 +67,44 @@ function formatSize(value?: number | string) {
   }
   return `${n.toFixed(i ? 1 : 0)} ${units[i]}`;
 }
-function Cover({ result }: { result: SearchResult }) {
-  const [failed, setFailed] = useState(false);
-  return result.cover_url && !failed ? (
-    <img
-      src={result.cover_url}
-      className="w-full h-48 object-cover"
-      alt=""
-      loading="lazy"
-      onError={() => setFailed(true)}
-    />
-  ) : (
-    <div className="cover-placeholder w-full h-48 bg-gradient-to-br from-indigo-600 to-purple-700">
-      {result.title.charAt(0).toUpperCase()}
+// Lookups run a few at a time, top cards first, and each card fills in as soon
+// as its own answer arrives. The server paces Open Library, so more at once
+// would only queue there.
+const coverConcurrency = 3;
+const coverFieldMax = 300;
+const encoder = new TextEncoder();
+function Cover({
+  result,
+  lookedUp,
+}: {
+  result: SearchResult;
+  lookedUp?: string;
+}) {
+  const url = result.cover_url || lookedUp;
+  // Remember which URL failed so a later URL for the same card gets a chance.
+  const [failedURL, setFailedURL] = useState("");
+  const [loadedURL, setLoadedURL] = useState("");
+  const showImage = !!url && url !== failedURL;
+  return (
+    <div className="relative">
+      {showImage && (
+        <img
+          src={url}
+          className="w-full h-48 object-cover"
+          alt=""
+          loading="lazy"
+          onLoad={() => setLoadedURL(url)}
+          onError={() => setFailedURL(url)}
+        />
+      )}
+      {/* Covers the image until it has loaded, so a slow one never leaves the card blank. */}
+      {loadedURL !== url || !showImage ? (
+        <div
+          className={`cover-placeholder w-full h-48 bg-gradient-to-br from-indigo-600 to-purple-700${showImage ? " absolute inset-0" : ""}`}
+        >
+          {result.title.charAt(0).toUpperCase()}
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -103,6 +129,11 @@ export function Search({
   const abort = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const pending = useRef(new Set<string>());
+  const [covers, setCovers] = useState<Record<string, string>>({});
+  const asked = useRef(new Set<string>());
+  const coverMedia = useRef<MediaType>("ebook");
+  const coverQueue = useRef<{ key: string; row: SearchResult }[]>([]);
+  const coverActive = useRef(0);
   const rendered = useMemo(
     () =>
       [...results].sort((a, b) =>
@@ -194,12 +225,69 @@ export function Search({
     return () => window.clearTimeout(timer);
   }, [completedKeys]);
   useEffect(() => () => abort.current?.abort(), []);
+  // Starts queued lookups until coverConcurrency are running. Each one belongs
+  // to the search that started it; a newer search ignores its answer and its
+  // place in the count.
+  function pumpCovers() {
+    const controller = abort.current;
+    if (!controller) return;
+    const id = generation.current;
+    const kind = coverMedia.current;
+    const current = () => !controller.signal.aborted && id === generation.current;
+    while (
+      coverActive.current < coverConcurrency &&
+      coverQueue.current.length
+    ) {
+      const { key, row } = coverQueue.current.shift()!;
+      asked.current.add(key);
+      coverActive.current++;
+      lookupCover(
+        { title: row.title, author: row.author || "", media_type: kind },
+        controller.signal,
+      )
+        .then((url) => {
+          if (url && current()) setCovers((old) => ({ ...old, [key]: url }));
+        })
+        .catch(() => {
+          /* Covers are best-effort; the placeholder stays. */
+        })
+        .finally(() => {
+          if (id !== generation.current) return;
+          coverActive.current--;
+          pumpCovers();
+        });
+    }
+  }
+  useEffect(() => {
+    if (coverMedia.current === "manga") return;
+    const timer = window.setTimeout(() => {
+      // Rebuilt in display order each time, so the cards at the top go next
+      // even after a re-sort or a stream update.
+      coverQueue.current = rendered
+        .filter(
+          (row) =>
+            !row.cover_url &&
+            !asked.current.has(keyOf(row)) &&
+            // The server rejects an over-long field.
+            encoder.encode(row.title).length <= coverFieldMax &&
+            encoder.encode(row.author || "").length <= coverFieldMax,
+        )
+        .map((row) => ({ key: keyOf(row), row }));
+      pumpCovers();
+    }, 300);
+    return () => window.clearTimeout(timer);
+  }, [rendered]);
   async function search(value: string, kind: MediaType) {
     if (!value.trim()) return;
     abort.current?.abort();
     const controller = new AbortController();
     abort.current = controller;
     const id = ++generation.current;
+    asked.current = new Set();
+    coverQueue.current = [];
+    coverActive.current = 0;
+    coverMedia.current = kind;
+    setCovers({});
     setLoading(true);
     setSearched(true);
     setResults([]);
@@ -479,7 +567,7 @@ export function Search({
               key={`${keyOf(result)}:${index}`}
             >
               <div className="relative">
-                <Cover result={result} />
+                <Cover result={result} lookedUp={covers[keyOf(result)]} />
                 <span className="absolute top-2 left-2 bg-slate-800 text-white text-xs px-2 py-1 rounded">
                   {result.source}
                 </span>
