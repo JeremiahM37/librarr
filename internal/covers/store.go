@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/JeremiahM37/librarr/internal/metadata"
 	"github.com/JeremiahM37/librarr/internal/netutil"
 )
 
@@ -45,16 +46,34 @@ func DetectImage(b []byte) (ext, contentType string, ok bool) {
 	return "", "", false
 }
 
+// CoolDownError means the cover host answered 429 or 503: downloads should
+// wait Wait before trying again.
+type CoolDownError struct {
+	Status int
+	Wait   time.Duration
+}
+
+func (e *CoolDownError) Error() string {
+	return fmt.Sprintf("cover download: status %d, retry in %s", e.Status, e.Wait)
+}
+
 // Store keeps cover files in a single directory and downloads new ones.
 type Store struct {
 	dir          string
 	client       *http.Client
 	coverBaseURL func() string
+	userAgent    string
 }
 
 // NewStore returns a Store rooted at dir. client and coverBaseURL may be nil.
 func NewStore(dir string, client *http.Client, coverBaseURL func() string) *Store {
 	return &Store{dir: dir, client: client, coverBaseURL: coverBaseURL}
+}
+
+// WithUserAgent sets the User-Agent sent with downloads and returns s.
+func (s *Store) WithUserAgent(ua string) *Store {
+	s.userAgent = ua
+	return s
 }
 
 func (s *Store) base() string {
@@ -244,11 +263,17 @@ func (s *Store) Download(ctx context.Context, rawURL string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	if s.userAgent != "" {
+		req.Header.Set("User-Agent", s.userAgent)
+	}
 	resp, err := client.Do(req)
 	if err != nil {
 		return nil, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, &CoolDownError{Status: resp.StatusCode, Wait: metadata.CoverRetryAfter(resp.Header.Get("Retry-After"))}
+	}
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("cover download: status %d", resp.StatusCode)
 	}

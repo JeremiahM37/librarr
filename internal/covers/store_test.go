@@ -3,6 +3,7 @@ package covers
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 )
 
 var (
@@ -247,6 +249,43 @@ func TestDownloadFollowsRedirectOnSameHost(t *testing.T) {
 	}
 	if atomic.LoadInt32(&target) != 1 {
 		t.Fatalf("redirect target hit %d times", target)
+	}
+}
+
+func TestDownloadSendsUserAgent(t *testing.T) {
+	var ua atomic.Value
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ua.Store(r.UserAgent())
+		w.Write(jpegBytes)
+	}))
+	defer srv.Close()
+	s := newDownloadStore(t, srv).WithUserAgent("Librarr/test (me@example.com)")
+	if _, err := s.Download(context.Background(), srv.URL+"/c.jpg"); err != nil {
+		t.Fatal(err)
+	}
+	if got := ua.Load(); got != "Librarr/test (me@example.com)" {
+		t.Fatalf("User-Agent = %q", got)
+	}
+}
+
+func TestDownloadCoolDown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/429":
+			w.Header().Set("Retry-After", "120")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+		case "/503":
+			http.Error(w, "busy", http.StatusServiceUnavailable)
+		}
+	}))
+	defer srv.Close()
+	s := newDownloadStore(t, srv)
+	for path, want := range map[string]time.Duration{"/429": 120 * time.Second, "/503": time.Minute} {
+		_, err := s.Download(context.Background(), srv.URL+path)
+		var cd *CoolDownError
+		if !errors.As(err, &cd) || cd.Wait != want {
+			t.Errorf("%s: err = %v, want a %s cool-down", path, err, want)
+		}
 	}
 }
 

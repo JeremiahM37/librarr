@@ -52,6 +52,11 @@ func newJobEnv(t *testing.T) *jobEnv {
 			http.Error(w, "nope", http.StatusInternalServerError)
 			return
 		}
+		if r.URL.Path == "/limited.jpg" {
+			w.Header().Set("Retry-After", "120")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
 		_, _ = w.Write(pngBytes)
 	}))
 	t.Cleanup(srv.Close)
@@ -386,6 +391,64 @@ func TestJobStopsWhileCoolingDown(t *testing.T) {
 	}
 	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
 		t.Fatalf("orphan not swept after a full pass: %v", err)
+	}
+}
+
+// A 429 from the image host pauses downloads for its Retry-After, leaving the
+// items unmarked rather than waiting a day each.
+func TestJobPausesDownloadsWhenRateLimited(t *testing.T) {
+	e := newJobEnv(t)
+	e.res.url = e.srv.URL + "/limited.jpg"
+	a := e.add(t, "A", "ebook", "/x/a.pdf")
+	b := e.add(t, "B", "ebook", "/x/b.pdf")
+
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d, want the pass to stop after 1", len(e.res.calls))
+	}
+	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-time.Second), 10)
+	if len(items) != 2 {
+		t.Fatalf("%d items left unmarked, want 2", len(items))
+	}
+
+	// Within the Retry-After nothing is looked up or downloaded.
+	e.res.url = e.srv.URL + "/c.jpg"
+	e.now = e.now.Add(119 * time.Second)
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d during the pause, want 1", len(e.res.calls))
+	}
+
+	e.now = e.now.Add(2 * time.Second)
+	e.job.RunOnce(context.Background())
+	if e.cover(t, a) == "" || e.cover(t, b) == "" {
+		t.Fatalf("not resumed: %q %q", e.cover(t, a), e.cover(t, b))
+	}
+}
+
+func TestJobPrunesLookupsDaily(t *testing.T) {
+	e := newJobEnv(t)
+	old := e.now.Add(-31 * 24 * time.Hour)
+	if err := e.db.PutCoverLookup("first", "", old); err != nil {
+		t.Fatal(err)
+	}
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("first"); found {
+		t.Fatal("old lookup not pruned on the first pass")
+	}
+
+	if err := e.db.PutCoverLookup("second", "", old); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(23 * time.Hour)
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("second"); !found {
+		t.Fatal("pruned again within a day")
+	}
+	e.now = e.now.Add(2 * time.Hour)
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("second"); found {
+		t.Fatal("old lookup not pruned after a day")
 	}
 }
 

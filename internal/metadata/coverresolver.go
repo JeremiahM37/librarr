@@ -230,6 +230,11 @@ func (r *CoverResolver) forget(key string, e *coverLookup) {
 	}
 }
 
+// UserAgent is the User-Agent the resolver sends, including any contact.
+func (r *CoverResolver) UserAgent() string {
+	return r.userAgent
+}
+
 // coolingDown reports whether requests are being held back.
 func (r *CoverResolver) coolingDown() bool {
 	r.mu.Lock()
@@ -247,10 +252,10 @@ func (r *CoverResolver) coolDown(d time.Duration) {
 	}
 }
 
-// coverRetryAfter reads a Retry-After header given in seconds. Anything else,
+// CoverRetryAfter reads a Retry-After header given in seconds. Anything else,
 // including the date form and zero, gets the default wait: the server has just
 // said it is overloaded, so retrying at once is never the polite reading.
-func coverRetryAfter(header string) time.Duration {
+func CoverRetryAfter(header string) time.Duration {
 	secs, err := strconv.ParseUint(strings.TrimSpace(header), 10, 64)
 	switch {
 	case errors.Is(err, strconv.ErrRange):
@@ -354,7 +359,7 @@ func (r *CoverResolver) search(ctx context.Context, query string) ([]olSearchDoc
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
-		wait := coverRetryAfter(resp.Header.Get("Retry-After"))
+		wait := CoverRetryAfter(resp.Header.Get("Retry-After"))
 		r.coolDown(wait)
 		slog.Warn("open library is limiting cover lookups", "status", resp.StatusCode, "retry_in", wait)
 		return nil, fmt.Errorf("HTTP %d: %w", resp.StatusCode, ErrCoverCoolingDown)

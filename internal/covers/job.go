@@ -19,6 +19,7 @@ const (
 	jobBatchSize    = 25
 	jobRetryAfter   = 24 * time.Hour
 	jobLookupMaxAge = 30 * 24 * time.Hour
+	jobPruneEvery   = 24 * time.Hour
 	// Lookups are paced by the resolver; this spaces out image downloads, which
 	// Open Library asks people not to fetch in bulk.
 	jobDownloadDelay = time.Second
@@ -44,6 +45,9 @@ type Job struct {
 	mediaTypes func() []string
 	delay      time.Duration
 	now        func() time.Time
+	// Only the job's goroutine touches these.
+	downloadsAfter time.Time // the cover host asked for a pause until then
+	lastPrune      time.Time
 }
 
 // NewJob returns a Job. mediaTypes is read on every pass. A nil resolver
@@ -147,13 +151,13 @@ func (j *Job) regenerateMissing() {
 }
 
 // process finds and saves one item's cover, reporting whether it downloaded an
-// image. ok is false when lookups are cooling down, which leaves the item for the
+// image. ok is false when lookups or downloads are cooling down, which leaves the item for the
 // next pass, or when the database can't record the outcome, so the caller stops
 // instead of looping.
 func (j *Job) process(ctx context.Context, item *models.LibraryItem) (downloaded, ok bool) {
 	file, downloaded, err := j.fetch(ctx, item)
 	if errors.Is(err, metadata.ErrCoverCoolingDown) {
-		slog.Debug("cover job: lookups cooling down, stopping this pass", "id", item.ID, "error", err)
+		slog.Debug("cover job: cover requests cooling down, stopping this pass", "id", item.ID, "error", err)
 		return false, false
 	}
 	if file == "" && ctx.Err() != nil {
@@ -168,7 +172,8 @@ func (j *Job) process(ctx context.Context, item *models.LibraryItem) (downloaded
 
 // fetch returns the saved cover file name, or "" when none could be found, and
 // whether it tried to download an image. The only error is
-// metadata.ErrCoverCoolingDown, when the item has not been judged.
+// metadata.ErrCoverCoolingDown, when the item has not been judged: the lookup
+// was held back, or the cover host answered 429 or 503 and downloads now wait.
 func (j *Job) fetch(ctx context.Context, item *models.LibraryItem) (file string, downloaded bool, err error) {
 	var image []byte
 	if strings.EqualFold(filepath.Ext(item.FilePath), ".epub") {
@@ -185,6 +190,9 @@ func (j *Job) fetch(ctx context.Context, item *models.LibraryItem) (file string,
 		if j.resolver == nil {
 			return "", false, nil
 		}
+		if j.now().Before(j.downloadsAfter) {
+			return "", false, metadata.ErrCoverCoolingDown
+		}
 		coverURL, err := j.resolver.Resolve(ctx, metadata.CoverKindBook, item.Title, item.Author)
 		if errors.Is(err, metadata.ErrCoverCoolingDown) {
 			return "", false, err
@@ -199,6 +207,12 @@ func (j *Job) fetch(ctx context.Context, item *models.LibraryItem) (file string,
 		}
 		downloaded = true
 		image, err = j.store.Download(ctx, coverURL)
+		var coolDown *CoolDownError
+		if errors.As(err, &coolDown) {
+			j.downloadsAfter = j.now().Add(coolDown.Wait)
+			slog.Warn("cover host is limiting downloads", "status", coolDown.Status, "retry_in", coolDown.Wait)
+			return "", true, metadata.ErrCoverCoolingDown
+		}
 		if err != nil {
 			slog.Debug("cover job: download failed", "id", item.ID, "error", err)
 			return "", true, nil
@@ -212,8 +226,8 @@ func (j *Job) fetch(ctx context.Context, item *models.LibraryItem) (file string,
 	return file, downloaded, nil
 }
 
-// sweep removes cover files no item references and old cached lookups. If the
-// directory can't be listed it removes nothing.
+// sweep removes cover files no item references and, once a day, old cached
+// lookups. If the directory can't be listed it removes nothing.
 func (j *Job) sweep() {
 	files, err := j.db.CoverFiles()
 	if err != nil {
@@ -237,9 +251,14 @@ func (j *Job) sweep() {
 			slog.Warn("cover job: remove orphan failed", "file", name, "error", err)
 		}
 	}
+	if j.now().Sub(j.lastPrune) < jobPruneEvery {
+		return
+	}
 	if err := j.db.PruneCoverLookups(j.now().Add(-jobLookupMaxAge)); err != nil {
 		slog.Warn("cover job: prune lookups failed", "error", err)
+		return
 	}
+	j.lastPrune = j.now()
 }
 
 // sleepCtx waits for d and reports false if ctx ended first.

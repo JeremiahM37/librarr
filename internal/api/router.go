@@ -139,7 +139,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		filepath.Join(filepath.Dir(database.GetDBPath()), "covers"),
 		&http.Client{Timeout: 30 * time.Second},
 		coverBaseURL,
-	)
+	).WithUserAgent(coverResolver.UserAgent())
 
 	s := &Server{
 		cfg:            cfg,
