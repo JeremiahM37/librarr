@@ -183,3 +183,116 @@ def test_manga_import_to_library_and_remove(local_app, page):
     expect(page.locator("#library-empty")).to_be_visible()
     assert page.request.get(local_app["base"] + "/api/library/manga").json()["total"] == 0
     assert imported.read_bytes() == original
+
+
+def _open_library(local_app, page, category):
+    page.goto(local_app["base"], wait_until="networkidle")
+    page.locator('[data-action="switchTab"][data-arg="library"]').click()
+    page.locator(f'[data-library-tab="{category}"]').click()
+
+
+def _insert_item(local_app, title, media, cover_file=""):
+    with sqlite3.connect(local_app["data"] / "librarr.db") as conn:
+        cur = conn.execute(
+            "INSERT INTO library_items (title,author,media_type,file_format,file_size,added_at,cover_file) VALUES (?,?,?,?,?,?,?)",
+            (title, "Cover Author", media, "epub" if media == "ebook" else "m4b", 1024, 1, cover_file),
+        )
+        return cur.lastrowid
+
+
+def _write_cover(local_app, item_id):
+    covers = local_app["data"] / "covers"
+    covers.mkdir(exist_ok=True)
+    (covers / f"{item_id}.png").write_bytes(TINY_IMG)
+
+
+def _card(page, title):
+    return page.locator("#library-results article").filter(
+        has=page.get_by_role("heading", name=title, exact=True))
+
+
+@pytest.mark.parametrize("category,media", [("ebooks", "ebook"), ("audiobooks", "audiobook")])
+def test_local_item_with_cover_shows_image(local_app, page, category, media):
+    title = f"Covered {media}"
+    item_id = _insert_item(local_app, title, media)
+    with sqlite3.connect(local_app["data"] / "librarr.db") as conn:
+        conn.execute("UPDATE library_items SET cover_file=? WHERE id=?", (f"{item_id}.png", item_id))
+    _write_cover(local_app, item_id)
+    _open_library(local_app, page, category)
+    card = _card(page, title)
+    expect(card).to_be_visible()
+    img = card.locator("img")
+    expect(img).to_have_count(1)
+    page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=img.element_handle())
+    expect(card.locator("[data-cover-fallback]")).to_have_count(0)
+
+
+def test_local_item_without_cover_keeps_fallback(local_app, page):
+    _insert_item(local_app, "Plain ebook", "ebook")
+    _open_library(local_app, page, "ebooks")
+    card = _card(page, "Plain ebook")
+    expect(card.locator("[data-cover-fallback]")).to_have_text("PE")
+    expect(card.locator("img")).to_have_count(0)
+
+
+def test_missing_cover_file_falls_back(local_app, page):
+    item_id = _insert_item(local_app, "Lost cover", "ebook")
+    with sqlite3.connect(local_app["data"] / "librarr.db") as conn:
+        conn.execute("UPDATE library_items SET cover_file=? WHERE id=?", (f"{item_id}.png", item_id))
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    _open_library(local_app, page, "ebooks")
+    card = _card(page, "Lost cover")
+    expect(card.locator("[data-cover-fallback]")).to_be_visible()
+    expect(card.locator("img")).to_have_count(0)
+    assert errors == []
+
+
+def test_saved_cover_works_when_open_library_unreachable(local_app, page):
+    # The fixture points Open Library at a dead port, so any outside call fails.
+    item_id = _insert_item(local_app, "Offline cover", "ebook")
+    with sqlite3.connect(local_app["data"] / "librarr.db") as conn:
+        conn.execute("UPDATE library_items SET cover_file=? WHERE id=?", (f"{item_id}.png", item_id))
+    _write_cover(local_app, item_id)
+    outside = []
+    page.on("request", lambda r: outside.append(r.url)
+            if not r.url.startswith(local_app["base"]) else None)
+    _open_library(local_app, page, "ebooks")
+    img = _card(page, "Offline cover").locator("img")
+    page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=img.element_handle())
+    assert outside == []
+
+
+@pytest.fixture()
+def keyed_app(stub_server, librarr_binary, tmp_path_factory, monkeypatch):
+    monkeypatch.setenv("API_KEY", "cover-key")
+    yield from app_fixture.__wrapped__(
+        stub_server, {"url": "", "scan_calls": []}, librarr_binary, tmp_path_factory
+    )
+
+
+def test_cover_loads_with_api_key_login(keyed_app, page):
+    item_id = _insert_item(keyed_app, "Keyed cover", "ebook")
+    with sqlite3.connect(keyed_app["data"] / "librarr.db") as conn:
+        conn.execute("UPDATE library_items SET cover_file=? WHERE id=?", (f"{item_id}.png", item_id))
+    _write_cover(keyed_app, item_id)
+    page.add_init_script('localStorage.setItem("librarr_apikey","cover-key")')
+    _open_library(keyed_app, page, "ebooks")
+    card = _card(page, "Keyed cover")
+    img = card.locator("img")
+    expect(img).to_have_count(1)
+    page.wait_for_function("el => el.complete && el.naturalWidth > 0", arg=img.element_handle())
+    expect(card.locator("[data-cover-fallback]")).to_have_count(0)
+
+
+def test_external_cover_url_is_unchanged(local_app, page):
+    page.add_init_script('localStorage.setItem("librarr_apikey","some-key")')
+    # https: the page CSP only allows plain-http images from configured origins.
+    url = "https://abs.example/api/items/1/cover"
+    page.route("**/api/library/audiobooks*", lambda route: route.fulfill(json={
+        "items": [{"id": 1, "title": "Shelf book", "author": "A", "cover_url": url}],
+        "total": 1,
+    }))
+    page.route("https://abs.example/**", lambda route: route.fulfill(body=TINY_IMG, content_type="image/png"))
+    _open_library(local_app, page, "audiobooks")
+    expect(_card(page, "Shelf book").locator("img")).to_have_attribute("src", url)

@@ -114,6 +114,7 @@ type LibraryItem struct {
 	Source       string    `json:"source"`
 	SourceID     string    `json:"source_id"`
 	ContentHash  string    `json:"-"`
+	CoverFile    string    `json:"-"`
 	Metadata     string    `json:"metadata"`
 	AddedAt      time.Time `json:"added_at"`
 }

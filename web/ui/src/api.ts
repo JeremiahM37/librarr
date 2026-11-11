@@ -164,6 +164,15 @@ export function setUnauthorizedHandler(
 ): void {
   onUnauthorized = handler;
 }
+// Images cannot send headers, so API paths carry the saved key in the URL.
+export function assetUrl(path: string): string {
+  if (!path.startsWith("/api/")) return path;
+  const apiKey = localStorage.getItem("librarr_apikey");
+  if (!apiKey) return path;
+  const url = new URL(path, window.location.origin);
+  url.searchParams.set("apikey", apiKey);
+  return url.pathname + url.search;
+}
 export async function request(
   path: string,
   init: RequestInit = {},

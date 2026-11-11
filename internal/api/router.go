@@ -8,10 +8,12 @@ import (
 	"log/slog"
 	"net/http"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/covers"
 	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/JeremiahM37/librarr/internal/download"
 	"github.com/JeremiahM37/librarr/internal/metadata"
@@ -49,6 +51,8 @@ type Server struct {
 	wishlistClean  *scheduler.WishlistCleaner
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
+	coverJob       *covers.Job
+	coverStore     *covers.Store
 }
 
 // NewServer creates the HTTP API server.
@@ -107,6 +111,8 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
 	authorMon.SetOpenLibraryURL(cfg.OpenLibraryURL)
 
+	coverStore := covers.NewStore(filepath.Join(filepath.Dir(database.GetDBPath()), "covers"))
+
 	s := &Server{
 		cfg:            cfg,
 		db:             database,
@@ -127,6 +133,8 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		wishlistClean:  wishlistClean,
 		seriesDetector: seriesDet,
 		authorMonitor:  authorMon,
+		coverStore:     coverStore,
+		coverJob:       covers.NewJob(database, coverStore, func() []string { return coverMediaTypes(cfg) }),
 	}
 
 	// Initialize OIDC handler if configured.
@@ -150,6 +158,17 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	return s
 }
 
+// coverMediaTypes lists the media types the cover job fills: local ebooks,
+// mirroring the routing in handleLibrary. Only EPUBs carry a cover to extract.
+func coverMediaTypes(cfg *config.Config) []string {
+	types := []string{}
+	absEbooks := cfg.HasAudiobookshelf() && cfg.ABSEbookLibraryID != ""
+	if !absEbooks {
+		types = append(types, "ebook")
+	}
+	return types
+}
+
 // StartScheduler starts the background scheduler loop.
 func (s *Server) StartScheduler(ctx context.Context) {
 	// Start author monitor in a separate goroutine.
@@ -158,6 +177,9 @@ func (s *Server) StartScheduler(ctx context.Context) {
 	}
 	if s.wishlistClean != nil && s.cfg.WishlistCleanupEnabled {
 		go s.wishlistClean.Start(ctx)
+	}
+	if s.coverJob != nil {
+		go s.coverJob.Start(ctx)
 	}
 	// Scheduler.Start blocks until ctx is cancelled.
 	if s.scheduler != nil {
@@ -328,6 +350,7 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("DELETE /api/library/book/{id}", s.handleDeleteBook)
 	s.mux.HandleFunc("DELETE /api/library/audiobook/{id}", s.handleDeleteAudiobook)
 	s.mux.HandleFunc("DELETE /api/library/manga/{id}", s.handleDeleteManga)
+	s.mux.HandleFunc("GET /api/library/{id}/cover", s.handleLibraryCover)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
 
