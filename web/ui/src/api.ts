@@ -9,6 +9,8 @@ export interface AuthStatus {
   oidc_provider_name?: string;
   // How the signed-in account signs in.
   auth_source?: "local" | "oidc";
+  // false when LOCAL_AUTH_DISABLED sends sign-in to SSO (admins: ?local=1).
+  local_login_enabled?: boolean;
   username?: string;
   role?: Role;
 }

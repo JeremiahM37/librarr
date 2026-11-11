@@ -236,6 +236,9 @@ behind TLS.
 | `OIDC_DEFAULT_ROLE` | `user` | Default role for OIDC-created users |
 | `OIDC_PROXY_HEADERS_ENABLED` | `false` | Trust Authentik identity headers from a reverse proxy |
 | `OIDC_LINK_BY_USERNAME` | `false` | Let an SSO login take over an existing non-admin password account with the same username (see below) |
+| `LOCAL_AUTH_DISABLED` | `false` | Send everyone to SSO; only local admins sign in with a password, at `/login?local=1` |
+| `OIDC_POST_LOGOUT_REDIRECT_URI` | | Where the provider returns the browser after sign-out (e.g. `https://librarr.example.com/`). Must be registered with the provider |
+| `OIDC_LOGOUT_URL` | | Send SSO users here on sign-out instead of the provider's logout endpoint. Proxy-header setups need it, e.g. `/outpost.goauthentik.io/sign_out` |
 | `LIBRARR_TRUSTED_PROXIES` | | Comma-separated IPs/CIDRs of your reverse proxy. **Required for `OIDC_PROXY_HEADERS_ENABLED`**; also gates `X-Forwarded-Proto` |
 
 When `OIDC_PROXY_HEADERS_ENABLED=true` and Librarr sits behind a trusted reverse
@@ -249,8 +252,10 @@ Docker network CIDR). From any other peer they are ignored, and with the list
 empty they are always ignored — Librarr logs a warning at startup and users fall
 back to the "Login with SSO" button. Your proxy must also strip these headers
 from incoming client requests.
-Local logout only clears Librarr's session cookie; if the proxy keeps sending
-the identity header, the next request will sign the browser back in.
+Signing out of Librarr alone only clears its session cookie; while the proxy
+keeps sending the identity header, the next request signs the browser back in.
+Set `OIDC_LOGOUT_URL` to the proxy's sign-out URL (for Authentik,
+`/outpost.goauthentik.io/sign_out`) so signing out ends the proxy session too.
 
 **Account linking.** Each account signs in one way: with a password (optionally
 with TOTP) or with SSO. SSO accounts are matched by the provider's subject
@@ -263,6 +268,8 @@ a user at the provider gives them a new account there.
   because the username matches. Its owner signs in with the password and links
   it under **Settings > Account > Sign-in method**. That works for admins too.
   Linking removes the password and TOTP, and ends the account's other sessions.
+  E-readers using the OPDS feed sign in with that password, so they stop
+  working; SSO accounts can't use OPDS.
 - `OIDC_LINK_BY_USERNAME=true` instead converts a non-admin password account
   on the first SSO login with the same username, and binds the SSO identity to
   an account the proxy created (those know only a username). The username can come from
@@ -288,6 +295,32 @@ their SSO logins are refused until they are linked:
 2. For the other users, either set `OIDC_LINK_BY_USERNAME=true` until they
    have all signed in once with SSO, or set each a password under Users so
    they can sign in and link their own account.
+
+**SSO-only sign-in.** With `LOCAL_AUTH_DISABLED=true` the login page goes
+straight to the identity provider. Password sign-in and registration are
+refused for everyone except local admins, who sign in at `/login?local=1`. The
+first-run admin account can still be registered. Librarr tries to reach the
+provider up to three times at startup, five seconds apart (configuration
+errors such as a wrong issuer are not retried). If it still can't, local
+sign-in stays enabled until the next restart, so you are not locked out. When
+the provider starts alongside Librarr, start it first (in Compose,
+`depends_on` with a health check).
+Non-admin password accounts can no longer sign in to link themselves, so have
+them link first, or migrate them with `OIDC_LINK_BY_USERNAME`.
+
+The setting covers the web login only. Password accounts can still use the
+OPDS feed (`/opds`) with their password, so existing e-readers keep working.
+SSO accounts have no password, so they can't sign in to OPDS; e-readers
+can't go through an SSO login.
+
+**Signing out.** Signing out of an SSO account also ends the session at the
+identity provider, when it advertises an `end_session_endpoint` (Authentik,
+Keycloak, Authelia and most others do). Set `OIDC_POST_LOGOUT_REDIRECT_URI` to
+come back to Librarr afterwards; without it, the provider shows its own
+signed-out page. `OIDC_LOGOUT_URL` overrides the provider's endpoint. Local
+admins signing out stay in Librarr. After signing out, the login page waits for
+a click instead of redirecting to the provider, so a provider that couldn't end
+its session doesn't silently sign you back in.
 
 ### Download Clients
 

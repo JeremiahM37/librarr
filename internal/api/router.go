@@ -139,6 +139,9 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 
 	// Initialize OIDC handler if configured.
 	s.oidc = NewOIDCHandler(cfg, database, sessions)
+	if cfg.LocalAuthDisabled && s.oidc == nil {
+		slog.Warn("LOCAL_AUTH_DISABLED is set but OIDC is not available; local sign-in stays enabled until restart")
+	}
 
 	// Initialize rate limiter if enabled.
 	if cfg.RateLimitEnabled {
@@ -236,6 +239,9 @@ func (s *Server) registerRoutes() {
 func (s *Server) registerCoreRoutes() {
 	// Root -- API info page.
 	s.mux.HandleFunc("GET /{$}", s.handleRoot)
+	// The same page; /login?local=1 is the admin's password sign-in when
+	// LOCAL_AUTH_DISABLED sends everyone else to SSO.
+	s.mux.HandleFunc("GET /login", s.handleRoot)
 
 	// Frontend assets (CSS/JS/fonts), embedded in the binary. Served without
 	// auth (isExempt allows /static/) — the login screen needs them too.
@@ -266,11 +272,15 @@ func (s *Server) registerCoreRoutes() {
 // registerAuthRoutes wires authentication, account, and user management.
 func (s *Server) registerAuthRoutes() {
 	// Authentication.
-	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/register", handleRegister(s.db, s.sessions))
-	s.mux.HandleFunc("POST /api/logout", handleLogout(s.sessions, s.db))
-	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.cfg, s.db, s.sessions))
+	// The OIDC handler is nil when the provider failed to initialise; local
+	// sign-in then stays open even with LOCAL_AUTH_DISABLED, so the instance
+	// is never locked out.
+	oidcReady := s.oidc != nil
+	s.mux.HandleFunc("POST /api/login", handleLogin(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/login/totp", handleLoginTOTP(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/register", handleRegister(s.cfg, s.db, s.sessions, oidcReady))
+	s.mux.HandleFunc("POST /api/logout", handleLogout(s.cfg, s.oidc, s.sessions, s.db))
+	s.mux.HandleFunc("GET /api/auth/status", handleAuthStatus(s.cfg, s.db, s.sessions, oidcReady))
 	s.mux.HandleFunc("POST /api/me/sso-link", s.oidc.HandleLinkStart)
 
 	// User management (admin only).

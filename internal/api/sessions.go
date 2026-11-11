@@ -23,6 +23,11 @@ type SessionData struct {
 	Username string
 	Role     string
 	Expiry   time.Time
+
+	// OIDC is set for sessions created by the OIDC callback. IDToken is the
+	// raw ID token from that login, sent as id_token_hint on provider logout.
+	OIDC    bool
+	IDToken string
 }
 
 // PendingTOTP holds a pending TOTP verification.
@@ -72,19 +77,25 @@ func NewSessionStore() *SessionStore {
 // returns an error if the system CSPRNG fails, so callers fail closed rather
 // than mint a predictable all-zero token.
 func (s *SessionStore) Create(userID int64, username, role string) (string, error) {
+	return s.create(&SessionData{UserID: userID, Username: username, Role: role})
+}
+
+// CreateOIDC is Create for a login through the OIDC provider. It keeps the
+// raw ID token so sign-out can end the provider session too.
+func (s *SessionStore) CreateOIDC(userID int64, username, role, idToken string) (string, error) {
+	return s.create(&SessionData{UserID: userID, Username: username, Role: role, OIDC: true, IDToken: idToken})
+}
+
+func (s *SessionStore) create(data *SessionData) (string, error) {
 	b := make([]byte, 32)
 	if _, err := rand.Read(b); err != nil {
 		return "", fmt.Errorf("generate session token: %w", err)
 	}
 	token := hex.EncodeToString(b)
 
+	data.Expiry = time.Now().Add(24 * time.Hour)
 	s.mu.Lock()
-	s.sessions[token] = &SessionData{
-		UserID:   userID,
-		Username: username,
-		Role:     role,
-		Expiry:   time.Now().Add(24 * time.Hour),
-	}
+	s.sessions[token] = data
 	s.mu.Unlock()
 
 	return token, nil
