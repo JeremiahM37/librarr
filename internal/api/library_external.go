@@ -166,6 +166,7 @@ func (s *Server) handleLibraryAudiobooks(w http.ResponseWriter, r *http.Request)
 	if items == nil {
 		items = []map[string]interface{}{}
 	}
+	s.linkLocalItems(items, "audiobook")
 
 	totalPages := absResp.NumPages
 	if totalPages == 0 && absResp.Total > 0 {
@@ -358,6 +359,7 @@ func (s *Server) kavitaSeriesToItems(series []kavitaSeries, publicURL string) []
 	if items == nil {
 		items = []map[string]interface{}{}
 	}
+	s.linkLocalItems(items, "manga")
 	return items
 }
 
