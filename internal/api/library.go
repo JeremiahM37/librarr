@@ -1,7 +1,9 @@
 package api
 
 import (
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
@@ -75,6 +77,47 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 		offset = (page - 1) * limit
 	}
 	s.serveLocalLibraryPage(w, r, mediaType, page, limit, offset)
+}
+
+// handleLibraryItem returns one local library item with its tags, for the
+// item detail view. Items shown from Audiobookshelf or Kavita are not local
+// rows and have no detail here.
+func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, "Invalid item ID", nil)
+		return
+	}
+	item, err := s.db.GetItem(id)
+	if errors.Is(err, sql.ErrNoRows) {
+		writeError(w, http.StatusNotFound, "Item not found", nil)
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load library item", err)
+		return
+	}
+	tags, err := s.db.GetItemTags(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "Failed to load library item", err)
+		return
+	}
+	if tags == nil {
+		tags = []db.Tag{}
+	}
+	body := db.ItemToJSON(*item)
+	body["tags"] = tags
+	writeJSON(w, http.StatusOK, body)
+}
+
+// handleLibraryFile downloads a local library item's file.
+func (s *Server) handleLibraryFile(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
+	if err != nil {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+	s.serveLibraryFile(w, r, id)
 }
 
 // serveLocalLibraryByMediaType uses the same page-based contract as ABS/Kavita.
@@ -184,6 +227,7 @@ func (s *Server) handleLibraryEbooksFromABS(w http.ResponseWriter, r *http.Reque
 	if items == nil {
 		items = []map[string]interface{}{}
 	}
+	s.linkLocalItems(items, "ebook")
 
 	totalPages := absResp.NumPages
 	if totalPages == 0 && absResp.Total > 0 {

@@ -296,3 +296,85 @@ def test_external_cover_url_is_unchanged(local_app, page):
     page.route("https://abs.example/**", lambda route: route.fulfill(body=TINY_IMG, content_type="image/png"))
     _open_library(local_app, page, "audiobooks")
     expect(_card(page, "Shelf book").locator("img")).to_have_attribute("src", url)
+
+
+def _insert_file_item(local_app, title, media="ebook"):
+    path = local_app["books_dir"] / f"{title}.epub"
+    path.write_bytes(b"detail view file")
+    with sqlite3.connect(local_app["data"] / "librarr.db") as conn:
+        cur = conn.execute(
+            "INSERT INTO library_items (title,author,media_type,file_format,file_size,file_path,source,added_at) VALUES (?,?,?,?,?,?,?,?)",
+            (title, "Detail Author", media, "epub", 2097152, str(path), "gutenberg", 1700000000),
+        )
+        item_id = cur.lastrowid
+        tag_id = conn.execute("INSERT INTO tags (name,color) VALUES (?,?)", (f"{title} tag", "#22c55e")).lastrowid
+        conn.execute("INSERT INTO item_tags (item_id,tag_id) VALUES (?,?)", (item_id, tag_id))
+    return item_id, path
+
+
+@pytest.mark.parametrize("mobile", [False, True])
+def test_local_item_detail_shows_file_and_tags(local_app, page, mobile):
+    errors = []
+    page.on("pageerror", lambda error: errors.append(str(error)))
+    _, path = _insert_file_item(local_app, "Detail book")
+    _open_library(local_app, page, "ebooks")
+    if mobile:
+        page.set_viewport_size({"width": 390, "height": 844})
+    _card(page, "Detail book").get_by_role("button", name="Detail book").click()
+    detail = page.locator("#library-item-detail")
+    expect(detail).to_be_visible()
+    expect(detail.get_by_role("heading", name="Detail book")).to_be_visible()
+    expect(detail).to_contain_text("Detail Author")
+    expect(detail).to_contain_text("EPUB")
+    expect(detail).to_contain_text("2.0 MB")
+    expect(detail).to_contain_text("gutenberg")
+    expect(detail).to_contain_text(str(path))
+    expect(detail.locator("li")).to_have_text(["Detail book tag"])
+    assert page.evaluate("document.documentElement.scrollWidth <= window.innerWidth")
+    with page.expect_download() as info:
+        detail.get_by_role("link", name="Download file").click()
+    assert info.value.suggested_filename == "Detail book.epub"
+    assert Path(info.value.path()).read_bytes() == b"detail view file"
+    page.keyboard.press("Escape")
+    expect(detail).to_have_count(0)
+    assert errors == []
+
+
+def test_local_item_detail_remove_closes_and_keeps_file(local_app, page):
+    _, path = _insert_file_item(local_app, "Removable detail")
+    _open_library(local_app, page, "ebooks")
+    _card(page, "Removable detail").get_by_role("button", name="Removable detail").click()
+    detail = page.locator("#library-item-detail")
+    page.once("dialog", lambda dialog: dialog.dismiss())
+    detail.get_by_role("button", name="Remove from library").click()
+    expect(detail).to_be_visible()
+    page.once("dialog", lambda dialog: dialog.accept())
+    detail.get_by_role("button", name="Remove from library").click()
+    expect(detail).to_have_count(0)
+    expect(_card(page, "Removable detail")).to_have_count(0)
+    assert path.read_bytes() == b"detail view file"
+
+
+def test_external_items_open_their_local_record(local_app, page):
+    item_id, _ = _insert_file_item(local_app, "Shelved and local", "audiobook")
+    page.route("**/api/library/audiobooks*", lambda route: route.fulfill(json={
+        "items": [
+            {"id": "li_abs", "title": "Shelf only", "abs_url": "https://abs.example/item/li_abs"},
+            {"id": "li_both", "title": "Shelved and local", "local_id": item_id,
+             "abs_url": "https://abs.example/item/li_both"},
+        ],
+        "total": 2,
+    }))
+    _open_library(local_app, page, "audiobooks")
+    shelf_only = _card(page, "Shelf only")
+    expect(shelf_only.get_by_role("link", name="Open in Audiobookshelf")).to_be_visible()
+    expect(shelf_only.locator('[data-action="openLibraryItem"]')).to_have_count(0)
+    both = _card(page, "Shelved and local")
+    # The card's own link stays clickable above the card-wide detail target.
+    both.get_by_role("link", name="Open in Audiobookshelf").click(trial=True)
+    both.get_by_role("button", name="Shelved and local").click()
+    detail = page.locator("#library-item-detail")
+    expect(detail).to_contain_text("Detail Author")
+    expect(detail.get_by_role("link", name="Open in Audiobookshelf")).to_have_attribute(
+        "href", "https://abs.example/item/li_both")
+    expect(detail.get_by_role("link", name="Download file")).to_be_visible()

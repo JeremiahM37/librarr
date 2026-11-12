@@ -1,7 +1,10 @@
 package api
 
 import (
+	"database/sql"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -223,69 +226,80 @@ func (s *Server) handleOPDSSearch(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleOPDSDownload(w http.ResponseWriter, r *http.Request) {
-	idStr := r.PathValue("id")
-	id, err := strconv.ParseInt(idStr, 10, 64)
+	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
 		http.Error(w, "Invalid ID", http.StatusBadRequest)
 		return
 	}
+	s.serveLibraryFile(w, r, id)
+}
 
-	// Find the item.
-	items, _ := s.db.GetItems("", 10000, 0)
-	for _, item := range items {
-		if item.ID == id {
-			if item.FilePath == "" {
-				http.Error(w, "File not found on disk", http.StatusNotFound)
-				return
-			}
-
-			// Resolve the real path to prevent path traversal via symlinks or DB tampering.
-			realPath, err := filepath.EvalSymlinks(item.FilePath)
-			if err != nil {
-				http.Error(w, "File not found on disk", http.StatusNotFound)
-				return
-			}
-
-			// Validate the file is within an allowed directory.
-			allowed := false
-			for _, dir := range []string{s.cfg.EbookDir, s.cfg.AudiobookDir, s.cfg.MangaDir, s.cfg.IncomingDir, s.cfg.MangaIncomingDir} {
-				if dir == "" {
-					continue
-				}
-				absDir, err := filepath.Abs(dir)
-				if err != nil {
-					continue
-				}
-				if strings.HasPrefix(realPath, absDir+string(filepath.Separator)) || realPath == absDir {
-					allowed = true
-					break
-				}
-			}
-			if !allowed {
-				http.Error(w, "Access denied", http.StatusForbidden)
-				return
-			}
-
-			if _, err := os.Stat(realPath); os.IsNotExist(err) {
-				http.Error(w, "File not found on disk", http.StatusNotFound)
-				return
-			}
-
-			fmtStr := strings.ToLower(strings.TrimPrefix(filepath.Ext(realPath), "."))
-			mime := formatMIMEs[fmtStr]
-			if mime == "" {
-				mime = "application/octet-stream"
-			}
-
-			w.Header().Set("Content-Type", mime)
-			w.Header().Set("Content-Disposition",
-				fmt.Sprintf("attachment; filename=%q", filepath.Base(realPath)))
-			http.ServeFile(w, r, realPath)
+// serveLibraryFile sends a library item's file as an attachment. It backs both
+// the OPDS acquisition link and the web UI's download button.
+func (s *Server) serveLibraryFile(w http.ResponseWriter, r *http.Request, id int64) {
+	item, err := s.db.GetItem(id)
+	if err != nil {
+		if !errors.Is(err, sql.ErrNoRows) {
+			slog.Error("library file item lookup failed", "id", id, "error", err)
+			http.Error(w, "Internal error", http.StatusInternalServerError)
 			return
 		}
+		http.Error(w, "Item not found", http.StatusNotFound)
+		return
+	}
+	if item.FilePath == "" {
+		http.Error(w, "File not found on disk", http.StatusNotFound)
+		return
 	}
 
-	http.Error(w, "Item not found", http.StatusNotFound)
+	// Resolve the real path to prevent path traversal via symlinks or DB tampering.
+	realPath, err := filepath.EvalSymlinks(item.FilePath)
+	if err != nil {
+		http.Error(w, "File not found on disk", http.StatusNotFound)
+		return
+	}
+
+	// Validate the file is within an allowed directory.
+	allowed := false
+	for _, dir := range []string{s.cfg.EbookDir, s.cfg.AudiobookDir, s.cfg.MangaDir, s.cfg.IncomingDir, s.cfg.MangaIncomingDir} {
+		if dir == "" {
+			continue
+		}
+		absDir, err := filepath.Abs(dir)
+		if err != nil {
+			continue
+		}
+		// realPath has its symlinks resolved, so the directory must too, or a
+		// library directory reached through a symlink never matches.
+		if resolved, err := filepath.EvalSymlinks(absDir); err == nil {
+			absDir = resolved
+		}
+		if strings.HasPrefix(realPath, absDir+string(filepath.Separator)) || realPath == absDir {
+			allowed = true
+			break
+		}
+	}
+	if !allowed {
+		http.Error(w, "Access denied", http.StatusForbidden)
+		return
+	}
+
+	// A multi-file audiobook is a directory; ServeFile would list it.
+	if info, err := os.Stat(realPath); err != nil || !info.Mode().IsRegular() {
+		http.Error(w, "File not found on disk", http.StatusNotFound)
+		return
+	}
+
+	fmtStr := strings.ToLower(strings.TrimPrefix(filepath.Ext(realPath), "."))
+	mime := formatMIMEs[fmtStr]
+	if mime == "" {
+		mime = "application/octet-stream"
+	}
+
+	w.Header().Set("Content-Type", mime)
+	w.Header().Set("Content-Disposition",
+		fmt.Sprintf("attachment; filename=%q", filepath.Base(realPath)))
+	http.ServeFile(w, r, realPath)
 }
 
 func (s *Server) handleOPDSOpenSearch(w http.ResponseWriter, _ *http.Request) {

@@ -398,6 +398,38 @@
         "description": "Body: {\"title\", \"author\", \"media_type\"}; title and author up to 300 bytes. Only ebook and audiobook items are looked up. Returns {\"cover_url\": url}, with an empty url for a miss or a failure."
       }
     },
+    "/api/library/{id}": {
+      "get": {
+        "summary": "One local library item with its tags",
+        "description": "Returns the item fields from the library listing plus \"tags\". 404 when no local item has this id; items shown from Audiobookshelf or Kavita are not local, but the library listings mark the ones that match a local item with \"local_id\".",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
+    "/api/library/{id}/file": {
+      "get": {
+        "summary": "Download a library item's file",
+        "description": "Sends the file as an attachment. 404 when the item has no file on disk or its path is a directory (multi-file audiobooks); 403 when the file is outside the configured library directories.",
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ]
+      }
+    },
     "/api/library/{id}/cover": {
       "get": {
         "summary": "Saved cover image for a library item",

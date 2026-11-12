@@ -123,6 +123,12 @@ export interface LibraryItem {
   library?: string;
   abs_url?: string;
   kavita_url?: string;
+  // On Audiobookshelf/Kavita rows: the matching record in Librarr's library.
+  local_id?: number;
+  media_type?: MediaType;
+  source?: string;
+  added_at?: string;
+  tags?: { id: number; name: string; color?: string }[];
 }
 export interface LibraryResponse {
   items?: LibraryItem[];

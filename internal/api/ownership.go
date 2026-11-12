@@ -57,3 +57,28 @@ func annotateOwnership(idx *library.Index, results []models.SearchResult, tab st
 	}
 	return results
 }
+
+// linkLocalItems marks rows listed from Audiobookshelf or Kavita with the
+// local library record they correspond to, as "local_id", so the UI can open
+// Librarr's detail view for them. The external services keep their own ids,
+// and there is no stored link between the two, so rows are matched the same
+// way search results are: by title and author within one media type.
+func (s *Server) linkLocalItems(items []map[string]interface{}, mediaType string) {
+	idx := s.libraryIndex()
+	if idx == nil || idx.Len() == 0 {
+		return
+	}
+	for _, item := range items {
+		title, _ := item["title"].(string)
+		if title == "" {
+			title, _ = item["name"].(string) // Kavita series
+		}
+		author, _ := item["author"].(string)
+		if title == "" {
+			continue
+		}
+		if match, ok := idx.Lookup(title, author, mediaType); ok {
+			item["local_id"] = match.ID
+		}
+	}
+}
