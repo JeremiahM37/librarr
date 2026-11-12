@@ -392,12 +392,6 @@
         "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
       }
     },
-    "/api/covers/lookup": {
-      "post": {
-        "summary": "Look up the cover URL for one search result",
-        "description": "Body: {\"title\", \"author\", \"media_type\"}; title and author up to 300 bytes. Only ebook and audiobook items are looked up. Returns {\"cover_url\": url}, with an empty url for a miss or a failure."
-      }
-    },
     "/api/library/{id}": {
       "get": {
         "summary": "One local library item with its tags",
@@ -444,6 +438,12 @@
             }
           }
         ]
+      }
+    },
+    "/api/covers/lookup": {
+      "post": {
+        "summary": "Look up the cover URL for one search result",
+        "description": "Body: {\"title\", \"author\", \"media_type\"}; title and author up to 300 bytes. Only ebook and audiobook items are looked up. Returns {\"cover_url\": url}, with an empty url for a miss or a failure."
       }
     },
     "/api/library/manga": {

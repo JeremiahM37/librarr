@@ -1,22 +1,34 @@
-// Package covers stores cover images for library items.
+// Package covers stores cover images for library items and downloads them
+// from a restricted set of hosts.
 package covers
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/JeremiahM37/librarr/internal/metadata"
+	"github.com/JeremiahM37/librarr/internal/netutil"
 )
 
 // MaxImageBytes is the largest cover image accepted from any source.
 const MaxImageBytes = 10 << 20
 
-const tempPrefix = ".tmp-"
+const (
+	defaultCoverBase = "https://covers.openlibrary.org"
+	maxRedirects     = 5
+	tempPrefix       = ".tmp-"
+)
 
 // DetectImage identifies JPEG, PNG, GIF and WebP images by their magic bytes.
 // Anything else, including SVG, is rejected.
@@ -34,14 +46,43 @@ func DetectImage(b []byte) (ext, contentType string, ok bool) {
 	return "", "", false
 }
 
-// Store keeps cover files in a single directory.
-type Store struct {
-	dir string
+// CoolDownError means the cover host answered 429 or 503: downloads should
+// wait Wait before trying again.
+type CoolDownError struct {
+	Status int
+	Wait   time.Duration
 }
 
-// NewStore returns a Store rooted at dir.
-func NewStore(dir string) *Store {
-	return &Store{dir: dir}
+func (e *CoolDownError) Error() string {
+	return fmt.Sprintf("cover download: status %d, retry in %s", e.Status, e.Wait)
+}
+
+// Store keeps cover files in a single directory and downloads new ones.
+type Store struct {
+	dir          string
+	client       *http.Client
+	coverBaseURL func() string
+	userAgent    string
+}
+
+// NewStore returns a Store rooted at dir. client and coverBaseURL may be nil.
+func NewStore(dir string, client *http.Client, coverBaseURL func() string) *Store {
+	return &Store{dir: dir, client: client, coverBaseURL: coverBaseURL}
+}
+
+// WithUserAgent sets the User-Agent sent with downloads and returns s.
+func (s *Store) WithUserAgent(ua string) *Store {
+	s.userAgent = ua
+	return s
+}
+
+func (s *Store) base() string {
+	if s.coverBaseURL != nil {
+		if b := s.coverBaseURL(); b != "" {
+			return b
+		}
+	}
+	return defaultCoverBase
 }
 
 // path resolves a stored file name inside dir, discarding any directory parts.
@@ -171,4 +212,80 @@ func (s *Store) List() ([]string, error) {
 		}
 	}
 	return out, nil
+}
+
+// allowedCoverHost reports whether rawURL may be fetched: the same scheme and
+// host as base, or https on archive.org or one of its subdomains.
+func allowedCoverHost(rawURL, base string) bool {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(u.Scheme)
+	host := strings.ToLower(u.Host)
+	if b, err := url.Parse(base); err == nil && b.Host != "" &&
+		scheme == strings.ToLower(b.Scheme) && host == strings.ToLower(b.Host) {
+		return true
+	}
+	if scheme != "https" {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	return u.Port() == "" && (h == "archive.org" || strings.HasSuffix(h, ".archive.org"))
+}
+
+func (s *Store) checkURL(rawURL string) error {
+	if !allowedCoverHost(rawURL, s.base()) {
+		return errors.New("cover host not allowed")
+	}
+	return netutil.ValidateOutboundURL(rawURL)
+}
+
+// Download fetches an image from an allowed host, following at most five
+// redirects that are each re-checked, and returns the validated bytes.
+func (s *Store) Download(ctx context.Context, rawURL string) ([]byte, error) {
+	if err := s.checkURL(rawURL); err != nil {
+		return nil, err
+	}
+	var client http.Client
+	if s.client != nil {
+		client = *s.client
+	} else {
+		client.Timeout = 30 * time.Second
+	}
+	client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
+		if len(via) > maxRedirects {
+			return errors.New("too many redirects")
+		}
+		return s.checkURL(req.URL.String())
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return nil, err
+	}
+	if s.userAgent != "" {
+		req.Header.Set("User-Agent", s.userAgent)
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
+		return nil, &CoolDownError{Status: resp.StatusCode, Wait: metadata.CoverRetryAfter(resp.Header.Get("Retry-After"))}
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("cover download: status %d", resp.StatusCode)
+	}
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxImageBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxImageBytes {
+		return nil, errors.New("cover image too large")
+	}
+	if _, _, ok := DetectImage(data); !ok {
+		return nil, errors.New("cover is not a supported image")
+	}
+	return data, nil
 }
