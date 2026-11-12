@@ -236,7 +236,7 @@ func TestCoverMediaTypes(t *testing.T) {
 		cfg  config.Config
 		want []string
 	}{
-		{"no integrations", config.Config{}, []string{"ebook"}},
+		{"no integrations", config.Config{}, []string{"ebook", "audiobook"}},
 		{"abs without ebook library", config.Config{ABSURL: "http://abs", ABSToken: "t"}, []string{"ebook"}},
 		{"abs with ebook library", config.Config{ABSURL: "http://abs", ABSToken: "t", ABSEbookLibraryID: "lib"}, []string{}},
 	}

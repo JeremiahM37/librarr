@@ -3,27 +3,63 @@ package covers
 import (
 	"archive/zip"
 	"context"
+	"errors"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/metadata"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
+
+type fakeResolver struct {
+	calls []resolveCall
+	url   string
+	err   error
+}
+
+type resolveCall struct {
+	kind          metadata.CoverKind
+	title, author string
+}
+
+func (f *fakeResolver) Resolve(_ context.Context, kind metadata.CoverKind, title, author string) (string, error) {
+	f.calls = append(f.calls, resolveCall{kind, title, author})
+	return f.url, f.err
+}
 
 type jobEnv struct {
 	db    *db.DB
 	store *Store
+	res   *fakeResolver
 	job   *Job
 	dir   string
 	now   time.Time
+	srv   *httptest.Server
 	types []string
 }
 
 func newJobEnv(t *testing.T) *jobEnv {
 	t.Helper()
+	t.Setenv("LIBRARR_INSECURE_ALLOW_PRIVATE_URLS", "1")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/bad.jpg" {
+			http.Error(w, "nope", http.StatusInternalServerError)
+			return
+		}
+		if r.URL.Path == "/limited.jpg" {
+			w.Header().Set("Retry-After", "120")
+			http.Error(w, "slow down", http.StatusTooManyRequests)
+			return
+		}
+		_, _ = w.Write(pngBytes)
+	}))
+	t.Cleanup(srv.Close)
 	database, err := db.New(filepath.Join(t.TempDir(), "test.db"))
 	if err != nil {
 		t.Fatal(err)
@@ -32,12 +68,15 @@ func newJobEnv(t *testing.T) *jobEnv {
 	dir := filepath.Join(t.TempDir(), "covers")
 	e := &jobEnv{
 		db:    database,
-		store: NewStore(dir),
+		store: NewStore(dir, nil, func() string { return srv.URL }),
+		res:   &fakeResolver{url: srv.URL + "/c.jpg"},
 		dir:   dir,
 		now:   time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		types: []string{"ebook"},
+		srv:   srv,
+		types: []string{"ebook", "audiobook"},
 	}
-	e.job = NewJob(database, e.store, func() []string { return e.types })
+	e.job = NewJob(database, e.store, e.res, func() []string { return e.types })
+	e.job.delay = 0
 	e.job.now = func() time.Time { return e.now }
 	return e
 }
@@ -86,18 +125,11 @@ func writeEPUB(t *testing.T, path string, entries map[string][]byte) {
 func epubWithCover(t *testing.T, img []byte) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "b.epub")
-	writeCoverEPUB(t, p, img)
-	return p
-}
-
-func writeCoverEPUB(t *testing.T, p string, img []byte) {
-	t.Helper()
 	writeEPUB(t, p, map[string][]byte{
 		"content.opf": []byte(`<package xmlns="http://www.idpf.org/2007/opf"><metadata><meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.img"/></manifest></package>`),
 		"cover.img":   img,
-		// AddItem merges identical files, so make each fixture distinct.
-		"path.txt": []byte(p),
 	})
+	return p
 }
 
 func TestJobUsesEmbeddedCover(t *testing.T) {
@@ -107,16 +139,19 @@ func TestJobUsesEmbeddedCover(t *testing.T) {
 	if got := e.cover(t, id); got != fmt.Sprintf("%d.jpg", id) {
 		t.Fatalf("cover = %q", got)
 	}
+	if len(e.res.calls) != 0 {
+		t.Fatalf("resolver called: %v", e.res.calls)
+	}
 }
 
-func TestJobLeavesItemsWithoutEmbeddedCover(t *testing.T) {
+func TestJobFallsBackToLookup(t *testing.T) {
 	e := newJobEnv(t)
 	noCover := filepath.Join(t.TempDir(), "n.epub")
 	writeEPUB(t, noCover, map[string][]byte{"content.opf": []byte(`<package xmlns="http://www.idpf.org/2007/opf"><metadata/><manifest/></package>`)})
 	corrupt := filepath.Join(t.TempDir(), "c.epub")
 	_ = os.WriteFile(corrupt, []byte("not a zip"), 0o644)
 	paths := map[string]string{
-		"NoCover": noCover, "Corrupt": corrupt, "Html": epubWithCover(t, []byte("<html>hi</html>")),
+		"NoCover": noCover, "Corrupt": corrupt,
 		"Missing": filepath.Join(t.TempDir(), "gone.epub"), "Pdf": "/x/book.pdf",
 	}
 	ids := map[string]int64{}
@@ -124,10 +159,81 @@ func TestJobLeavesItemsWithoutEmbeddedCover(t *testing.T) {
 		ids[title] = e.add(t, title, "ebook", p)
 	}
 	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != len(paths) {
+		t.Fatalf("calls = %d", len(e.res.calls))
+	}
+	for _, c := range e.res.calls {
+		if c.kind != metadata.CoverKindBook || c.author != "Author of "+c.title {
+			t.Errorf("bad call %+v", c)
+		}
+	}
 	for title, id := range ids {
-		if got := e.cover(t, id); got != "" {
+		if got := e.cover(t, id); got != fmt.Sprintf("%d.png", id) {
 			t.Errorf("%s cover = %q", title, got)
 		}
+	}
+}
+
+func TestJobWithoutResolverUsesEmbeddedOnly(t *testing.T) {
+	e := newJobEnv(t)
+	e.job = NewJob(e.db, e.store, nil, func() []string { return e.types })
+	e.job.delay = 0
+	embedded := e.add(t, "Embedded", "ebook", epubWithCover(t, jpegBytes))
+	pdf := e.add(t, "Pdf", "ebook", "/x/book.pdf")
+	e.job.RunOnce(context.Background())
+	if got := e.cover(t, embedded); got != fmt.Sprintf("%d.jpg", embedded) {
+		t.Errorf("embedded cover = %q", got)
+	}
+	if got := e.cover(t, pdf); got != "" {
+		t.Errorf("pdf cover = %q, want none", got)
+	}
+}
+
+func TestJobRejectsNonImageEmbedded(t *testing.T) {
+	e := newJobEnv(t)
+	id := e.add(t, "Html", "ebook", epubWithCover(t, []byte("<html>hi</html>")))
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d", len(e.res.calls))
+	}
+	if got := e.cover(t, id); got != fmt.Sprintf("%d.png", id) {
+		t.Fatalf("cover = %q", got)
+	}
+}
+
+func TestJobMissRetriesAfterDelay(t *testing.T) {
+	e := newJobEnv(t)
+	e.res.url = ""
+	id := e.add(t, "Miss", "ebook", "/x/a.pdf")
+	e.job.RunOnce(context.Background())
+	if e.cover(t, id) != "" || len(e.res.calls) != 1 {
+		t.Fatalf("cover %q calls %d", e.cover(t, id), len(e.res.calls))
+	}
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("immediate retry: %d calls", len(e.res.calls))
+	}
+	e.now = e.now.Add(24*time.Hour + time.Second)
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 2 {
+		t.Fatalf("calls after delay = %d", len(e.res.calls))
+	}
+}
+
+func TestJobFailureDoesNotLoop(t *testing.T) {
+	e := newJobEnv(t)
+	e.res.err = errors.New("boom")
+	a := e.add(t, "ErrA", "ebook", "/x/a.pdf")
+	e.job.RunOnce(context.Background())
+	e.res.err = nil
+	e.res.url = e.srv.URL + "/bad.jpg"
+	b := e.add(t, "ErrB", "ebook", "/x/b.pdf")
+	e.job.RunOnce(context.Background())
+	if e.cover(t, a) != "" || e.cover(t, b) != "" {
+		t.Fatal("unexpected cover")
+	}
+	if len(e.res.calls) != 2 {
+		t.Fatalf("calls = %d", len(e.res.calls))
 	}
 	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-24*time.Hour), 10)
 	if len(items) != 0 {
@@ -135,45 +241,26 @@ func TestJobLeavesItemsWithoutEmbeddedCover(t *testing.T) {
 	}
 }
 
-func TestJobMissRetriesAfterDelay(t *testing.T) {
-	e := newJobEnv(t)
-	p := filepath.Join(t.TempDir(), "later.epub")
-	writeEPUB(t, p, map[string][]byte{"content.opf": []byte(`<package xmlns="http://www.idpf.org/2007/opf"><metadata/><manifest/></package>`)})
-	id := e.add(t, "Miss", "ebook", p)
-	e.job.RunOnce(context.Background())
-	writeCoverEPUB(t, p, pngBytes)
-	e.job.RunOnce(context.Background())
-	if got := e.cover(t, id); got != "" {
-		t.Fatalf("immediate retry: cover = %q", got)
-	}
-	e.now = e.now.Add(24*time.Hour + time.Second)
-	e.job.RunOnce(context.Background())
-	if got := e.cover(t, id); got != fmt.Sprintf("%d.png", id) {
-		t.Fatalf("cover after delay = %q", got)
-	}
-}
-
 func TestJobCoverIsFinal(t *testing.T) {
 	e := newJobEnv(t)
-	p := epubWithCover(t, pngBytes)
-	id := e.add(t, "Final", "ebook", p)
+	id := e.add(t, "Final", "ebook", "/x/a.pdf")
 	e.job.RunOnce(context.Background())
-	writeCoverEPUB(t, p, jpegBytes)
 	e.now = e.now.Add(365 * 24 * time.Hour)
 	e.job.RunOnce(context.Background())
-	if got := e.cover(t, id); got != fmt.Sprintf("%d.png", id) {
-		t.Fatalf("cover = %q", got)
+	if len(e.res.calls) != 1 || e.cover(t, id) == "" {
+		t.Fatalf("calls %d cover %q", len(e.res.calls), e.cover(t, id))
 	}
 }
 
 func TestJobSkipsMediaTypes(t *testing.T) {
 	e := newJobEnv(t)
-	eb := e.add(t, "Ebook", "ebook", epubWithCover(t, pngBytes))
-	au := e.add(t, "Audio", "audiobook", epubWithCover(t, pngBytes))
-	mg := e.add(t, "Manga", "manga", epubWithCover(t, pngBytes))
+	e.types = []string{"ebook"}
+	e.add(t, "Ebook", "ebook", "/x/a.pdf")
+	au := e.add(t, "Audio", "audiobook", "/x/a.m4b")
+	mg := e.add(t, "Manga", "manga", "/x/a.cbz")
 	e.job.RunOnce(context.Background())
-	if e.cover(t, eb) == "" || e.cover(t, au) != "" || e.cover(t, mg) != "" {
-		t.Fatalf("covers: %q %q %q", e.cover(t, eb), e.cover(t, au), e.cover(t, mg))
+	if len(e.res.calls) != 1 || e.cover(t, au) != "" || e.cover(t, mg) != "" {
+		t.Fatalf("calls %d", len(e.res.calls))
 	}
 }
 
@@ -182,7 +269,7 @@ func TestJobUnwritableDir(t *testing.T) {
 	if err := os.WriteFile(e.dir, []byte("file"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	id := e.add(t, "NoDir", "ebook", epubWithCover(t, pngBytes))
+	id := e.add(t, "NoDir", "ebook", "/x/a.pdf")
 	e.job.RunOnce(context.Background())
 	if e.cover(t, id) != "" {
 		t.Fatal("cover set")
@@ -195,9 +282,9 @@ func TestJobUnwritableDir(t *testing.T) {
 
 func TestJobSweepsOrphans(t *testing.T) {
 	e := newJobEnv(t)
-	keep := e.add(t, "Keep", "ebook", epubWithCover(t, pngBytes))
-	del1 := e.add(t, "Del1", "ebook", epubWithCover(t, pngBytes))
-	del2 := e.add(t, "Del2", "ebook", epubWithCover(t, pngBytes))
+	keep := e.add(t, "Keep", "ebook", "/x/a.pdf")
+	del1 := e.add(t, "Del1", "ebook", "/x/b.pdf")
+	del2 := e.add(t, "Del2", "ebook", "/x/c.pdf")
 	e.job.RunOnce(context.Background())
 	if err := e.db.DeleteItem(del1); err != nil {
 		t.Fatal(err)
@@ -223,7 +310,7 @@ func TestJobSweepsOrphans(t *testing.T) {
 
 func TestJobRegeneratesMissingFiles(t *testing.T) {
 	e := newJobEnv(t)
-	id := e.add(t, "Restore", "ebook", epubWithCover(t, pngBytes))
+	id := e.add(t, "Restore", "ebook", "/x/a.pdf")
 	e.job.RunOnce(context.Background())
 	file := e.cover(t, id)
 	if err := e.store.Remove(file); err != nil {
@@ -240,12 +327,29 @@ func TestJobRegeneratesMissingFiles(t *testing.T) {
 
 func TestJobStopsOnCancel(t *testing.T) {
 	e := newJobEnv(t)
-	a := e.add(t, "A", "ebook", epubWithCover(t, pngBytes))
+	e.job.delay = time.Hour
+	a := e.add(t, "A", "ebook", "/x/a.pdf")
+	b := e.add(t, "B", "ebook", "/x/b.pdf")
 	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() { e.job.RunOnce(ctx); close(done) }()
+	for i := 0; i < 200 && e.cover(t, a)+e.cover(t, b) == ""; i++ {
+		time.Sleep(10 * time.Millisecond)
+	}
 	cancel()
-	e.job.RunOnce(ctx)
-	if got := e.cover(t, a); got != "" {
-		t.Fatalf("cover = %q after cancel", got)
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("RunOnce did not return")
+	}
+	n := 0
+	for _, id := range []int64{a, b} {
+		if e.cover(t, id) != "" {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Fatalf("%d items processed, want 1", n)
 	}
 	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-24*time.Hour), 10)
 	if len(items) != 1 {
@@ -253,25 +357,98 @@ func TestJobStopsOnCancel(t *testing.T) {
 	}
 }
 
-// Reading an embedded cover needs no network, so a pass doesn't pause between
-// items: a library is done in one quick pass, past the first batch.
-func TestJobDoesNotPauseForEmbeddedCovers(t *testing.T) {
+func TestJobStopsWhileCoolingDown(t *testing.T) {
 	e := newJobEnv(t)
-	var ids []int64
-	for i := 0; i < jobBatchSize+5; i++ {
-		ids = append(ids, e.add(t, fmt.Sprintf("Book %d", i), "ebook", epubWithCover(t, pngBytes)))
+	e.res.err = fmt.Errorf("lookup: %w", metadata.ErrCoverCoolingDown)
+	a := e.add(t, "A", "ebook", "/x/a.pdf")
+	b := e.add(t, "B", "ebook", "/x/b.pdf")
+	if err := os.MkdirAll(e.dir, 0o755); err != nil {
+		t.Fatal(err)
 	}
-	done := make(chan struct{})
-	go func() { e.job.RunOnce(context.Background()); close(done) }()
-	select {
-	case <-done:
-	case <-time.After(5 * time.Second):
-		t.Fatal("pass took longer than 5s")
+	orphan := filepath.Join(e.dir, "999.png")
+	if err := os.WriteFile(orphan, pngBytes, 0o644); err != nil {
+		t.Fatal(err)
 	}
-	for _, id := range ids {
-		if e.cover(t, id) == "" {
-			t.Fatalf("item %d has no cover", id)
-		}
+
+	e.job.RunOnce(context.Background())
+
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d, want the pass to stop after 1", len(e.res.calls))
+	}
+	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-time.Second), 10)
+	if len(items) != 2 {
+		t.Fatalf("%d items left unmarked, want 2", len(items))
+	}
+	if _, err := os.Stat(orphan); err != nil {
+		t.Fatalf("the stopped pass swept: %v", err)
+	}
+
+	// The next pass carries on, with no 24-hour wait, and finishes normally.
+	e.res.err = nil
+	e.job.RunOnce(context.Background())
+	if e.cover(t, a) == "" || e.cover(t, b) == "" {
+		t.Fatalf("not resumed: %q %q", e.cover(t, a), e.cover(t, b))
+	}
+	if _, err := os.Stat(orphan); !os.IsNotExist(err) {
+		t.Fatalf("orphan not swept after a full pass: %v", err)
+	}
+}
+
+// A 429 from the image host pauses downloads for its Retry-After, leaving the
+// items unmarked rather than waiting a day each.
+func TestJobPausesDownloadsWhenRateLimited(t *testing.T) {
+	e := newJobEnv(t)
+	e.res.url = e.srv.URL + "/limited.jpg"
+	a := e.add(t, "A", "ebook", "/x/a.pdf")
+	b := e.add(t, "B", "ebook", "/x/b.pdf")
+
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d, want the pass to stop after 1", len(e.res.calls))
+	}
+	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-time.Second), 10)
+	if len(items) != 2 {
+		t.Fatalf("%d items left unmarked, want 2", len(items))
+	}
+
+	// Within the Retry-After nothing is looked up or downloaded.
+	e.res.url = e.srv.URL + "/c.jpg"
+	e.now = e.now.Add(119 * time.Second)
+	e.job.RunOnce(context.Background())
+	if len(e.res.calls) != 1 {
+		t.Fatalf("calls = %d during the pause, want 1", len(e.res.calls))
+	}
+
+	e.now = e.now.Add(2 * time.Second)
+	e.job.RunOnce(context.Background())
+	if e.cover(t, a) == "" || e.cover(t, b) == "" {
+		t.Fatalf("not resumed: %q %q", e.cover(t, a), e.cover(t, b))
+	}
+}
+
+func TestJobPrunesLookupsDaily(t *testing.T) {
+	e := newJobEnv(t)
+	old := e.now.Add(-31 * 24 * time.Hour)
+	if err := e.db.PutCoverLookup("first", "", old); err != nil {
+		t.Fatal(err)
+	}
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("first"); found {
+		t.Fatal("old lookup not pruned on the first pass")
+	}
+
+	if err := e.db.PutCoverLookup("second", "", old); err != nil {
+		t.Fatal(err)
+	}
+	e.now = e.now.Add(23 * time.Hour)
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("second"); !found {
+		t.Fatal("pruned again within a day")
+	}
+	e.now = e.now.Add(2 * time.Hour)
+	e.job.RunOnce(context.Background())
+	if _, found, _, _ := e.db.GetCoverLookup("second"); found {
+		t.Fatal("old lookup not pruned after a day")
 	}
 }
 
@@ -297,7 +474,7 @@ func lockDir(t *testing.T, dir string, mode os.FileMode) (restore func()) {
 // A directory that can't be read says nothing about whether covers are there.
 func TestJobLeavesCoversWhenDirUnreadable(t *testing.T) {
 	e := newJobEnv(t)
-	id := e.add(t, "Live", "ebook", epubWithCover(t, pngBytes))
+	id := e.add(t, "Live", "ebook", "/x/a.pdf")
 	e.job.RunOnce(context.Background())
 	file := e.cover(t, id)
 	if file == "" {
@@ -318,13 +495,16 @@ func TestJobLeavesCoversWhenDirUnreadable(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(e.dir, file)); err != nil {
 		t.Fatalf("cover file lost: %v", err)
 	}
+	if len(e.res.calls) != 1 {
+		t.Fatalf("looked up again: %d calls", len(e.res.calls))
+	}
 }
 
 // Mode 0300 fails the listing but still allows removal, so only the sweep's own
 // check keeps files safe.
 func TestJobSweepRemovesNothingWhenListFails(t *testing.T) {
 	e := newJobEnv(t)
-	id := e.add(t, "Live", "ebook", epubWithCover(t, pngBytes))
+	id := e.add(t, "Live", "ebook", "/x/a.pdf")
 	e.job.RunOnce(context.Background())
 	file := e.cover(t, id)
 	orphan := filepath.Join(e.dir, "999.png")
@@ -343,5 +523,46 @@ func TestJobSweepRemovesNothingWhenListFails(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(e.dir, f)); err != nil {
 			t.Errorf("%s removed: %v", f, err)
 		}
+	}
+}
+
+// Only an image download pauses the pass. Embedded covers need no network, and
+// lookups are paced by the resolver.
+func TestJobPausesOnlyAfterDownloads(t *testing.T) {
+	e := newJobEnv(t)
+	e.job.delay = time.Hour
+	e.res.url = ""
+	var epubs []int64
+	for i := 0; i < 3; i++ {
+		p := filepath.Join(t.TempDir(), "b.epub")
+		writeEPUB(t, p, map[string][]byte{
+			"content.opf": []byte(`<package xmlns="http://www.idpf.org/2007/opf"><metadata><meta name="cover" content="c"/></metadata><manifest><item id="c" href="cover.img"/></manifest></package>`),
+			"cover.img":   pngBytes,
+			"path.txt":    []byte(p), // AddItem merges identical files
+		})
+		epubs = append(epubs, e.add(t, fmt.Sprintf("Embedded %d", i), "ebook", p))
+	}
+	for i := 0; i < 3; i++ {
+		e.add(t, fmt.Sprintf("Miss %d", i), "ebook", fmt.Sprintf("/x/%d.pdf", i))
+	}
+
+	done := make(chan struct{})
+	go func() { e.job.RunOnce(context.Background()); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the pass paused without downloading anything")
+	}
+	for _, id := range epubs {
+		if e.cover(t, id) == "" {
+			t.Errorf("item %d has no cover", id)
+		}
+	}
+	if len(e.res.calls) != 3 {
+		t.Errorf("lookups = %d, want 3", len(e.res.calls))
+	}
+	items, _ := e.db.ItemsNeedingCover(e.types, e.now.Add(-24*time.Hour), 10)
+	if len(items) != 0 {
+		t.Errorf("%d items left unmarked", len(items))
 	}
 }

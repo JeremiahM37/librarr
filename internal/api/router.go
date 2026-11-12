@@ -51,8 +51,8 @@ type Server struct {
 	wishlistClean  *scheduler.WishlistCleaner
 	seriesDetector *scheduler.SeriesDetector
 	authorMonitor  *scheduler.AuthorMonitor
-	coverResolver  *metadata.CoverResolver
 	coverJob       *covers.Job
+	coverResolver  *metadata.CoverResolver
 	coverStore     *covers.Store
 }
 
@@ -112,6 +112,12 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 	authorMon := scheduler.NewAuthorMonitor(cfg, database, ws)
 	authorMon.SetOpenLibraryURL(cfg.OpenLibraryURL)
 
+	coverBaseURL := func() string {
+		if cfg.Sources != nil && cfg.Sources.OpenLibrary.CoverURL != "" {
+			return cfg.Sources.OpenLibrary.CoverURL
+		}
+		return defaultCoverBaseURL
+	}
 	coverResolver := metadata.NewCoverResolver(metadata.CoverResolverOptions{
 		Cache:      database,
 		HTTPClient: &http.Client{Timeout: 15 * time.Second},
@@ -121,15 +127,19 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 			}
 			return defaultCoverSearchURL
 		},
-		CoverBaseURL: func() string {
-			if cfg.Sources != nil && cfg.Sources.OpenLibrary.CoverURL != "" {
-				return cfg.Sources.OpenLibrary.CoverURL
-			}
-			return defaultCoverBaseURL
-		},
-		Contact: cfg.OpenLibraryContact,
+		CoverBaseURL: coverBaseURL,
+		Contact:      cfg.OpenLibraryContact,
 	})
-	coverStore := covers.NewStore(filepath.Join(filepath.Dir(database.GetDBPath()), "covers"))
+	// With lookups off, the cover job saves embedded covers only.
+	var coverJobResolver covers.Resolver
+	if cfg.CoverLookupEnabled {
+		coverJobResolver = coverResolver
+	}
+	coverStore := covers.NewStore(
+		filepath.Join(filepath.Dir(database.GetDBPath()), "covers"),
+		&http.Client{Timeout: 30 * time.Second},
+		coverBaseURL,
+	).WithUserAgent(coverResolver.UserAgent())
 
 	s := &Server{
 		cfg:            cfg,
@@ -153,7 +163,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		authorMonitor:  authorMon,
 		coverResolver:  coverResolver,
 		coverStore:     coverStore,
-		coverJob:       covers.NewJob(database, coverStore, func() []string { return coverMediaTypes(cfg) }),
+		coverJob:       covers.NewJob(database, coverStore, coverJobResolver, func() []string { return coverMediaTypes(cfg) }),
 	}
 
 	// Initialize OIDC handler if configured.
@@ -182,13 +192,17 @@ const (
 	defaultCoverBaseURL   = "https://covers.openlibrary.org"
 )
 
-// coverMediaTypes lists the media types the cover job fills: local ebooks,
-// mirroring the routing in handleLibrary. Only EPUBs carry a cover to extract.
+// coverMediaTypes lists the media types served from the local library, which
+// are the ones the cover job fills. It mirrors the routing in handleLibrary
+// and handleLibraryAudiobooks; manga is not looked up.
 func coverMediaTypes(cfg *config.Config) []string {
 	types := []string{}
 	absEbooks := cfg.HasAudiobookshelf() && cfg.ABSEbookLibraryID != ""
 	if !absEbooks {
 		types = append(types, "ebook")
+	}
+	if !cfg.HasAudiobookshelf() {
+		types = append(types, "audiobook")
 	}
 	return types
 }
@@ -202,7 +216,6 @@ func (s *Server) StartScheduler(ctx context.Context) {
 	if s.wishlistClean != nil && s.cfg.WishlistCleanupEnabled {
 		go s.wishlistClean.Start(ctx)
 	}
-	go s.pruneCoverLookups(ctx)
 	if s.coverJob != nil {
 		go s.coverJob.Start(ctx)
 	}
@@ -375,8 +388,8 @@ func (s *Server) registerLibraryRoutes() {
 	s.mux.HandleFunc("DELETE /api/library/book/{id}", s.handleDeleteBook)
 	s.mux.HandleFunc("DELETE /api/library/audiobook/{id}", s.handleDeleteAudiobook)
 	s.mux.HandleFunc("DELETE /api/library/manga/{id}", s.handleDeleteManga)
-	s.mux.HandleFunc("POST /api/covers/lookup", s.handleCoverLookup)
 	s.mux.HandleFunc("GET /api/library/{id}/cover", s.handleLibraryCover)
+	s.mux.HandleFunc("POST /api/covers/lookup", s.handleCoverLookup)
 	s.mux.HandleFunc("GET /api/stats", s.handleStats)
 	s.mux.HandleFunc("GET /api/activity", s.handleActivity)
 
