@@ -289,7 +289,7 @@ func TestJobSweepsOrphans(t *testing.T) {
 	if err := e.db.DeleteItem(del1); err != nil {
 		t.Fatal(err)
 	}
-	if err := e.db.DeleteItemBySourceID("src-Del2"); err != nil {
+	if err := e.db.DeleteItem(del2); err != nil {
 		t.Fatal(err)
 	}
 	stray := filepath.Join(e.dir, ".DS_Store")

@@ -15,170 +15,12 @@ import (
 	"time"
 )
 
-// --- Audiobookshelf Library ---
+// --- Audiobooks ---
 
-type absLibraryResponse struct {
-	Results  []absItem `json:"results"`
-	Total    int       `json:"total"`
-	Page     int       `json:"page"`
-	NumPages int       `json:"numPages"`
-	Limit    int       `json:"limit"`
-}
-
-type absItem struct {
-	ID    string   `json:"id"`
-	Media absMedia `json:"media"`
-}
-
-type absMedia struct {
-	Metadata   absMetadata   `json:"metadata"`
-	Duration   float64       `json:"duration"`
-	AudioFiles []interface{} `json:"audioFiles"`
-	CoverPath  string        `json:"coverPath"`
-}
-
-type absMetadata struct {
-	Title      string      `json:"title"`
-	AuthorName string      `json:"authorName"`
-	SeriesName string      `json:"seriesName"`
-	Authors    []absAuthor `json:"authors"`
-	Series     []absSeries `json:"series"`
-}
-
-type absAuthor struct {
-	Name string `json:"name"`
-}
-
-type absSeries struct {
-	Name string `json:"name"`
-}
-
+// handleLibraryAudiobooks lists Librarr's own audiobook records. Items shelved
+// in Audiobookshelf carry links out to it.
 func (s *Server) handleLibraryAudiobooks(w http.ResponseWriter, r *http.Request) {
-	if !s.cfg.HasAudiobookshelf() {
-		// Issue #49: when ABS isn't configured, surface audiobooks that
-		// were imported into the local DB (e.g. via /api/import/files
-		// or the curl-based bulk import flow) rather than returning an
-		// empty list. Without this fallback those items only appear
-		// under /api/library and get mislabeled as ebooks in the UI.
-		s.serveLocalLibraryByMediaType(w, r, "audiobook")
-		return
-	}
-
-	page := queryInt(r, "page", 1)
-	query := r.URL.Query().Get("q")
-	limit := 100
-
-	libraryID := s.cfg.ABSLibraryID
-	if libraryID == "" {
-		writeJSON(w, http.StatusOK, map[string]interface{}{
-			"items": []interface{}{},
-			"total": 0,
-			"page":  page,
-			"pages": 0,
-			"error": "ABS_LIBRARY_ID not configured",
-		})
-		return
-	}
-
-	// Build ABS API URL — sort by series then title for grouping.
-	absURL := fmt.Sprintf("%s/api/libraries/%s/items", s.cfg.ABSURL, libraryID)
-	params := url.Values{
-		"page":  {strconv.Itoa(page - 1)}, // ABS uses 0-indexed pages
-		"limit": {strconv.Itoa(limit)},
-		"sort":  {"media.metadata.seriesName"},
-	}
-	if query != "" {
-		params.Set("filter", "search="+url.QueryEscape(query))
-	}
-
-	req, err := http.NewRequest("GET", absURL+"?"+params.Encode(), nil)
-	if err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"error": err.Error(),
-		})
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		slog.Error("ABS library request failed", "abs_url", s.cfg.ABSURL, "error", err)
-		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
-			"error": "Failed to reach Audiobookshelf",
-		})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		body, _ := io.ReadAll(resp.Body)
-		slog.Error("ABS library non-200", "status", resp.StatusCode, "body", string(body))
-		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
-			"error": fmt.Sprintf("Audiobookshelf returned HTTP %d", resp.StatusCode),
-		})
-		return
-	}
-
-	var absResp absLibraryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&absResp); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-			"error": "Failed to parse ABS response",
-		})
-		return
-	}
-
-	// Build public base URL for covers and links.
-	publicURL := s.cfg.ABSPublicURL
-	if publicURL == "" {
-		publicURL = s.cfg.ABSURL
-	}
-
-	var items []map[string]interface{}
-	for _, item := range absResp.Results {
-		author := item.Media.Metadata.AuthorName
-		if author == "" && len(item.Media.Metadata.Authors) > 0 {
-			author = item.Media.Metadata.Authors[0].Name
-		}
-		series := item.Media.Metadata.SeriesName
-		if series == "" && len(item.Media.Metadata.Series) > 0 {
-			series = item.Media.Metadata.Series[0].Name
-		}
-
-		coverURL := ""
-		if item.Media.CoverPath != "" || true {
-			// ABS always serves cover via /api/items/{id}/cover
-			coverURL = fmt.Sprintf("%s/api/items/%s/cover", publicURL, item.ID)
-		}
-
-		items = append(items, map[string]interface{}{
-			"id":             item.ID,
-			"title":          item.Media.Metadata.Title,
-			"author":         author,
-			"series":         series,
-			"duration_hours": math.Round(item.Media.Duration/3600*10) / 10,
-			"num_files":      len(item.Media.AudioFiles),
-			"cover_url":      coverURL,
-			"abs_url":        fmt.Sprintf("%s/item/%s", publicURL, item.ID),
-		})
-	}
-
-	if items == nil {
-		items = []map[string]interface{}{}
-	}
-	s.linkLocalItems(items, "audiobook")
-
-	totalPages := absResp.NumPages
-	if totalPages == 0 && absResp.Total > 0 {
-		totalPages = int(math.Ceil(float64(absResp.Total) / float64(limit)))
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items": items,
-		"total": absResp.Total,
-		"page":  page,
-		"pages": totalPages,
-	})
+	s.serveLocalLibraryByMediaType(w, r, "audiobook")
 }
 
 // --- Kavita Library (Manga) ---
@@ -413,62 +255,31 @@ func (s *Server) handleDeleteBook(w http.ResponseWriter, r *http.Request) {
 	s.deleteLibraryItem(w, r, "ebook")
 }
 
+// deleteLibraryItem removes a Librarr library record. Audiobookshelf is left
+// alone: what it shelves is managed there.
 func (s *Server) deleteLibraryItem(w http.ResponseWriter, r *http.Request, mediaType string) {
 	idStr := r.PathValue("id")
-
-	// Try as integer (internal DB item) first.
-	if id, err := strconv.ParseInt(idStr, 10, 64); err == nil {
-		item, err := s.db.GetItem(id)
-		if errors.Is(err, sql.ErrNoRows) || (err == nil && item.MediaType != mediaType) {
-			writeJSON(w, http.StatusNotFound, map[string]interface{}{"error": "Library item not found"})
-			return
-		}
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "Failed to load library item", err)
-			return
-		}
-		if err := s.db.DeleteItem(id); err != nil {
-			writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
-				"success": false,
-				"error":   err.Error(),
-			})
-			return
-		}
-		username, _ := r.Context().Value(ctxUsername).(string)
-		s.db.LogActivity(username, "library_remove", idStr, fmt.Sprintf("Removed library item %s", idStr))
-		writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})
-		return
-	}
-
-	if mediaType == "manga" || !s.cfg.HasAudiobookshelf() {
+	id, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]interface{}{"error": "Invalid library item ID"})
 		return
 	}
-	absURL := fmt.Sprintf("%s/api/items/%s", s.cfg.ABSURL, url.PathEscape(idStr))
-	req, err := http.NewRequestWithContext(r.Context(), "DELETE", absURL, nil)
+	item, err := s.db.GetItem(id)
+	if errors.Is(err, sql.ErrNoRows) || (err == nil && item.MediaType != mediaType) {
+		writeJSON(w, http.StatusNotFound, map[string]interface{}{"error": "Library item not found"})
+		return
+	}
 	if err != nil {
-		writeError(w, http.StatusBadGateway, "Failed to create ABS request", err)
+		writeError(w, http.StatusInternalServerError, "Failed to load library item", err)
 		return
 	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		writeError(w, http.StatusBadGateway, "Failed to reach ABS", err)
+	if err := s.db.DeleteItem(id); err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{
+			"success": false,
+			"error":   err.Error(),
+		})
 		return
 	}
-	resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		writeJSON(w, http.StatusBadGateway, map[string]interface{}{"error": fmt.Sprintf("ABS returned HTTP %d", resp.StatusCode)})
-		return
-	}
-
-	// Also try internal DB by source_id.
-	if err := s.db.DeleteItemBySourceID(idStr); err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to remove local library record", err)
-		return
-	}
-
 	username, _ := r.Context().Value(ctxUsername).(string)
 	s.db.LogActivity(username, "library_remove", idStr, fmt.Sprintf("Removed library item %s", idStr))
 	writeJSON(w, http.StatusOK, map[string]interface{}{"success": true})

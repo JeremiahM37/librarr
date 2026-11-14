@@ -332,6 +332,7 @@
     "/api/library": {
       "get": {
         "summary": "List ebooks in the library",
+        "description": "Lists Librarr's own records. An item shelved in Kavita or Audiobookshelf carries \"kavita_url\" or \"abs_url\", and that service's cover as \"cover_url\" when it has none of its own. /api/library/audiobooks lists audiobooks the same way.",
         "parameters": [
           {
             "name": "limit",
@@ -389,13 +390,13 @@
     },
     "/api/library/audiobooks": {
       "get": {
-        "summary": "List audiobooks (proxied from Audiobookshelf when configured)"
+        "summary": "List audiobooks in the library"
       }
     },
     "/api/library/{id}": {
       "get": {
         "summary": "One local library item with its tags",
-        "description": "Returns the item fields from the library listing plus \"tags\". 404 when no local item has this id; items shown from Audiobookshelf or Kavita are not local, but the library listings mark the ones that match a local item with \"local_id\".",
+        "description": "Returns the item fields from the library listing, including its Kavita and Audiobookshelf links, plus \"tags\". 404 when no local item has this id; manga series shown from Kavita are not local, but the manga listing marks the ones that match a local item with \"local_id\".",
         "parameters": [
           {
             "name": "id",

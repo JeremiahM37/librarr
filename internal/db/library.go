@@ -502,29 +502,6 @@ func (d *DB) DeleteItem(id int64) error {
 	return tx.Commit()
 }
 
-// DeleteItemBySourceID removes a library item by its source_id field.
-func (d *DB) DeleteItemBySourceID(sourceID string) error {
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	tx, err := d.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec("UPDATE wishlist SET library_item_id = 0 WHERE library_item_id IN (SELECT id FROM library_items WHERE source_id = ?)", sourceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM item_tags WHERE item_id IN (SELECT id FROM library_items WHERE source_id = ?)", sourceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM library_links WHERE item_id IN (SELECT id FROM library_items WHERE source_id = ?)", sourceID); err != nil {
-		return err
-	}
-	if _, err := tx.Exec("DELETE FROM library_items WHERE source_id = ?", sourceID); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
 func scanLibraryItems(rows *sql.Rows) ([]models.LibraryItem, error) {
 	var items []models.LibraryItem
 	for rows.Next() {

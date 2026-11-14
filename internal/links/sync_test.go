@@ -102,12 +102,26 @@ func (k *kavitaStub) serve(w http.ResponseWriter, r *http.Request) {
 
 func itoa(i int) string { b, _ := json.Marshal(i); return string(b) }
 
+func newABSStub(t *testing.T) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "Bearer tok" || r.URL.Path != "/api/libraries/audio/items" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		io.WriteString(w, `{"results":[{"id":"li_1","relPath":"John Green/Tuberculosis"}],"total":1}`)
+	}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 type fixture struct {
 	db    *db.DB
 	cfg   *config.Config
 	ids   map[string]int64
 	sync  *Syncer
 	kav   *kavitaStub
+	abs   *httptest.Server
 	media string
 }
 
@@ -121,12 +135,13 @@ func newFixture(t *testing.T) *fixture {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { database.Close() })
-	f := &fixture{db: database, ids: map[string]int64{}, kav: newKavitaStub(t), media: root}
+	f := &fixture{db: database, ids: map[string]int64{}, kav: newKavitaStub(t), abs: newABSStub(t), media: root}
 	f.cfg = &config.Config{
 		EbookDir:     filepath.Join(root, "ebooks"),
 		AudiobookDir: filepath.Join(root, "audiobooks"),
 		MangaDir:     filepath.Join(root, "manga"),
 		KavitaURL:    f.kav.URL, KavitaAPIKey: "key",
+		ABSURL: f.abs.URL, ABSToken: "tok", ABSLibraryID: "audio",
 	}
 	for name, item := range map[string]models.LibraryItem{
 		"epub":      {MediaType: "ebook", FilePath: filepath.Join(root, "ebooks/Pierce Brown/Red Rising/Red Rising.epub")},
@@ -134,6 +149,7 @@ func newFixture(t *testing.T) *fixture {
 		"unshelved": {MediaType: "ebook", FilePath: filepath.Join(root, "ebooks/Someone/Other/Other.epub")},
 		"outside":   {MediaType: "ebook", FilePath: "/elsewhere/Pierce Brown/Red Rising/x.epub"},
 		"manga":     {MediaType: "manga", FilePath: filepath.Join(root, "manga/Akira")},
+		"audio":     {MediaType: "audiobook", FilePath: filepath.Join(root, "audiobooks/John Green/Tuberculosis")},
 	} {
 		if err := os.MkdirAll(filepath.Dir(item.FilePath), 0o755); err != nil && name != "outside" {
 			t.Fatal(err)
@@ -145,9 +161,11 @@ func newFixture(t *testing.T) *fixture {
 		}
 		f.ids[name] = id
 	}
-	// The manga series directory, as imported.
-	if err := os.MkdirAll(filepath.Join(root, "manga/Akira"), 0o755); err != nil {
-		t.Fatal(err)
+	// Directories as imported: the manga series and the audiobook folder.
+	for _, dir := range []string{"manga/Akira", "audiobooks/John Green/Tuberculosis"} {
+		if err := os.MkdirAll(filepath.Join(root, dir), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	f.sync = NewSyncer(f.cfg, database)
 	return f
@@ -197,6 +215,7 @@ func TestSyncMatchesByPathWithinEachLibrary(t *testing.T) {
 		"epub":  {"kavita:5"},
 		"mobi":  {"kavita:5"},
 		"manga": {"kavita:9"},
+		"audio": {"abs:li_1"},
 	})
 
 	stored, err := f.db.LibraryLinks([]int64{f.ids["epub"]})
@@ -232,7 +251,7 @@ func TestSyncKeepsLinksWhenServiceFailsAndDropsThemWhenUnconfigured(t *testing.T
 
 	f.cfg.KavitaURL = ""
 	f.sync.RunOnce(context.Background())
-	assertLinks(t, f.links(t), map[string][]string{})
+	assertLinks(t, f.links(t), map[string][]string{"audio": {"abs:li_1"}})
 }
 
 func TestSyncDropsLinksOfDeletedItems(t *testing.T) {

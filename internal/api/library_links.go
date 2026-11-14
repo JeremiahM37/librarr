@@ -9,7 +9,7 @@ import (
 )
 
 // libraryItemsJSON converts library items for the API and adds their links
-// out to Kavita ("kavita_url"). An item with no
+// out to Kavita ("kavita_url") and Audiobookshelf ("abs_url"). An item with no
 // cover of its own borrows the linked service's. Links whose service is no
 // longer configured are left out until the next sync drops them. A failure to
 // load links lists the items without them.
@@ -31,6 +31,8 @@ func (s *Server) libraryItemsJSON(items []models.LibraryItem) []map[string]inter
 			switch link.Service {
 			case links.ServiceKavita:
 				base, key = s.kavitaPublicURL(), "kavita_url"
+			case links.ServiceABS:
+				base, key = s.absPublicURL(), "abs_url"
 			}
 			if base == "" {
 				continue
@@ -54,4 +56,16 @@ func (s *Server) kavitaPublicURL() string {
 		return s.cfg.KavitaPublicURL
 	}
 	return s.cfg.KavitaURL
+}
+
+// absPublicURL is the Audiobookshelf base URL browsers use, or "" when
+// Audiobookshelf is not configured.
+func (s *Server) absPublicURL() string {
+	if !s.cfg.HasAudiobookshelf() {
+		return ""
+	}
+	if s.cfg.ABSPublicURL != "" {
+		return s.cfg.ABSPublicURL
+	}
+	return s.cfg.ABSURL
 }
