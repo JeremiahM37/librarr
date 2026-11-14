@@ -34,16 +34,6 @@ jobs:
         run: go build -o librarr ./cmd/librarr/
       - name: go test (race)
         run: go test ./... -v -count=1 -race
-      - name: go test fuzz (short)
-        run: |
-          # -fuzz must match exactly one target, so fuzz each discovered target
-          # in turn rather than passing a regex that matches several.
-          for pkg in ./internal/search/ ./internal/api/; do
-            for target in $(go test "$pkg" -list '^Fuzz' | grep '^Fuzz'); do
-              echo "==> fuzzing $pkg $target"
-              go test "$pkg" -run='^$' -fuzz="^${target}$" -fuzztime=15s -count=1
-            done
-          done
       - name: go test integration
         run: go test -tags=integration ./internal/integration/... -v -count=1 -race
       - name: go vet
@@ -85,6 +75,31 @@ jobs:
             cat /tmp/smoke.log
             exit 1
           fi
+
+  fuzz:
+    name: Fuzz Test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: web/ui/package-lock.json
+      - name: Build the TypeScript frontend
+        run: npm ci --prefix web/ui && npm run build --prefix web/ui
+      - uses: actions/setup-go@v5
+        with: { go-version: "1.26.x", cache: true, check-latest: true }
+      - name: go test fuzz (short)
+        run: |
+          # -fuzz must match exactly one target, so fuzz each discovered target
+          # in turn rather than passing a regex that matches several.
+          for pkg in ./internal/search/ ./internal/api/; do
+            for target in $(go test "$pkg" -list '^Fuzz' | grep '^Fuzz'); do
+              echo "==> fuzzing $pkg $target"
+              go test "$pkg" -run='^$' -fuzz="^${target}$" -fuzztime=15s -count=1
+            done
+          done
 
   docker:
     name: Docker Build
