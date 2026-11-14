@@ -960,7 +960,7 @@ internal/
   webhook/                      Webhook sender (Discord + generic)
   torznab/                      Torznab/Newznab API handler
 web/
-  index.html                    Single-page web UI (Tailwind CSS)
+  ui/                           React + TypeScript web UI source (built into web/static/react)
 Dockerfile                      Multi-stage Alpine build
 .goreleaser.yml                 Cross-platform release builds
 ```
