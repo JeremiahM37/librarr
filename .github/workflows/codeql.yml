@@ -21,9 +21,13 @@ jobs:
         with:
           languages: go
           queries: security-and-quality
+          build-mode: manual
       - uses: actions/setup-go@v5
         with: {go-version: '1.26.x', cache: false, check-latest: true}
-      - uses: github/codeql-action/autobuild@v3
+      # Build explicitly: autobuild would run the Makefile first, which builds
+      # the web UI with npm, and CodeQL only analyzes Go here.
+      - name: go build
+        run: go build ./...
       - uses: github/codeql-action/analyze@v3
         with:
           category: "/language:go"

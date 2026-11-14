@@ -23,3 +23,6 @@ e2e/.venv
 .verify-artifacts/
 node_modules/
 .venv
+
+# Frontend build output (npm run build --prefix web/ui)
+/web/static/react/

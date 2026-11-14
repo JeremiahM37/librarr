@@ -1,8 +1,11 @@
 # Librarr React + TypeScript migration
 
 Source is `src/`; Vite embeds generated `../static/react/librarr.{js,css}` via
-Go's existing static filesystem. The server/backend contracts are retained.
-The old `static/js/app.js` is a reference asset and is not loaded by index.html.
+Go's existing static filesystem. `server.html` is the page template the Go
+server serves; the build writes it to `../static/react/index.html` with
+versioned bundle URLs. None of `../static/react` is committed. The
+server/backend contracts are retained. The old `static/js/app.js` is a
+reference asset and is not loaded by the served page.
 
 ## Implemented
 
