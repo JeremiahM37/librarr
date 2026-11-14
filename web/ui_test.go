@@ -9,6 +9,9 @@ import (
 // the serving boundary: Go must embed the entrypoint that index.html loads.
 func TestReactBundleIsEmbedded(t *testing.T) {
 	html := string(IndexHTML)
+	if html == NotBuiltHTML {
+		t.Fatal("the frontend is not built; run npm ci --prefix web/ui && npm run build --prefix web/ui")
+	}
 	if !strings.Contains(html, `id="root"`) {
 		t.Fatal("index.html is missing the React root")
 	}
