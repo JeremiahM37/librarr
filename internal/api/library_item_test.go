@@ -7,9 +7,12 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/links"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
@@ -205,5 +208,57 @@ func TestKavitaSeriesLinkLocalRecordsByName(t *testing.T) {
 	}
 	if _, ok := items[1]["local_id"]; ok {
 		t.Errorf("Another should not be linked: %v", items[1])
+	}
+}
+
+// Library rows carry the Kavita links the sync stored, built on Kavita's
+// public URL, and borrow Kavita's cover when they have none.
+func TestLibraryListingsCarryStoredLinks(t *testing.T) {
+	s, h := libraryItemRouter(t, &config.Config{
+		KavitaURL: "http://kavita:5000", KavitaAPIKey: "key", KavitaPublicURL: "https://read.example",
+	})
+	if err := s.db.ReplaceLibraryLinks(links.ServiceKavita, []models.LibraryLink{
+		{ItemID: 1, ExternalID: "5", URLPath: "/library/1/series/5", CoverPath: "/api/image/series-cover?seriesId=5"},
+	}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		path string
+		want map[string]string
+	}{
+		{"/api/library", map[string]string{
+			"kavita_url": "https://read.example/library/1/series/5",
+			"cover_url":  "https://read.example/api/image/series-cover?seriesId=5",
+		}},
+		{"/api/library/1", map[string]string{"kavita_url": "https://read.example/library/1/series/5"}},
+	} {
+		rr := serve(h, tc.path)
+		if rr.Code != http.StatusOK {
+			t.Fatalf("%s: HTTP %d: %s", tc.path, rr.Code, rr.Body.String())
+		}
+		var item map[string]interface{}
+		var list struct {
+			Items []map[string]interface{} `json:"items"`
+		}
+		if err := json.Unmarshal(rr.Body.Bytes(), &list); err == nil && list.Items != nil {
+			if len(list.Items) != 1 {
+				t.Fatalf("%s: items = %v", tc.path, list.Items)
+			}
+			item = list.Items[0]
+		} else if err := json.Unmarshal(rr.Body.Bytes(), &item); err != nil {
+			t.Fatalf("%s: decode: %v", tc.path, err)
+		}
+		for key, want := range tc.want {
+			if item[key] != want {
+				t.Errorf("%s: %s = %v, want %s", tc.path, key, item[key], want)
+			}
+		}
+	}
+
+	// A link to a service that is no longer configured is not shown.
+	s.cfg.KavitaURL = ""
+	if rr := serve(h, "/api/library/1"); strings.Contains(rr.Body.String(), "kavita_url") {
+		t.Errorf("link to unconfigured Kavita shown: %s", rr.Body.String())
 	}
 }

@@ -113,7 +113,7 @@ function Card({
   return (
     <article className="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative group">
       <Cover item={item} index={isLocal(item) ? item.id : index} />
-      {item.id != null && !item.kavita_url && (
+      {item.id != null && (isLocal(item) || !item.kavita_url) && (
         <button
           data-action="deleteLibraryItem"
           title="Remove from library"
@@ -199,8 +199,13 @@ function Card({
   );
 }
 
+// Librarr's own rows carry their media type, and may link out to the library
+// that shelves them; rows listed from Audiobookshelf or Kavita have neither.
 function isLocal(item: LibraryItem): item is LibraryItem & { id: number } {
-  return typeof item.id === "number" && !item.abs_url && !item.kavita_url;
+  return (
+    typeof item.id === "number" &&
+    (item.media_type != null || (!item.abs_url && !item.kavita_url))
+  );
 }
 // The Librarr record behind a card: the row itself, or for a row listed from
 // Audiobookshelf or Kavita, the record the server matched it to.
@@ -231,6 +236,7 @@ export function ItemDetail({
   id: number;
   // The Library card this was opened from, when it came from Audiobookshelf
   // or Kavita: its link is shown, and removing acts on it, as the card's ✕ does.
+  // Otherwise the record's own links are shown.
   listing?: LibraryItem;
   onClose: () => void;
   remove: (item: LibraryItem) => Promise<boolean>;
@@ -362,20 +368,20 @@ export function ItemDetail({
                     {t("item_download_file")}
                   </a>
                 )}
-                {listing?.abs_url && (
+                {(listing ?? item).abs_url && (
                   <a
                     className="px-4 py-2 rounded-lg bg-slate-800"
-                    href={listing.abs_url}
+                    href={(listing ?? item).abs_url}
                     target="_blank"
                     rel="noreferrer"
                   >
                     {t("open_in_abs")}
                   </a>
                 )}
-                {listing?.kavita_url && (
+                {(listing ?? item).kavita_url && (
                   <a
                     className="px-4 py-2 rounded-lg bg-slate-800"
-                    href={listing.kavita_url}
+                    href={(listing ?? item).kavita_url}
                     target="_blank"
                     rel="noreferrer"
                   >
@@ -477,7 +483,7 @@ export function Library({
     if (
       removing ||
       item.id == null ||
-      item.kavita_url ||
+      (!isLocal(item) && item.kavita_url) ||
       !window.confirm(`Remove "${displayTitle(item)}" from library?`)
     )
       return false;

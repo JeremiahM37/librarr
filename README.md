@@ -125,6 +125,8 @@ Open `http://localhost:5050` in your browser.
 
 Without Audiobookshelf or Kavita configured, the library tabs show locally imported items with titles, authors, formats, and file sizes. Local library search matches titles and authors across all pages.
 
+With Kavita configured, items it shelves get an **Open in Kavita** link. Librarr finds them by path every 15 minutes, and a minute after each import: an item filed under `EBOOK_DIR` or `MANGA_DIR` is matched to the Kavita series at the same path relative to Kavita's library folder, so the containers may mount the library at different paths. When nothing matches an item's own folder, the nearest series in a folder above it is used, since Kavita files a series whose books sit in several folders under the folder they share. A Kavita library folder pointing at a parent or child of Librarr's directory is not matched. Kavita libraries are picked by type (Book and Light Novel for ebooks, the rest for manga) unless `KAVITA_EBOOK_LIBRARY_ID` or `KAVITA_MANGA_LIBRARY_ID` names one (both may name the same library).
+
 - **Auto-import pipeline** -- organize files by author/title, rename on import (configurable pattern), scan into Calibre/Audiobookshelf/Kavita/Komga
 - **Series auto-complete** -- detect gaps in series, search for and download missing books
 - **Author monitoring** -- follow authors; the first check records their catalogue as a baseline, later checks add each new work to the wanted list (or only notify, per author)
@@ -415,8 +417,8 @@ delete data, so removing a torrent with its files deletes them through that moun
 | `KAVITA_API_KEY` | | Kavita auth key (Kavita 0.8.9+), used instead of `KAVITA_USER` and `KAVITA_PASS`. Library scans need a key from an admin account |
 | `KAVITA_LIBRARY_PATH` | | Kavita ebook library path |
 | `KAVITA_MANGA_LIBRARY_PATH` | | Kavita manga library path |
-| `KAVITA_EBOOK_LIBRARY_ID` | | Kavita library to scan after an ebook import (blank = all) |
-| `KAVITA_MANGA_LIBRARY_ID` | | Kavita library to scan after a manga import (blank = all) |
+| `KAVITA_EBOOK_LIBRARY_ID` | | Kavita library to scan after an ebook import and to link ebooks to (blank = scan all, link by library type) |
+| `KAVITA_MANGA_LIBRARY_ID` | | Kavita library to scan after a manga import and to link manga to (blank = scan all, link by library type) |
 | `KAVITA_PUBLIC_URL` | | Kavita URL for external links |
 | `ABS_URL` | | Audiobookshelf server URL |
 | `ABS_TOKEN` | | Audiobookshelf API token |

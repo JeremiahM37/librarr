@@ -16,6 +16,7 @@ import (
 	"github.com/JeremiahM37/librarr/internal/covers"
 	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/JeremiahM37/librarr/internal/download"
+	"github.com/JeremiahM37/librarr/internal/links"
 	"github.com/JeremiahM37/librarr/internal/metadata"
 	"github.com/JeremiahM37/librarr/internal/organize"
 	"github.com/JeremiahM37/librarr/internal/scheduler"
@@ -54,6 +55,7 @@ type Server struct {
 	coverJob       *covers.Job
 	coverResolver  *metadata.CoverResolver
 	coverStore     *covers.Store
+	linkSync       *links.Syncer
 }
 
 // NewServer creates the HTTP API server.
@@ -164,6 +166,10 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		coverResolver:  coverResolver,
 		coverStore:     coverStore,
 		coverJob:       covers.NewJob(database, coverStore, coverJobResolver, func() []string { return coverMediaTypes(cfg) }),
+		linkSync:       links.NewSyncer(cfg, database),
+	}
+	if targets != nil {
+		targets.SetAfterImport(s.linkSync.Kick)
 	}
 
 	// Initialize OIDC handler if configured.
@@ -218,6 +224,9 @@ func (s *Server) StartScheduler(ctx context.Context) {
 	}
 	if s.coverJob != nil {
 		go s.coverJob.Start(ctx)
+	}
+	if s.linkSync != nil {
+		go s.linkSync.Start(ctx)
 	}
 	// Scheduler.Start blocks until ctx is cancelled.
 	if s.scheduler != nil {

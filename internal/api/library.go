@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/db"
+	"github.com/JeremiahM37/librarr/internal/models"
 )
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
@@ -52,13 +53,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 				writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 				return
 			}
-			var tagJsonItems []map[string]interface{}
-			for _, item := range tagItems {
-				tagJsonItems = append(tagJsonItems, db.ItemToJSON(item))
-			}
-			if tagJsonItems == nil {
-				tagJsonItems = []map[string]interface{}{}
-			}
+			tagJsonItems := s.libraryItemsJSON(tagItems)
 			writeJSON(w, http.StatusOK, map[string]interface{}{
 				"items":  tagJsonItems,
 				"total":  len(tagJsonItems),
@@ -105,7 +100,7 @@ func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 	if tags == nil {
 		tags = []db.Tag{}
 	}
-	body := db.ItemToJSON(*item)
+	body := s.libraryItemsJSON([]models.LibraryItem{*item})[0]
 	body["tags"] = tags
 	writeJSON(w, http.StatusOK, body)
 }
@@ -133,12 +128,8 @@ func (s *Server) serveLocalLibraryPage(w http.ResponseWriter, r *http.Request, m
 		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
 		return
 	}
-	jsonItems := make([]map[string]interface{}, 0, len(items))
-	for _, item := range items {
-		jsonItems = append(jsonItems, db.ItemToJSON(item))
-	}
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items":  jsonItems,
+		"items":  s.libraryItemsJSON(items),
 		"total":  total,
 		"page":   page,
 		"pages":  int(math.Ceil(float64(total) / float64(limit))),
