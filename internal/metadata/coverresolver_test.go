@@ -991,24 +991,36 @@ func TestCoolDownIsNotShortened(t *testing.T) {
 	}
 }
 
+// roundTripFunc adapts a function to http.RoundTripper.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(req *http.Request) (*http.Response, error) { return f(req) }
+
 // pacedStub returns a resolver whose searches are spaced by interval, and the
-// times and queries of the requests the stub received.
+// times and queries of the requests it sent. Times are taken as the client
+// sends each request, where the resolver paces them: the stub server would
+// also see connection setup, which delays only the first request and shortens
+// the first gap.
 func pacedStub(t *testing.T, interval time.Duration) (*CoverResolver, func() ([]time.Time, []string)) {
 	t.Helper()
 	var mu sync.Mutex
 	var times []time.Time
 	var queries []string
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		mu.Lock()
-		times = append(times, time.Now())
-		queries = append(queries, r.URL.Query().Get("q"))
-		mu.Unlock()
 		io.WriteString(w, emptyDocsBody)
 	}))
 	t.Cleanup(srv.Close)
+	transport := srv.Client().Transport
+	client := &http.Client{Transport: roundTripFunc(func(req *http.Request) (*http.Response, error) {
+		mu.Lock()
+		times = append(times, time.Now())
+		queries = append(queries, req.URL.Query().Get("q"))
+		mu.Unlock()
+		return transport.RoundTrip(req)
+	})}
 	r := NewCoverResolver(CoverResolverOptions{
 		Cache:         &memCoverCache{entries: map[string]memCoverEntry{}},
-		HTTPClient:    srv.Client(),
+		HTTPClient:    client,
 		SearchURL:     func() string { return srv.URL + "/search.json" },
 		MaxConcurrent: 3,
 		MinInterval:   interval,
@@ -1035,7 +1047,7 @@ func TestResolvePacesSearches(t *testing.T) {
 		t.Fatalf("requests = %d, want 4", len(times))
 	}
 	for i := 1; i < len(times); i++ {
-		// Allow for timer slack on the stub's side of the clock.
+		// Allow for scheduling between the resolver's turn and the send.
 		if gap := times[i].Sub(times[i-1]); gap < interval-10*time.Millisecond {
 			t.Errorf("gap %d = %v, want at least %v", i, gap, interval)
 		}

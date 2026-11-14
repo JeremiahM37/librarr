@@ -119,6 +119,17 @@ type LibraryItem struct {
 	AddedAt      time.Time `json:"added_at"`
 }
 
+// LibraryLink records where a library item can be opened in a user-facing
+// library such as Kavita or Audiobookshelf. Paths are relative to that
+// service's public URL, so changing the URL needs no new sync.
+type LibraryLink struct {
+	ItemID     int64
+	Service    string
+	ExternalID string
+	URLPath    string
+	CoverPath  string
+}
+
 // ActivityEvent represents an entry in the activity log.
 type ActivityEvent struct {
 	ID            int64     `json:"id"`
