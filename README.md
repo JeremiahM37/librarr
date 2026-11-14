@@ -8,7 +8,7 @@
 <h3 align="center">The missing *arr for books.</h3>
 
 <p align="center">
-  <a href="https://github.com/JeremiahM37/librarr/actions/workflows/test.yml"><img alt="Build &amp; Test" src="https://github.com/JeremiahM37/librarr/actions/workflows/test.yml/badge.svg"></a>
+  <a href="https://github.com/JeremiahM37/librarr/actions/workflows/cd.yml"><img alt="CI/CD" src="https://github.com/JeremiahM37/librarr/actions/workflows/cd.yml/badge.svg?branch=main"></a>
   <a href="https://github.com/JeremiahM37/librarr/releases"><img alt="Release" src="https://img.shields.io/github/v/release/JeremiahM37/librarr"></a>
   <img alt="Go" src="https://img.shields.io/github/go-mod/go-version/JeremiahM37/librarr">
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-yellow.svg"></a>

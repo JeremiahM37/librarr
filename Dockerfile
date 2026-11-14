@@ -19,7 +19,11 @@ RUN go mod download
 COPY . .
 COPY --from=ui-builder /build/web/static/react ./web/static/react
 COPY --from=ui-builder /build/web/index.html ./web/index.html
-RUN CGO_ENABLED=0 GOOS=linux go build -ldflags="-s -w" -o /librarr ./cmd/librarr/
+# VERSION_SUFFIX marks unreleased builds, e.g. "-canary+abc1234"; empty for releases.
+ARG VERSION_SUFFIX=""
+RUN CGO_ENABLED=0 GOOS=linux go build \
+    -ldflags="-s -w -X github.com/JeremiahM37/librarr/internal/version.Suffix=${VERSION_SUFFIX}" \
+    -o /librarr ./cmd/librarr/
 
 # --- Runtime image ---
 FROM alpine:3.21
