@@ -355,31 +355,6 @@ def test_local_item_detail_remove_closes_and_keeps_file(local_app, page):
     assert path.read_bytes() == b"detail view file"
 
 
-def test_external_items_open_their_local_record(local_app, page):
-    item_id, _ = _insert_file_item(local_app, "Shelved and local", "audiobook")
-    page.route("**/api/library/audiobooks*", lambda route: route.fulfill(json={
-        "items": [
-            {"id": "li_abs", "title": "Shelf only", "abs_url": "https://abs.example/item/li_abs"},
-            {"id": "li_both", "title": "Shelved and local", "local_id": item_id,
-             "abs_url": "https://abs.example/item/li_both"},
-        ],
-        "total": 2,
-    }))
-    _open_library(local_app, page, "audiobooks")
-    shelf_only = _card(page, "Shelf only")
-    expect(shelf_only.get_by_role("link", name="Open in Audiobookshelf")).to_be_visible()
-    expect(shelf_only.locator('[data-action="openLibraryItem"]')).to_have_count(0)
-    both = _card(page, "Shelved and local")
-    # The card's own link stays clickable above the card-wide detail target.
-    both.get_by_role("link", name="Open in Audiobookshelf").click(trial=True)
-    both.get_by_role("button", name="Shelved and local").click()
-    detail = page.locator("#library-item-detail")
-    expect(detail).to_contain_text("Detail Author")
-    expect(detail.get_by_role("link", name="Open in Audiobookshelf")).to_have_attribute(
-        "href", "https://abs.example/item/li_both")
-    expect(detail.get_by_role("link", name="Download file")).to_be_visible()
-
-
 def test_kavita_linked_ebook_stays_a_local_record(local_app, page):
     item_id, _ = _insert_file_item(local_app, "Shelved in Kavita", "ebook")
     link = "https://kavita.example/library/1/series/5"

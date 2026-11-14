@@ -118,39 +118,15 @@ func TestLibraryDeleteRejectsOtherCategories(t *testing.T) {
 	}
 }
 
-func TestMangaDeleteKavitaIDCollision(t *testing.T) {
-	server := libraryMediaTypeTestSetup(t)
-	server.cfg.KavitaURL, server.cfg.KavitaUser, server.cfg.KavitaPass = "http://unused.invalid", "user", "pass"
-	server.mux = http.NewServeMux()
-	server.registerLibraryRoutes()
-	items, _, err := server.db.FindItems("manga", "", 50, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	endpoint := fmt.Sprintf("/api/library/manga/%d", items[0].ID)
-	response := httptest.NewRecorder()
-	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", endpoint, nil))
-	if response.Code != http.StatusConflict {
-		t.Fatalf("ambiguous ID: %d %s", response.Code, response.Body)
-	}
-	if _, err := server.db.GetItem(items[0].ID); err != nil {
-		t.Fatal(err)
-	}
-	response = httptest.NewRecorder()
-	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", endpoint+"?source=local", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("explicit local ID: %d %s", response.Code, response.Body)
-	}
-}
-
-// Audiobook rows are Librarr records, so a delete never reaches
-// Audiobookshelf, and an Audiobookshelf item ID is not accepted.
-func TestAudiobookDeleteLeavesAudiobookshelfAlone(t *testing.T) {
+// Every library row is a Librarr record, so deleting one never needs to say
+// which service its ID belongs to, and never reaches Kavita or Audiobookshelf.
+func TestLibraryDeleteLeavesExternalLibrariesAlone(t *testing.T) {
 	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t.Errorf("unexpected request to Audiobookshelf: %s %s", r.Method, r.URL.Path)
+		t.Errorf("unexpected request to an external library: %s %s", r.Method, r.URL.Path)
 	}))
 	defer provider.Close()
 	server := libraryMediaTypeTestSetup(t)
+	server.cfg.KavitaURL, server.cfg.KavitaAPIKey = provider.URL, "key"
 	server.cfg.ABSURL, server.cfg.ABSToken = provider.URL, "token"
 	server.mux = http.NewServeMux()
 	server.registerLibraryRoutes()
@@ -161,16 +137,16 @@ func TestAudiobookDeleteLeavesAudiobookshelfAlone(t *testing.T) {
 		t.Fatalf("non-numeric ID: %d %s", response.Code, response.Body)
 	}
 
-	items, _, err := server.db.FindItems("audiobook", "", 50, 0)
+	items, _, err := server.db.FindItems("manga", "", 50, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
 	response = httptest.NewRecorder()
-	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", fmt.Sprintf("/api/library/audiobook/%d", items[0].ID), nil))
+	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", fmt.Sprintf("/api/library/manga/%d", items[0].ID), nil))
 	if response.Code != http.StatusOK {
-		t.Fatalf("local audiobook with Audiobookshelf configured: %d %s", response.Code, response.Body)
+		t.Fatalf("local manga with Kavita configured: %d %s", response.Code, response.Body)
 	}
 	if _, err := server.db.GetItem(items[0].ID); !errors.Is(err, sql.ErrNoRows) {
-		t.Fatalf("audiobook record remains: %v", err)
+		t.Fatalf("manga record remains: %v", err)
 	}
 }

@@ -49,43 +49,6 @@ func newKavitaAuthStub(t *testing.T, wantHeader, wantValue string) *kavitaAuthSt
 	return k
 }
 
-func TestLibraryManga_KavitaAuthentication(t *testing.T) {
-	for _, tc := range []struct {
-		name       string
-		apiKey     string
-		target     string
-		wantLogins int
-		wantHeader string
-		wantValue  string
-		wantPath   string
-	}{
-		{"auth key lists series without login", "kavita-key", "/api/library/manga", 0, "x-api-key", "kavita-key", "/api/Series/all-v2"},
-		{"auth key searches without login", "kavita-key", "/api/library/manga?q=dune", 0, "x-api-key", "kavita-key", "/api/Search/search"},
-		{"password lists series after login", "", "/api/library/manga", 1, "Authorization", "Bearer jwt-123", "/api/Series/all-v2"},
-		{"password searches after login", "", "/api/library/manga?q=dune", 1, "Authorization", "Bearer jwt-123", "/api/Search/search"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			k := newKavitaAuthStub(t, tc.wantHeader, tc.wantValue)
-			s := &Server{cfg: &config.Config{KavitaURL: k.URL, KavitaUser: "u", KavitaPass: "p", KavitaAPIKey: tc.apiKey}}
-
-			rr := httptest.NewRecorder()
-			s.handleLibraryManga(rr, httptest.NewRequest(http.MethodGet, tc.target, nil))
-
-			if rr.Code != http.StatusOK {
-				t.Fatalf("status = %d: %s", rr.Code, rr.Body.String())
-			}
-			k.mu.Lock()
-			defer k.mu.Unlock()
-			if k.logins != tc.wantLogins {
-				t.Errorf("logins = %d, want %d", k.logins, tc.wantLogins)
-			}
-			if len(k.paths) != 1 || k.paths[0] != tc.wantPath {
-				t.Errorf("requests = %v, want [%s]", k.paths, tc.wantPath)
-			}
-		})
-	}
-}
-
 func TestTestKavita_Authentication(t *testing.T) {
 	for _, tc := range []struct {
 		name        string

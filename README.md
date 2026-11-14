@@ -123,7 +123,7 @@ Open `http://localhost:5050` in your browser.
 
 ### Library Management
 
-The ebook and audiobook tabs list everything Librarr has imported, with titles, authors, formats, and file sizes. The manga tab does too unless Kavita is configured, in which case it lists Kavita's series. Local library search matches titles and authors across all pages.
+The library tabs list everything Librarr has imported, with titles, authors, formats, and file sizes. Local library search matches titles and authors across all pages.
 
 With Kavita or Audiobookshelf configured, items they shelve get an **Open in Kavita** or **Open in Audiobookshelf** link. Librarr finds them by path every 15 minutes, and a minute after each import: an item filed under `EBOOK_DIR`, `AUDIOBOOK_DIR` or `MANGA_DIR` is matched to the Kavita series or Audiobookshelf item at the same path relative to that service's library folder, so the containers may mount the library at different paths. When nothing matches an item's own folder, the nearest series in a folder above it is used, since Kavita files a series whose books sit in several folders under the folder they share. A Kavita library folder pointing at a parent or child of Librarr's directory is not matched. Kavita libraries are picked by type (Book and Light Novel for ebooks, the rest for manga) unless `KAVITA_EBOOK_LIBRARY_ID` or `KAVITA_MANGA_LIBRARY_ID` names one (both may name the same library); Audiobookshelf uses `ABS_LIBRARY_ID` and `ABS_EBOOK_LIBRARY_ID`.
 
@@ -637,13 +637,9 @@ different format); that is what the UI's **Download anyway** button sends.
 | GET | `/api/stats` | Library statistics |
 | GET | `/api/activity` | Recent activity log |
 
-Removing a local library item preserves the file on disk and returns linked
-wanted entries to missing. Local ebooks, audiobooks, and manga all offer a
-confirmation before removal, and Audiobookshelf is left alone: what it
-shelves is managed there. Manga displayed from Kavita is managed through
-the **Open in Kavita** link; its series IDs are not Librarr item IDs. If Kavita
-is configured, API callers removing a local manga record must explicitly pass
-`?source=local` with the Librarr item ID.
+Removing a library item preserves the file on disk and returns linked
+wanted entries to missing. Every tab offers a confirmation before removal.
+Kavita and Audiobookshelf are left alone; what they shelve is managed there.
 
 ### Requests
 
