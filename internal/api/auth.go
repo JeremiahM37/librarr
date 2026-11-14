@@ -17,9 +17,13 @@ import (
 	"golang.org/x/crypto/bcrypt"
 )
 
+// bcryptCost is the work factor for new password hashes. Tests lower it to
+// bcrypt.MinCost so they don't spend most of their time hashing.
+var bcryptCost = bcrypt.DefaultCost
+
 // hashPassword hashes a password using bcrypt.
 func hashPassword(password string) (string, error) {
-	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	bytes, err := bcrypt.GenerateFromPassword([]byte(password), bcryptCost)
 	return string(bytes), err
 }
 
