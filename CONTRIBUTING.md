@@ -57,6 +57,19 @@ reload. Provider responses and delayed requests are covered separately in
 - Mock HTTP calls with `httptest.NewServer`
 - No external test frameworks — just `testing`
 
+## Releasing
+
+From an up-to-date, clean `main`, run:
+
+```bash
+scripts/release.sh 1.6.0
+```
+
+This bumps `internal/version/VERSION`, commits "Bump version to 1.6.0", tags
+`v1.6.0`, and pushes both. The tag triggers the Release workflow, which checks
+the tag against `VERSION`, runs the tests, publishes the GitHub release with
+GoReleaser, and then pushes the Docker image to GHCR.
+
 ## Adding a Search Source
 
 1. Create `internal/search/yoursource.go` implementing the `Source` interface
