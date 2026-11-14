@@ -403,3 +403,29 @@ def test_kavita_linked_ebook_stays_a_local_record(local_app, page):
     expect(detail.get_by_role("link", name="Open in Kavita")).to_have_attribute("href", link)
     expect(detail.get_by_role("link", name="Download file")).to_be_visible()
     expect(detail.get_by_role("button", name="Remove from library")).to_be_visible()
+
+
+def test_abs_linked_audiobook_stays_a_local_record(local_app, page):
+    item_id, _ = _insert_file_item(local_app, "Shelved in ABS", "audiobook")
+    link = "https://abs.example/item/li_both"
+
+    def with_link(route):
+        response = route.fetch()
+        body = response.json()
+        for item in body.get("items", [body]):
+            if item.get("id") == item_id:
+                item["abs_url"] = link
+        route.fulfill(response=response, json=body)
+
+    page.route("**/api/library/audiobooks*", with_link)
+    page.route(f"**/api/library/{item_id}", with_link)
+    _open_library(local_app, page, "audiobooks")
+    card = _card(page, "Shelved in ABS")
+    # The card's own link stays clickable above the card-wide detail target.
+    card.get_by_role("link", name="Open in Audiobookshelf").click(trial=True)
+    expect(card.locator('[data-action="deleteLibraryItem"]')).to_have_count(1)
+    card.get_by_role("button", name="Shelved in ABS").click()
+    detail = page.locator("#library-item-detail")
+    expect(detail.get_by_role("link", name="Open in Audiobookshelf")).to_have_attribute("href", link)
+    expect(detail.get_by_role("link", name="Download file")).to_be_visible()
+    expect(detail.get_by_role("button", name="Remove from library")).to_be_visible()

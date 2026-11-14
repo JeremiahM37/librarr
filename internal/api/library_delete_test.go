@@ -8,7 +8,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/JeremiahM37/librarr/internal/models"
@@ -144,44 +143,34 @@ func TestMangaDeleteKavitaIDCollision(t *testing.T) {
 	}
 }
 
-func TestLibraryDeleteABSFailuresPreserveLocalRecord(t *testing.T) {
-	for _, status := range []int{http.StatusNoContent, http.StatusUnauthorized, http.StatusNotFound, http.StatusInternalServerError, 0} {
-		t.Run(fmt.Sprint(status), func(t *testing.T) {
-			server := libraryMediaTypeTestSetup(t)
-			provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if r.Method != "DELETE" || r.URL.Path != "/api/items/abs-item" || r.Header.Get("Authorization") != "Bearer fixture-token" {
-					t.Errorf("unexpected provider request: %s %s", r.Method, r.URL.Path)
-				}
-				w.WriteHeader(status)
-			}))
-			defer provider.Close()
-			if status == 0 {
-				provider.Close()
-			}
-			server.cfg.ABSURL, server.cfg.ABSToken = provider.URL, "fixture-token"
-			itemID, err := server.db.AddItem(&models.LibraryItem{Title: "ABS copy", MediaType: "audiobook", SourceID: "abs-item"})
-			if err != nil {
-				t.Fatal(err)
-			}
-			server.mux = http.NewServeMux()
-			server.registerLibraryRoutes()
-			response := httptest.NewRecorder()
-			server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", "/api/library/audiobook/abs-item", nil))
-			if status == http.StatusNoContent {
-				if response.Code != http.StatusOK {
-					t.Fatalf("delete: %d %s", response.Code, response.Body)
-				}
-				if _, err := server.db.GetItem(itemID); !errors.Is(err, sql.ErrNoRows) {
-					t.Fatalf("local copy remains: %v", err)
-				}
-			} else {
-				if response.Code != http.StatusBadGateway || (status != 0 && !strings.Contains(response.Body.String(), fmt.Sprint(status))) {
-					t.Fatalf("upstream error hidden: %d %s", response.Code, response.Body)
-				}
-				if _, err := server.db.GetItem(itemID); err != nil {
-					t.Fatal(err)
-				}
-			}
-		})
+// Audiobook rows are Librarr records, so a delete never reaches
+// Audiobookshelf, and an Audiobookshelf item ID is not accepted.
+func TestAudiobookDeleteLeavesAudiobookshelfAlone(t *testing.T) {
+	provider := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Errorf("unexpected request to Audiobookshelf: %s %s", r.Method, r.URL.Path)
+	}))
+	defer provider.Close()
+	server := libraryMediaTypeTestSetup(t)
+	server.cfg.ABSURL, server.cfg.ABSToken = provider.URL, "token"
+	server.mux = http.NewServeMux()
+	server.registerLibraryRoutes()
+
+	response := httptest.NewRecorder()
+	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", "/api/library/audiobook/abs-item", nil))
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("non-numeric ID: %d %s", response.Code, response.Body)
+	}
+
+	items, _, err := server.db.FindItems("audiobook", "", 50, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	response = httptest.NewRecorder()
+	server.mux.ServeHTTP(response, httptest.NewRequest("DELETE", fmt.Sprintf("/api/library/audiobook/%d", items[0].ID), nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("local audiobook with Audiobookshelf configured: %d %s", response.Code, response.Body)
+	}
+	if _, err := server.db.GetItem(items[0].ID); !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("audiobook record remains: %v", err)
 	}
 }

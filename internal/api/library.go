@@ -2,28 +2,17 @@ package api
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"math"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/JeremiahM37/librarr/internal/db"
 	"github.com/JeremiahM37/librarr/internal/models"
 )
 
 func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
-	// If ABS ebook library is configured, pull from there (has covers + series).
-	// Otherwise fall back to local DB.
-	if s.cfg.HasAudiobookshelf() && s.cfg.ABSEbookLibraryID != "" {
-		s.handleLibraryEbooksFromABS(w, r)
-		return
-	}
-
 	// /api/library is the ebooks tab; default to media_type="ebook" so
 	// audiobooks/manga imported into the local DB don't bleed into this
 	// view. Callers that genuinely want every row can pass ?type=all.
@@ -75,8 +64,7 @@ func (s *Server) handleLibrary(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLibraryItem returns one local library item with its tags, for the
-// item detail view. Items shown from Audiobookshelf or Kavita are not local
-// rows and have no detail here.
+// item detail view.
 func (s *Server) handleLibraryItem(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.ParseInt(r.PathValue("id"), 10, 64)
 	if err != nil {
@@ -115,7 +103,7 @@ func (s *Server) handleLibraryFile(w http.ResponseWriter, r *http.Request) {
 	s.serveLibraryFile(w, r, id)
 }
 
-// serveLocalLibraryByMediaType uses the same page-based contract as ABS/Kavita.
+// serveLocalLibraryByMediaType serves one media type's tab, a page at a time.
 func (s *Server) serveLocalLibraryByMediaType(w http.ResponseWriter, r *http.Request, mediaType string) {
 	const pageSize = 100
 	page := queryBoundedInt(r, "page", 1, 1, 1_000_000)
@@ -135,101 +123,6 @@ func (s *Server) serveLocalLibraryPage(w http.ResponseWriter, r *http.Request, m
 		"pages":  int(math.Ceil(float64(total) / float64(limit))),
 		"limit":  limit,
 		"offset": offset,
-	})
-}
-
-// handleLibraryEbooksFromABS pulls ebooks from ABS ebook library (with covers + series).
-func (s *Server) handleLibraryEbooksFromABS(w http.ResponseWriter, r *http.Request) {
-	page := queryInt(r, "page", 1)
-	if page < 1 {
-		page = 1
-	}
-	query := r.URL.Query().Get("q")
-	limit := queryInt(r, "limit", 100) // default 100 so series group together
-	if limit < 1 || limit > 500 {
-		limit = 100
-	}
-
-	absURL := fmt.Sprintf("%s/api/libraries/%s/items", s.cfg.ABSURL, s.cfg.ABSEbookLibraryID)
-	params := url.Values{
-		"page":  {strconv.Itoa(page - 1)},
-		"limit": {strconv.Itoa(limit)},
-		"sort":  {"media.metadata.seriesName"},
-	}
-	if query != "" {
-		params.Set("filter", "search="+url.QueryEscape(query))
-	}
-
-	req, err := http.NewRequest("GET", absURL+"?"+params.Encode(), nil)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "Failed to load library items", err)
-		return
-	}
-	req.Header.Set("Authorization", "Bearer "+s.cfg.ABSToken)
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	resp, err := client.Do(req)
-	if err != nil {
-		writeJSON(w, http.StatusBadGateway, map[string]interface{}{"error": "Failed to reach ABS"})
-		return
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		writeJSON(w, http.StatusBadGateway, map[string]interface{}{
-			"error": fmt.Sprintf("ABS returned HTTP %d", resp.StatusCode),
-		})
-		return
-	}
-
-	var absResp absLibraryResponse
-	if err := json.NewDecoder(resp.Body).Decode(&absResp); err != nil {
-		writeJSON(w, http.StatusInternalServerError, map[string]interface{}{"error": "Failed to parse ABS response"})
-		return
-	}
-
-	publicURL := s.cfg.ABSPublicURL
-	if publicURL == "" {
-		publicURL = s.cfg.ABSURL
-	}
-
-	var items []map[string]interface{}
-	for _, item := range absResp.Results {
-		author := item.Media.Metadata.AuthorName
-		if author == "" && len(item.Media.Metadata.Authors) > 0 {
-			author = item.Media.Metadata.Authors[0].Name
-		}
-		series := item.Media.Metadata.SeriesName
-		if series == "" && len(item.Media.Metadata.Series) > 0 {
-			series = item.Media.Metadata.Series[0].Name
-		}
-
-		coverURL := fmt.Sprintf("%s/api/items/%s/cover", publicURL, item.ID)
-
-		items = append(items, map[string]interface{}{
-			"id":        item.ID,
-			"title":     item.Media.Metadata.Title,
-			"author":    author,
-			"series":    series,
-			"cover_url": coverURL,
-			"abs_url":   fmt.Sprintf("%s/item/%s", publicURL, item.ID),
-		})
-	}
-	if items == nil {
-		items = []map[string]interface{}{}
-	}
-	s.linkLocalItems(items, "ebook")
-
-	totalPages := absResp.NumPages
-	if totalPages == 0 && absResp.Total > 0 {
-		totalPages = int(math.Ceil(float64(absResp.Total) / float64(limit)))
-	}
-
-	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"items": items,
-		"total": absResp.Total,
-		"page":  page,
-		"pages": totalPages,
 	})
 }
 
