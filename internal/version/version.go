@@ -15,5 +15,11 @@ import (
 //go:embed VERSION
 var raw string
 
+// Suffix is appended to the release version for unreleased builds, such as
+// the canary image, which sets it with
+// -ldflags "-X github.com/JeremiahM37/librarr/internal/version.Suffix=-canary+<sha>".
+// It is empty for releases.
+var Suffix string
+
 // Version is the current Librarr release.
-var Version = strings.TrimSpace(raw)
+var Version = strings.TrimSpace(raw) + Suffix

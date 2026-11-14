@@ -1,25 +1,27 @@
-name: Build & Test
+name: Continuous Integration
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
+  workflow_call:
+permissions:
+  contents: read
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 jobs:
   test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/ui/package-lock.json
       - name: Build the TypeScript frontend
         run: npm ci --prefix web/ui && npm run build --prefix web/ui
       - uses: actions/setup-go@v5
-        with: {go-version: '1.26.x', cache: true, check-latest: true}
+        with: { go-version: "1.26.x", cache: true, check-latest: true }
       - name: gofmt
         run: |
           unformatted=$(gofmt -l .)
@@ -85,6 +87,7 @@ jobs:
           fi
 
   docker:
+    name: Docker Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -92,22 +95,23 @@ jobs:
         run: docker build -t librarr:ci .
 
   e2e:
+    name: E2E
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: "24"
           cache: npm
           cache-dependency-path: web/ui/package-lock.json
       - name: Build the TypeScript frontend
         run: npm ci --prefix web/ui && npm run build --prefix web/ui
       - uses: actions/setup-go@v5
-        with: {go-version: '1.26.x', cache: true, check-latest: true}
+        with: { go-version: "1.26.x", cache: true, check-latest: true }
       - name: build binary
         run: go build -o /tmp/librarr ./cmd/librarr/
       - uses: actions/setup-python@v5
-        with: {python-version: '3.12'}
+        with: { python-version: "3.12" }
       - name: install e2e deps
         run: |
           pip install -r e2e/requirements.txt
