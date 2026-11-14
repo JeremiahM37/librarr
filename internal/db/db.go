@@ -368,6 +368,18 @@ func (d *DB) migrate() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc_subject ON users(oidc_subject) WHERE oidc_subject != ''`,
 		// Cached cover searches; an empty url records a miss.
 		`CREATE TABLE IF NOT EXISTS cover_lookups (key TEXT PRIMARY KEY, url TEXT NOT NULL DEFAULT '', fetched_at REAL NOT NULL)`,
+		// Where each library item is shelved in Kavita or Audiobookshelf,
+		// as last found by the link sync.
+		`CREATE TABLE IF NOT EXISTS library_links (
+			item_id INTEGER NOT NULL,
+			service TEXT NOT NULL,
+			external_id TEXT NOT NULL,
+			url_path TEXT NOT NULL,
+			cover_path TEXT NOT NULL DEFAULT '',
+			synced_at REAL NOT NULL,
+			PRIMARY KEY (item_id, service),
+			FOREIGN KEY (item_id) REFERENCES library_items(id) ON DELETE CASCADE
+		)`,
 	}
 	for _, m := range postMigrations {
 		if _, err := d.db.Exec(m); err != nil {
