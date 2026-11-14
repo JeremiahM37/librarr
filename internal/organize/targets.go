@@ -2,6 +2,7 @@ package organize
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -11,15 +12,19 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/JeremiahM37/librarr/internal/config"
+	"github.com/JeremiahM37/librarr/internal/links"
 )
 
 // LibraryTargets handles importing organized files into external libraries.
 type LibraryTargets struct {
 	cfg    *config.Config
 	client *http.Client
+	// afterImport runs once an import has been handed to the libraries.
+	afterImport atomic.Pointer[func()]
 }
 
 // NewLibraryTargets creates a new library targets handler.
@@ -29,6 +34,18 @@ func NewLibraryTargets(cfg *config.Config) *LibraryTargets {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+	}
+}
+
+// SetAfterImport sets a function to run after every import, once the
+// libraries have been asked to scan.
+func (lt *LibraryTargets) SetAfterImport(fn func()) {
+	lt.afterImport.Store(&fn)
+}
+
+func (lt *LibraryTargets) imported() {
+	if fn := lt.afterImport.Load(); fn != nil && *fn != nil {
+		(*fn)()
 	}
 }
 
@@ -48,11 +65,13 @@ func (lt *LibraryTargets) ImportEbook(filePath, title, author string) {
 	// Issue #98: ebooks landing in a Kavita library folder stayed invisible
 	// until someone scanned by hand — only manga ever asked Kavita to look.
 	lt.scanKavita(lt.cfg.KavitaEbookLibraryID)
+	lt.imported()
 }
 
 // ImportAudiobook triggers ABS library scan.
 func (lt *LibraryTargets) ImportAudiobook() {
 	lt.scanABSAudiobookLibrary()
+	lt.imported()
 }
 
 // ImportManga copies to Kavita and Komga manga libraries and triggers scans. This
@@ -62,6 +81,7 @@ func (lt *LibraryTargets) ImportManga(filePath, seriesTitle string) {
 	lt.scanKavita(lt.cfg.KavitaMangaLibraryID)
 	lt.copyToKomga(filePath, seriesTitle)
 	lt.scanKomga()
+	lt.imported()
 }
 
 // copyToCalibre copies an ebook to the Calibre library directory.
@@ -207,7 +227,7 @@ func (lt *LibraryTargets) scanKavita(libraryID string) {
 		return
 	}
 
-	authorize, err := lt.kavitaAuthorizer()
+	authorize, err := links.KavitaAuthorizer(context.Background(), lt.client, lt.cfg.KavitaURL, lt.cfg.KavitaAPIKey, lt.cfg.KavitaUser, lt.cfg.KavitaPass)
 	if err != nil {
 		slog.Error("kavita login failed", "error", err)
 		return
@@ -239,46 +259,6 @@ func (lt *LibraryTargets) scanKavita(libraryID string) {
 	} else {
 		slog.Warn("kavita scan returned non-success", "library_id", libraryID, "status", resp.StatusCode)
 	}
-}
-
-// kavitaAuthorizer returns a function that adds credentials to a Kavita request.
-// A configured auth key is sent as-is; otherwise it logs in with the username
-// and password to get a JWT.
-func (lt *LibraryTargets) kavitaAuthorizer() (func(*http.Request), error) {
-	if key := lt.cfg.KavitaAPIKey; key != "" {
-		return func(req *http.Request) { req.Header.Set("x-api-key", key) }, nil
-	}
-	token, err := lt.kavitaLogin()
-	if err != nil {
-		return nil, err
-	}
-	return func(req *http.Request) { req.Header.Set("Authorization", "Bearer "+token) }, nil
-}
-
-func (lt *LibraryTargets) kavitaLogin() (string, error) {
-	payload, _ := json.Marshal(map[string]string{
-		"username": lt.cfg.KavitaUser,
-		"password": lt.cfg.KavitaPass,
-	})
-
-	url := fmt.Sprintf("%s/api/Account/login", lt.cfg.KavitaURL)
-	resp, err := lt.client.Post(url, "application/json", bytes.NewReader(payload))
-	if err != nil {
-		return "", fmt.Errorf("kavita login request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("kavita login HTTP %d", resp.StatusCode)
-	}
-
-	var result struct {
-		Token string `json:"token"`
-	}
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", fmt.Errorf("kavita login decode: %w", err)
-	}
-	return result.Token, nil
 }
 
 // copyToKomga copies a manga file to the Komga library path.

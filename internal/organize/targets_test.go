@@ -396,3 +396,17 @@ func TestOrganizeEbookOntoItselfKeepsTheBook(t *testing.T) {
 		})
 	}
 }
+
+// TestImports_RunAfterImportHook — every import tells the link sync to look
+// for the new item once the libraries have been asked to scan.
+func TestImports_RunAfterImportHook(t *testing.T) {
+	calls := 0
+	lt := &LibraryTargets{cfg: &config.Config{}}
+	lt.SetAfterImport(func() { calls++ })
+	lt.ImportEbook(filepath.Join(t.TempDir(), "book.epub"), "T", "A")
+	lt.ImportAudiobook()
+	lt.ImportManga(filepath.Join(t.TempDir(), "series"), "S")
+	if calls != 3 {
+		t.Errorf("after-import hook ran %d times, want 3", calls)
+	}
+}
