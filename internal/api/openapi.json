@@ -332,7 +332,7 @@
     "/api/library": {
       "get": {
         "summary": "List ebooks in the library",
-        "description": "Lists Librarr's own records. An item shelved in Kavita or Audiobookshelf carries \"kavita_url\" or \"abs_url\", and that service's cover as \"cover_url\" when it has none of its own. /api/library/audiobooks lists audiobooks the same way.",
+        "description": "Lists Librarr's own records. An item shelved in Kavita or Audiobookshelf carries \"kavita_url\" or \"abs_url\", and that service's cover as \"cover_url\" when it has none of its own. /api/library/audiobooks and /api/library/manga list the other media types the same way.",
         "parameters": [
           {
             "name": "limit",
@@ -396,7 +396,7 @@
     "/api/library/{id}": {
       "get": {
         "summary": "One local library item with its tags",
-        "description": "Returns the item fields from the library listing, including its Kavita and Audiobookshelf links, plus \"tags\". 404 when no local item has this id; manga series shown from Kavita are not local, but the manga listing marks the ones that match a local item with \"local_id\".",
+        "description": "Returns the item fields from the library listing, including its Kavita and Audiobookshelf links, plus \"tags\". 404 when no item has this id.",
         "parameters": [
           {
             "name": "id",
@@ -455,18 +455,13 @@
     "/api/library/manga/{id}": {
       "delete": {
         "summary": "Remove a local manga library record, preserving its file",
-        "description": "Unlinks wanted entries. Kavita series IDs are not local item IDs: manage those in Kavita. When Kavita is configured, source=local is required to explicitly select a local record.",
+        "description": "Unlinks wanted entries. Kavita is left alone.",
         "parameters": [
           {
             "name": "id",
             "in": "path",
             "required": true,
             "schema": { "type": "integer", "minimum": 1 }
-          },
-          {
-            "name": "source",
-            "in": "query",
-            "schema": { "type": "string", "enum": ["local"] }
           }
         ]
       }
