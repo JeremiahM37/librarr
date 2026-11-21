@@ -27,9 +27,15 @@ type OIDCHandler struct {
 	db       *db.DB
 	sessions *SessionStore
 
-	provider *oidc.Provider
-	verifier *oidc.IDTokenVerifier
-	oauth2   oauth2.Config
+	// initMu serializes on-demand and background discovery attempts;
+	// readyMu guards provider, verifier, oauth2, endSessionEndpoint, and
+	// retryInBackground.
+	initMu            sync.Mutex
+	readyMu           sync.RWMutex
+	provider          *oidc.Provider
+	verifier          *oidc.IDTokenVerifier
+	oauth2            oauth2.Config
+	retryInBackground bool
 
 	// endSessionEndpoint is the provider's RP-initiated logout endpoint from
 	// discovery, or "" when it doesn't advertise one.
@@ -51,16 +57,20 @@ type oidcState struct {
 // Provider discovery at startup is retried, since the provider is often
 // deployed alongside Librarr and may not be answering yet. It runs before the
 // HTTP server listens, so the worst case (about 25s) stays short enough for
-// container health checks.
+// container health checks. If startup discovery still fails, the handler stays
+// mounted and retries in the background and on demand so SSO recovers once the
+// provider comes up without requiring a restart.
 const (
-	oidcDiscoveryAttempts  = 3
-	oidcDiscoveryTimeout   = 5 * time.Second
-	oidcDiscoveryRetryWait = 5 * time.Second
+	oidcDiscoveryAttempts           = 3
+	oidcDiscoveryTimeout            = 5 * time.Second
+	oidcDiscoveryRetryWait          = 5 * time.Second
+	oidcDiscoveryBackgroundInterval = 30 * time.Second
 )
 
 // NewOIDCHandler initializes the OIDC provider and returns a handler.
-// Returns nil if OIDC is not configured, or if the provider could not be
-// reached after a few attempts.
+// Returns nil only if OIDC is not configured. If the provider cannot be reached
+// at startup, the returned handler is not yet ready (Ready() == false) and will
+// retry discovery in the background and on demand.
 func NewOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore) *OIDCHandler {
 	return newOIDCHandler(cfg, database, sessions, time.Sleep)
 }
@@ -70,46 +80,20 @@ func newOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore,
 		return nil
 	}
 
-	provider, err := discoverOIDCProvider(cfg.OIDCIssuer, sleep)
-	if err != nil {
-		slog.Error("failed to initialize OIDC provider; SSO is unavailable until restart",
-			"issuer", cfg.OIDCIssuer, "attempts", oidcDiscoveryAttempts, "error", err)
-		return nil
-	}
-
-	verifier := provider.Verifier(&oidc.Config{ClientID: cfg.OIDCClientID})
-
-	oauth2Cfg := oauth2.Config{
-		ClientID:     cfg.OIDCClientID,
-		ClientSecret: cfg.OIDCClientSecret,
-		Endpoint:     provider.Endpoint(),
-		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
-	}
-
-	if cfg.OIDCRedirectURI != "" {
-		oauth2Cfg.RedirectURL = cfg.OIDCRedirectURI
-	}
-
-	var discovery struct {
-		EndSessionEndpoint string `json:"end_session_endpoint"`
-	}
-	if err := provider.Claims(&discovery); err != nil {
-		slog.Warn("could not read OIDC discovery metadata; provider logout disabled", "error", err)
-	}
-
-	slog.Info("OIDC provider initialized", "issuer", cfg.OIDCIssuer, "provider_name", cfg.OIDCProviderName,
-		"provider_logout", discovery.EndSessionEndpoint != "")
-
 	h := &OIDCHandler{
 		cfg:      cfg,
 		db:       database,
 		sessions: sessions,
-		provider: provider,
-		verifier: verifier,
-		oauth2:   oauth2Cfg,
 		states:   make(map[string]oidcState),
+	}
 
-		endSessionEndpoint: discovery.EndSessionEndpoint,
+	provider, err := discoverOIDCProvider(cfg.OIDCIssuer, sleep)
+	if err != nil {
+		h.retryInBackground = transientDiscoveryError(err)
+		slog.Error("failed to initialize OIDC provider at startup; will retry when the provider becomes reachable",
+			"issuer", cfg.OIDCIssuer, "attempts", oidcDiscoveryAttempts, "error", err)
+	} else {
+		h.applyProvider(provider)
 	}
 
 	// Periodically clean up expired OIDC state nonces.
@@ -128,6 +112,122 @@ func newOIDCHandler(cfg *config.Config, database *db.DB, sessions *SessionStore,
 	}()
 
 	return h
+}
+
+func (h *OIDCHandler) applyProvider(provider *oidc.Provider) {
+	verifier := provider.Verifier(&oidc.Config{ClientID: h.cfg.OIDCClientID})
+
+	oauth2Cfg := oauth2.Config{
+		ClientID:     h.cfg.OIDCClientID,
+		ClientSecret: h.cfg.OIDCClientSecret,
+		Endpoint:     provider.Endpoint(),
+		Scopes:       []string{oidc.ScopeOpenID, "profile", "email"},
+	}
+
+	if h.cfg.OIDCRedirectURI != "" {
+		oauth2Cfg.RedirectURL = h.cfg.OIDCRedirectURI
+	}
+
+	var discovery struct {
+		EndSessionEndpoint string `json:"end_session_endpoint"`
+	}
+	if err := provider.Claims(&discovery); err != nil {
+		slog.Warn("could not read OIDC discovery metadata; provider logout disabled", "error", err)
+	}
+
+	h.readyMu.Lock()
+	h.provider = provider
+	h.verifier = verifier
+	h.oauth2 = oauth2Cfg
+	h.endSessionEndpoint = discovery.EndSessionEndpoint
+	h.retryInBackground = false
+	h.readyMu.Unlock()
+
+	slog.Info("OIDC provider initialized", "issuer", h.cfg.OIDCIssuer, "provider_name", h.cfg.OIDCProviderName,
+		"provider_logout", discovery.EndSessionEndpoint != "")
+}
+
+func (h *OIDCHandler) isReadyLocked() bool {
+	return h.provider != nil || h.oauth2.Endpoint.AuthURL != ""
+}
+
+// Ready reports whether OIDC provider discovery has succeeded.
+func (h *OIDCHandler) Ready() bool {
+	if h == nil {
+		return false
+	}
+	h.readyMu.RLock()
+	defer h.readyMu.RUnlock()
+	return h.isReadyLocked()
+}
+
+// ensureReady initializes the OIDC provider on demand if startup discovery
+// did not succeed. Concurrent callers share a single discovery attempt.
+func (h *OIDCHandler) ensureReady(ctx context.Context) error {
+	if h.Ready() {
+		return nil
+	}
+
+	h.initMu.Lock()
+	defer h.initMu.Unlock()
+
+	if h.Ready() {
+		return nil
+	}
+
+	discoverCtx, cancel := context.WithTimeout(ctx, oidcDiscoveryTimeout)
+	defer cancel()
+
+	provider, err := oidc.NewProvider(discoverCtx, h.cfg.OIDCIssuer)
+	if err != nil {
+		return err
+	}
+	h.applyProvider(provider)
+	return nil
+}
+
+// StartDiscoveryLoop retries OIDC discovery in the background when startup
+// discovery failed with a transient error, stopping as soon as discovery
+// succeeds, hits a configuration error, or ctx is cancelled.
+func (h *OIDCHandler) StartDiscoveryLoop(ctx context.Context) {
+	h.startDiscoveryLoop(ctx, oidcDiscoveryBackgroundInterval)
+}
+
+func (h *OIDCHandler) startDiscoveryLoop(ctx context.Context, interval time.Duration) {
+	if h == nil {
+		return
+	}
+	h.readyMu.RLock()
+	shouldRun := !h.isReadyLocked() && h.retryInBackground
+	h.readyMu.RUnlock()
+	if !shouldRun {
+		return
+	}
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if h.Ready() {
+				return
+			}
+			err := h.ensureReady(ctx)
+			if err == nil {
+				return
+			}
+			if !transientDiscoveryError(err) {
+				slog.Error("OIDC discovery failed with non-transient error; stopping background retries",
+					"issuer", h.cfg.OIDCIssuer, "error", err)
+				return
+			}
+			slog.Warn("OIDC provider still not reachable; will retry",
+				"issuer", h.cfg.OIDCIssuer, "retry_in", interval, "error", err)
+		}
+	}
 }
 
 // discoverOIDCProvider fetches the issuer's discovery document, retrying a
@@ -202,7 +302,9 @@ func (h *OIDCHandler) validateState(state string) (oidcState, bool) {
 // oauth2ConfigFor returns the OAuth2 config with the redirect URI filled in
 // from the request when OIDC_REDIRECT_URI is not set.
 func (h *OIDCHandler) oauth2ConfigFor(r *http.Request) oauth2.Config {
+	h.readyMu.RLock()
 	oauth2Cfg := h.oauth2
+	h.readyMu.RUnlock()
 	if oauth2Cfg.RedirectURL == "" {
 		scheme := "http"
 		if isSecureRequest(r) {
@@ -222,6 +324,11 @@ func (h *OIDCHandler) HandleLogin(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	if err := h.ensureReady(r.Context()); err != nil {
+		slog.Warn("OIDC login unavailable; provider discovery failed", "issuer", h.cfg.OIDCIssuer, "error", err)
+		http.Error(w, "OIDC provider is temporarily unavailable", http.StatusServiceUnavailable)
+		return
+	}
 
 	state, err := h.generateState(0)
 	if err != nil {
@@ -239,6 +346,11 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 			"success": false,
 			"error":   "OIDC not configured",
 		})
+		return
+	}
+	if err := h.ensureReady(r.Context()); err != nil {
+		slog.Warn("OIDC callback unavailable; provider discovery failed", "issuer", h.cfg.OIDCIssuer, "error", err)
+		http.Error(w, "OIDC provider is temporarily unavailable", http.StatusServiceUnavailable)
 		return
 	}
 
@@ -284,7 +396,11 @@ func (h *OIDCHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	idToken, err := h.verifier.Verify(ctx, rawIDToken)
+	h.readyMu.RLock()
+	verifier := h.verifier
+	h.readyMu.RUnlock()
+
+	idToken, err := verifier.Verify(ctx, rawIDToken)
 	if err != nil {
 		slog.Error("OIDC ID token verification failed", "error", err)
 		http.Error(w, "Invalid ID token", http.StatusInternalServerError)
@@ -384,11 +500,17 @@ func (h *OIDCHandler) providerLogoutURL(cfg *config.Config, session *SessionData
 	if cfg.OIDCLogoutURL != "" {
 		return cfg.OIDCLogoutURL
 	}
-	if h == nil || h.endSessionEndpoint == "" || session == nil || !session.OIDC {
+	if h == nil || session == nil || !session.OIDC {
+		return ""
+	}
+	h.readyMu.RLock()
+	endSessionEndpoint := h.endSessionEndpoint
+	h.readyMu.RUnlock()
+	if endSessionEndpoint == "" {
 		return ""
 	}
 
-	u, err := url.Parse(h.endSessionEndpoint)
+	u, err := url.Parse(endSessionEndpoint)
 	if err != nil {
 		slog.Warn("invalid OIDC end_session_endpoint", "error", err)
 		return ""
@@ -416,6 +538,14 @@ func (h *OIDCHandler) HandleLinkStart(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusNotFound, map[string]interface{}{
 			"success": false,
 			"error":   "SSO is not available",
+		})
+		return
+	}
+	if err := h.ensureReady(r.Context()); err != nil {
+		slog.Warn("OIDC account link unavailable; provider discovery failed", "issuer", h.cfg.OIDCIssuer, "error", err)
+		writeJSON(w, http.StatusServiceUnavailable, map[string]interface{}{
+			"success": false,
+			"error":   "SSO provider is temporarily unavailable",
 		})
 		return
 	}

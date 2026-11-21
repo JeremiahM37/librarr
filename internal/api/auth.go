@@ -42,11 +42,15 @@ func hashBackupCode(code string) string {
 // oidcLoginPath is where SSO accounts are sent instead of the password form.
 const oidcLoginPath = "/auth/oidc/login"
 
+func isOIDCReady(oidcReady func() bool) bool {
+	return oidcReady != nil && oidcReady()
+}
+
 // localLoginRestricted reports whether password sign-in is limited to local
 // admins. It needs a working OIDC provider (oidcReady); if the provider failed
 // to initialise, local sign-in stays open so nobody is locked out.
-func localLoginRestricted(cfg *config.Config, oidcReady bool) bool {
-	return cfg != nil && cfg.LocalAuthDisabled && oidcReady
+func localLoginRestricted(cfg *config.Config, oidcReady func() bool) bool {
+	return cfg != nil && cfg.LocalAuthDisabled && isOIDCReady(oidcReady)
 }
 
 // writeLoginRefused answers a password sign-in that LOCAL_AUTH_DISABLED or the
@@ -64,7 +68,7 @@ const (
 )
 
 // handleLogin handles POST /api/login for session-based auth.
-func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady bool) http.HandlerFunc {
+func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Username string `json:"username"`
@@ -90,7 +94,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore, oi
 			// is a 200 so the UI can read the redirect. It is answered before
 			// any password check, so it does reveal that the username is an
 			// SSO account; that is what lets the form hand them off.
-			if err == nil && user.IsOIDC() && oidcReady {
+			if err == nil && user.IsOIDC() && isOIDCReady(oidcReady) {
 				writeJSON(w, http.StatusOK, map[string]interface{}{
 					"success":  false,
 					"error":    msgAccountUsesSSO,
@@ -194,7 +198,7 @@ func handleLogin(cfg *config.Config, database *db.DB, sessions *SessionStore, oi
 }
 
 // handleLoginTOTP handles POST /api/login/totp — second step of 2FA login.
-func handleLoginTOTP(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady bool) http.HandlerFunc {
+func handleLoginTOTP(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			SessionPending string `json:"session_pending"`
@@ -296,7 +300,7 @@ func handleLoginTOTP(cfg *config.Config, database *db.DB, sessions *SessionStore
 //
 // With LOCAL_AUTH_DISABLED only the first-user bootstrap is allowed; everyone
 // else gets an account by signing in with SSO.
-func handleRegister(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady bool) http.HandlerFunc {
+func handleRegister(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req struct {
 			Username   string `json:"username"`
@@ -432,7 +436,7 @@ func handleRegister(cfg *config.Config, database *db.DB, sessions *SessionStore,
 }
 
 // handleAuthStatus returns the current auth state (are there users? is user logged in? is oidc available?)
-func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady bool) http.HandlerFunc {
+func handleAuthStatus(cfg *config.Config, database *db.DB, sessions *SessionStore, oidcReady func() bool) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		userCount, _ := database.CountUsers()
 
