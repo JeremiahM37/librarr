@@ -4,7 +4,6 @@ WORKDIR /build/web/ui
 COPY web/ui/package.json web/ui/package-lock.json ./
 RUN npm ci
 COPY web/ui/ ./
-COPY web/index.html ../index.html
 RUN npm run build
 
 FROM golang:1.26-alpine AS builder
@@ -18,7 +17,6 @@ RUN go mod download
 # Build the binary.
 COPY . .
 COPY --from=ui-builder /build/web/static/react ./web/static/react
-COPY --from=ui-builder /build/web/index.html ./web/index.html
 # VERSION_SUFFIX marks unreleased builds, e.g. "-canary+abc1234"; empty for releases.
 ARG VERSION_SUFFIX=""
 RUN CGO_ENABLED=0 GOOS=linux go build \
