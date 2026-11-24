@@ -7,11 +7,14 @@ Thanks for your interest in contributing! Here's how to get started.
 ```bash
 git clone https://github.com/JeremiahM37/librarr.git
 cd librarr
-npm ci --prefix web/ui
-npm run build --prefix web/ui
-go build -o librarr ./cmd/librarr/
-go test ./...
+make build   # builds the web UI, then ./librarr
+make test
 ```
+
+Without make, run `go generate ./web` before `go build`; it builds the web UI
+(Node.js 24) into `web/static/react/`, which is not committed. Rerun it after
+changing anything under `web/ui/`. A binary built without it serves a
+"UI not built" page.
 
 ## Good First Issues
 
@@ -31,7 +34,7 @@ Check the [good first issue](https://github.com/JeremiahM37/librarr/labels/good%
 | Suite | Command | Needs |
 |---|---|---|
 | Unit + race | `go test ./... -race` | nothing |
-| Frontend type check + embedded bundle | `npm ci --prefix web/ui && npm run build --prefix web/ui` | Node.js 24 |
+| Frontend type check + embedded bundle | `go generate ./web` | Node.js 24 |
 | Integration | `go test -tags=integration ./internal/integration/...` | nothing |
 | Browser end-to-end | `pip install -r e2e/requirements.txt && playwright install chromium`, then `LIBRARR_E2E_BIN=./librarr pytest e2e/` | Chromium |
 | Import modes vs. a real torrent client | `LIBRARR_BIN=./librarr python3 e2e/manual_qbittorrent_check.py --spawn` | Docker |

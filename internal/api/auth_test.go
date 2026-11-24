@@ -388,7 +388,7 @@ func TestHandleAuthStatus_OIDCHints(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
 			rr := httptest.NewRecorder()
-			handleAuthStatus(tt.cfg, database, sessions, false)(rr, req)
+			handleAuthStatus(tt.cfg, database, sessions, oidcReadyConst(false))(rr, req)
 
 			if rr.Code != http.StatusOK {
 				t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -416,6 +416,10 @@ func TestHandleAuthStatus_OIDCHints(t *testing.T) {
 			}
 		})
 	}
+}
+
+func oidcReadyConst(v bool) func() bool {
+	return func() bool { return v }
 }
 
 func newOIDCTestConfig() *config.Config {
@@ -587,7 +591,7 @@ func TestHandleAuthStatus_AuthentikProxyHeaders(t *testing.T) {
 	req = req.WithContext(context.WithValue(req.Context(), ctxUsername, user.Username))
 	req = req.WithContext(context.WithValue(req.Context(), ctxUserRole, user.Role))
 	rr := httptest.NewRecorder()
-	handleAuthStatus(newOIDCTestConfig(), database, sessions, false)(rr, req)
+	handleAuthStatus(newOIDCTestConfig(), database, sessions, oidcReadyConst(false))(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -622,7 +626,7 @@ func TestHandleAuthStatus_ProxyHeaderDoesNotCreateUser(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/auth/status", nil)
 	req.Header.Set("X-Authentik-Username", "alice")
 	rr := httptest.NewRecorder()
-	handleAuthStatus(newOIDCTestConfig(), database, sessions, false)(rr, req)
+	handleAuthStatus(newOIDCTestConfig(), database, sessions, oidcReadyConst(false))(rr, req)
 
 	if rr.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200; body=%s", rr.Code, rr.Body.String())
@@ -1112,7 +1116,7 @@ func TestHandleLogin_RedirectsOIDCUserToSSO(t *testing.T) {
 	seedOIDCUser(t, database, "alice", "sub-alice", "user")
 
 	rr := httptest.NewRecorder()
-	handleLogin(newOIDCTestConfig(), database, NewSessionStore(), true)(rr, postJSON("/api/login", `{"username":"alice","password":"!"}`))
+	handleLogin(newOIDCTestConfig(), database, NewSessionStore(), oidcReadyConst(true))(rr, postJSON("/api/login", `{"username":"alice","password":"!"}`))
 
 	resp := decodeBody(t, rr)
 	if rr.Code != http.StatusOK || resp["success"] != false || resp["redirect"] != "/auth/oidc/login" {
@@ -1133,7 +1137,7 @@ func TestHandleLogin_OIDCUserWithoutProviderIsRejected(t *testing.T) {
 	// The provider failed to initialise: no redirect to a dead endpoint, and
 	// the unusable hash still refuses every password.
 	rr := httptest.NewRecorder()
-	handleLogin(newOIDCTestConfig(), database, NewSessionStore(), false)(rr, postJSON("/api/login", `{"username":"alice","password":"!"}`))
+	handleLogin(newOIDCTestConfig(), database, NewSessionStore(), oidcReadyConst(false))(rr, postJSON("/api/login", `{"username":"alice","password":"!"}`))
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401; body=%s", rr.Code, rr.Body.String())
@@ -1159,7 +1163,7 @@ func TestHandleLogin_LocalAuthDisabled(t *testing.T) {
 
 			rr := httptest.NewRecorder()
 			body := `{"username":"` + tt.username + `","password":"password"}`
-			handleLogin(localAuthDisabledConfig(), database, NewSessionStore(), tt.oidcReady)(rr, postJSON("/api/login", body))
+			handleLogin(localAuthDisabledConfig(), database, NewSessionStore(), oidcReadyConst(tt.oidcReady))(rr, postJSON("/api/login", body))
 
 			if rr.Code != tt.want {
 				t.Fatalf("status = %d, want %d; body=%s", rr.Code, tt.want, rr.Body.String())
@@ -1174,7 +1178,7 @@ func TestHandleLogin_LocalAuthDisabledChecksPasswordFirst(t *testing.T) {
 	seedLocalUser(t, database, "bob", "user")
 
 	rr := httptest.NewRecorder()
-	handleLogin(localAuthDisabledConfig(), database, NewSessionStore(), true)(rr, postJSON("/api/login", `{"username":"bob","password":"wrong"}`))
+	handleLogin(localAuthDisabledConfig(), database, NewSessionStore(), oidcReadyConst(true))(rr, postJSON("/api/login", `{"username":"bob","password":"wrong"}`))
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401 for a wrong password; body=%s", rr.Code, rr.Body.String())
@@ -1189,7 +1193,7 @@ func TestHandleLoginTOTP_LocalAuthDisabledRefusesNonAdmin(t *testing.T) {
 	pending, _ := sessions.CreatePendingTOTP(id)
 
 	rr := httptest.NewRecorder()
-	handleLoginTOTP(localAuthDisabledConfig(), database, sessions, true)(rr, postJSON("/api/login/totp", `{"session_pending":"`+pending+`","code":"000000"}`))
+	handleLoginTOTP(localAuthDisabledConfig(), database, sessions, oidcReadyConst(true))(rr, postJSON("/api/login/totp", `{"session_pending":"`+pending+`","code":"000000"}`))
 
 	if rr.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
@@ -1202,7 +1206,7 @@ func TestHandleRegister_LocalAuthDisabled(t *testing.T) {
 	t.Run("first user bootstrap allowed", func(t *testing.T) {
 		database := newTestDB(t)
 		rr := httptest.NewRecorder()
-		handleRegister(cfg, database, NewSessionStore(), true)(rr, postJSON("/api/register", `{"username":"root","password":"password"}`))
+		handleRegister(cfg, database, NewSessionStore(), oidcReadyConst(true))(rr, postJSON("/api/register", `{"username":"root","password":"password"}`))
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201; body=%s", rr.Code, rr.Body.String())
 		}
@@ -1215,7 +1219,7 @@ func TestHandleRegister_LocalAuthDisabled(t *testing.T) {
 			t.Fatalf("create invite: %v", err)
 		}
 		rr := httptest.NewRecorder()
-		handleRegister(cfg, database, NewSessionStore(), true)(rr, postJSON("/api/register", `{"username":"bob","password":"password","invite_code":"invite1"}`))
+		handleRegister(cfg, database, NewSessionStore(), oidcReadyConst(true))(rr, postJSON("/api/register", `{"username":"bob","password":"password","invite_code":"invite1"}`))
 		if rr.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
 		}
@@ -1226,7 +1230,7 @@ func TestHandleRegister_LocalAuthDisabled(t *testing.T) {
 		adminID := seedLocalUser(t, database, "root", "admin")
 		req := adminRequest(http.MethodPost, "/api/register", `{"username":"bob","password":"password"}`, adminID)
 		rr := httptest.NewRecorder()
-		handleRegister(cfg, database, NewSessionStore(), true)(rr, req)
+		handleRegister(cfg, database, NewSessionStore(), oidcReadyConst(true))(rr, req)
 		if rr.Code != http.StatusForbidden {
 			t.Fatalf("status = %d, want 403; body=%s", rr.Code, rr.Body.String())
 		}
@@ -1237,7 +1241,7 @@ func TestHandleRegister_LocalAuthDisabled(t *testing.T) {
 		adminID := seedLocalUser(t, database, "root", "admin")
 		req := adminRequest(http.MethodPost, "/api/register", `{"username":"bob","password":"password"}`, adminID)
 		rr := httptest.NewRecorder()
-		handleRegister(cfg, database, NewSessionStore(), false)(rr, req)
+		handleRegister(cfg, database, NewSessionStore(), oidcReadyConst(false))(rr, req)
 		if rr.Code != http.StatusCreated {
 			t.Fatalf("status = %d, want 201; body=%s", rr.Code, rr.Body.String())
 		}
@@ -1259,7 +1263,7 @@ func TestHandleAuthStatus_LocalLoginEnabled(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			database := newTestDB(t)
 			rr := httptest.NewRecorder()
-			handleAuthStatus(tt.cfg, database, NewSessionStore(), tt.oidcReady)(rr, httptest.NewRequest(http.MethodGet, "/api/auth/status", nil))
+			handleAuthStatus(tt.cfg, database, NewSessionStore(), oidcReadyConst(tt.oidcReady))(rr, httptest.NewRequest(http.MethodGet, "/api/auth/status", nil))
 			if got := decodeBody(t, rr)["local_login_enabled"]; got != tt.want {
 				t.Fatalf("local_login_enabled = %v, want %v", got, tt.want)
 			}
@@ -1277,7 +1281,7 @@ func TestHandleLoginTOTP_SSOAccountMessage(t *testing.T) {
 	// LOCAL_AUTH_DISABLED is off: the refusal must name the account, not
 	// claim password sign-in is disabled.
 	rr := httptest.NewRecorder()
-	handleLoginTOTP(newOIDCTestConfig(), database, sessions, true)(rr, postJSON("/api/login/totp", `{"session_pending":"`+pending+`","code":"000000"}`))
+	handleLoginTOTP(newOIDCTestConfig(), database, sessions, oidcReadyConst(true))(rr, postJSON("/api/login/totp", `{"session_pending":"`+pending+`","code":"000000"}`))
 
 	if got := decodeBody(t, rr)["error"]; rr.Code != http.StatusForbidden || got != msgAccountUsesSSO {
 		t.Fatalf("status=%d error=%v", rr.Code, got)
