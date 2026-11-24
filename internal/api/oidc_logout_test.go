@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -208,8 +211,15 @@ func TestNewOIDCHandler_GivesUpAfterRetries(t *testing.T) {
 	cfg.OIDCIssuer = srv.URL
 
 	var waits int
-	if h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ }); h != nil {
-		t.Fatal("expected nil when the provider never answers")
+	h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ })
+	if h == nil {
+		t.Fatal("expected non-nil handler so OIDC routes stay mounted for recovery")
+	}
+	if h.Ready() {
+		t.Fatal("expected Ready() == false when the provider never answers")
+	}
+	if !h.retryInBackground {
+		t.Fatal("expected retryInBackground == true after transient startup failure")
 	}
 	if requests != oidcDiscoveryAttempts || waits != oidcDiscoveryAttempts-1 {
 		t.Fatalf("requests=%d waits=%d", requests, waits)
@@ -227,11 +237,144 @@ func TestNewOIDCHandler_DoesNotRetryConfigErrors(t *testing.T) {
 	cfg.OIDCIssuer = srv.URL
 
 	var waits int
-	if h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ }); h != nil {
-		t.Fatal("expected nil for a provider without a discovery document")
+	h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) { waits++ })
+	if h == nil {
+		t.Fatal("expected non-nil handler when OIDC is configured")
+	}
+	if h.Ready() {
+		t.Fatal("expected Ready() == false for a provider without a discovery document")
+	}
+	if h.retryInBackground {
+		t.Fatal("expected retryInBackground == false for a 404 configuration error")
 	}
 	if requests != 1 || waits != 0 {
 		t.Fatalf("a 404 is a configuration error: requests=%d waits=%d, want 1 and 0", requests, waits)
+	}
+}
+
+func TestOIDCHandler_RecoversOnDemandLogin(t *testing.T) {
+	var ready atomic.Bool
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                srv.URL,
+			"authorization_endpoint":                srv.URL + "/authorize",
+			"token_endpoint":                        srv.URL + "/token",
+			"jwks_uri":                              srv.URL + "/jwks",
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := newOIDCTestConfig()
+	cfg.OIDCIssuer = srv.URL
+	h := newOIDCHandler(cfg, newTestDB(t), NewSessionStore(), func(time.Duration) {})
+	if h == nil || h.Ready() {
+		t.Fatalf("expected non-nil unready handler at startup, got h=%v ready=%v", h, h.Ready())
+	}
+
+	// While the provider is still down, login returns 503 instead of 404.
+	rr := httptest.NewRecorder()
+	h.HandleLogin(rr, httptest.NewRequest(http.MethodGet, "/auth/oidc/login", nil))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status while down = %d, want 503; body=%s", rr.Code, rr.Body.String())
+	}
+
+	// Once the provider comes up, login lazily discovers it and redirects.
+	ready.Store(true)
+	rr = httptest.NewRecorder()
+	h.HandleLogin(rr, httptest.NewRequest(http.MethodGet, "/auth/oidc/login", nil))
+	if rr.Code != http.StatusFound {
+		t.Fatalf("status after recovery = %d, want 302; body=%s", rr.Code, rr.Body.String())
+	}
+	if loc := rr.Header().Get("Location"); !strings.HasPrefix(loc, srv.URL+"/authorize?") {
+		t.Fatalf("Location = %q, want prefix %q", loc, srv.URL+"/authorize?")
+	}
+	if !h.Ready() {
+		t.Fatal("expected Ready() == true after on-demand discovery")
+	}
+}
+
+func TestOIDCHandler_BackgroundDiscoveryRecovery(t *testing.T) {
+	var ready atomic.Bool
+	var srv *httptest.Server
+	srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !ready.Load() {
+			http.Error(w, "starting", http.StatusServiceUnavailable)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"issuer":                                srv.URL,
+			"authorization_endpoint":                srv.URL + "/authorize",
+			"token_endpoint":                        srv.URL + "/token",
+			"jwks_uri":                              srv.URL + "/jwks",
+			"id_token_signing_alg_values_supported": []string{"RS256"},
+		})
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := localAuthDisabledConfig()
+	cfg.OIDCIssuer = srv.URL
+	database := newTestDB(t)
+	h := newOIDCHandler(cfg, database, NewSessionStore(), func(time.Duration) {})
+	if h == nil || h.Ready() {
+		t.Fatalf("expected non-nil unready handler at startup")
+	}
+
+	// Before recovery, LOCAL_AUTH_DISABLED keeps local login open.
+	statusHandler := handleAuthStatus(cfg, database, NewSessionStore(), h.Ready)
+	rr := httptest.NewRecorder()
+	statusHandler(rr, httptest.NewRequest(http.MethodGet, "/api/auth/status", nil))
+	if got := decodeBody(t, rr)["local_login_enabled"]; got != true {
+		t.Fatalf("local_login_enabled before recovery = %v, want true", got)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan struct{})
+	go func() {
+		h.startDiscoveryLoop(ctx, 10*time.Millisecond)
+		close(done)
+	}()
+
+	ready.Store(true)
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("background discovery loop did not recover and exit in time")
+	}
+
+	if !h.Ready() {
+		t.Fatal("expected Ready() == true after background discovery")
+	}
+	// After recovery, LOCAL_AUTH_DISABLED dynamically takes effect.
+	rr = httptest.NewRecorder()
+	statusHandler(rr, httptest.NewRequest(http.MethodGet, "/api/auth/status", nil))
+	if got := decodeBody(t, rr)["local_login_enabled"]; got != false {
+		t.Fatalf("local_login_enabled after recovery = %v, want false", got)
+	}
+}
+
+func TestOIDCHandler_LinkStartUnavailableWhenProviderDown(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "down", http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(srv.Close)
+
+	cfg := newOIDCTestConfig()
+	cfg.OIDCIssuer = srv.URL
+	database := newTestDB(t)
+	id := seedLocalUser(t, database, "root", "admin")
+	h := newOIDCHandler(cfg, database, NewSessionStore(), func(time.Duration) {})
+
+	rr := httptest.NewRecorder()
+	h.HandleLinkStart(rr, linkStartRequest(id, "password"))
+	if rr.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503; body=%s", rr.Code, rr.Body.String())
 	}
 }
 
