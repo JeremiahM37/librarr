@@ -164,17 +164,6 @@ func TestLibraryFileDownload(t *testing.T) {
 	}
 }
 
-func TestKavitaSeriesLinkLocalRecordsByName(t *testing.T) {
-	s := libraryMediaTypeTestSetup(t)
-	items := s.kavitaSeriesToItems([]kavitaSeries{{ID: 7, Name: "Some Manga"}, {ID: 8, Name: "Another"}}, "http://kavita")
-	if items[0]["local_id"] != int64(3) {
-		t.Errorf("Some Manga local_id = %v, want 3", items[0]["local_id"])
-	}
-	if _, ok := items[1]["local_id"]; ok {
-		t.Errorf("Another should not be linked: %v", items[1])
-	}
-}
-
 // Library rows carry the links the sync stored, built on each service's
 // public URL, and borrow the linked service's cover when they have none.
 func TestLibraryListingsCarryStoredLinks(t *testing.T) {
@@ -185,6 +174,7 @@ func TestLibraryListingsCarryStoredLinks(t *testing.T) {
 	now := time.Now()
 	if err := s.db.ReplaceLibraryLinks(links.ServiceKavita, []models.LibraryLink{
 		{ItemID: 1, ExternalID: "5", URLPath: "/library/1/series/5", CoverPath: "/api/image/series-cover?seriesId=5"},
+		{ItemID: 3, ExternalID: "9", URLPath: "/library/2/series/9"},
 	}, now); err != nil {
 		t.Fatal(err)
 	}
@@ -207,6 +197,7 @@ func TestLibraryListingsCarryStoredLinks(t *testing.T) {
 			"abs_url":   "http://abs:13378/item/li_1",
 			"cover_url": "http://abs:13378/api/items/li_1/cover",
 		}},
+		{"/api/library/manga", map[string]string{"kavita_url": "https://read.example/library/2/series/9"}},
 	} {
 		rr := serve(h, tc.path)
 		if rr.Code != http.StatusOK {

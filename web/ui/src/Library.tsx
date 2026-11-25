@@ -112,8 +112,8 @@ function Card({
   const format = formatOf(item);
   return (
     <article className="book-card bg-slate-900 rounded-xl overflow-hidden border border-slate-800 relative group">
-      <Cover item={item} index={isLocal(item) ? item.id : index} />
-      {item.id != null && (isLocal(item) || !item.kavita_url) && (
+      <Cover item={item} index={typeof item.id === "number" ? item.id : index} />
+      {item.id != null && (
         <button
           data-action="deleteLibraryItem"
           title="Remove from library"
@@ -199,19 +199,6 @@ function Card({
   );
 }
 
-// Librarr's own rows carry their media type, and may link out to the library
-// that shelves them; rows listed from Audiobookshelf or Kavita have neither.
-function isLocal(item: LibraryItem): item is LibraryItem & { id: number } {
-  return (
-    typeof item.id === "number" &&
-    (item.media_type != null || (!item.abs_url && !item.kavita_url))
-  );
-}
-// The Librarr record behind a card: the row itself, or for a row listed from
-// Audiobookshelf or Kavita, the record the server matched it to.
-function localId(item: LibraryItem): number | undefined {
-  return isLocal(item) ? item.id : item.local_id;
-}
 function formatOf(item: LibraryItem): string {
   return (
     item.file_format ||
@@ -228,16 +215,11 @@ const mediaLabels: Record<MediaType, TranslationKey> = {
 
 export function ItemDetail({
   id,
-  listing,
   onClose,
   remove,
   removing,
 }: {
   id: number;
-  // The Library card this was opened from, when it came from Audiobookshelf
-  // or Kavita: its link is shown, and removing acts on it, as the card's ✕ does.
-  // Otherwise the record's own links are shown.
-  listing?: LibraryItem;
   onClose: () => void;
   remove: (item: LibraryItem) => Promise<boolean>;
   removing: boolean;
@@ -368,41 +350,39 @@ export function ItemDetail({
                     {t("item_download_file")}
                   </a>
                 )}
-                {(listing ?? item).abs_url && (
+                {item.abs_url && (
                   <a
                     className="px-4 py-2 rounded-lg bg-slate-800"
-                    href={(listing ?? item).abs_url}
+                    href={item.abs_url}
                     target="_blank"
                     rel="noreferrer"
                   >
                     {t("open_in_abs")}
                   </a>
                 )}
-                {(listing ?? item).kavita_url && (
+                {item.kavita_url && (
                   <a
                     className="px-4 py-2 rounded-lg bg-slate-800"
-                    href={(listing ?? item).kavita_url}
+                    href={item.kavita_url}
                     target="_blank"
                     rel="noreferrer"
                   >
                     {t("open_in_kavita")}
                   </a>
                 )}
-                {!listing?.kavita_url && (
-                  <button
-                    type="button"
-                    data-action="removeLibraryItem"
-                    className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-red-700 disabled:opacity-50"
-                    disabled={removing}
-                    onClick={() =>
-                      void remove(listing ?? item).then((removed) => {
-                        if (removed) dialog.current?.close();
-                      })
-                    }
-                  >
-                    {t("item_remove")}
-                  </button>
-                )}
+                <button
+                  type="button"
+                  data-action="removeLibraryItem"
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-red-700 disabled:opacity-50"
+                  disabled={removing}
+                  onClick={() =>
+                    void remove(item).then((removed) => {
+                      if (removed) dialog.current?.close();
+                    })
+                  }
+                >
+                  {t("item_remove")}
+                </button>
               </div>
             </div>
           </div>
@@ -427,7 +407,7 @@ export function Library({
     [loading, setLoading] = useState(false),
     [removing, setRemoving] = useState(false),
     [revision, setRevision] = useState(0),
-    [detail, setDetail] = useState<{ id: number; listing?: LibraryItem } | null>(null);
+    [detail, setDetail] = useState<number | null>(null);
   const requestVersion = useRef(0);
   useEffect(() => {
     const nextQuery = query.trim();
@@ -483,7 +463,6 @@ export function Library({
     if (
       removing ||
       item.id == null ||
-      (!isLocal(item) && item.kavita_url) ||
       !window.confirm(`Remove "${displayTitle(item)}" from library?`)
     )
       return false;
@@ -493,10 +472,9 @@ export function Library({
         ? "audiobook"
         : category === "manga" ? "manga" : "ebook");
     const type = media === "ebook" ? "book" : media;
-    const suffix = type === "manga" ? "?source=local" : "";
     setRemoving(true);
     try {
-      await api(`/api/library/${type}/${encodeURIComponent(item.id)}${suffix}`, {
+      await api(`/api/library/${type}/${encodeURIComponent(item.id)}`, {
         method: "DELETE",
       });
       setNotice(`Removed "${displayTitle(item)}"`);
@@ -512,9 +490,9 @@ export function Library({
     }
   };
   const openerFor = (item: LibraryItem) => {
-    const id = localId(item);
-    if (id == null) return undefined;
-    return () => setDetail({ id, listing: isLocal(item) ? undefined : item });
+    const id = item.id;
+    if (typeof id !== "number") return undefined;
+    return () => setDetail(id);
   };
   let index = 0;
   const render = (item: LibraryItem) => (
@@ -588,11 +566,10 @@ export function Library({
         )}
         {!loading && grouped.standalone.map(render)}
       </div>
-      {detail && (
+      {detail != null && (
         <ItemDetail
-          key={detail.id}
-          id={detail.id}
-          listing={detail.listing}
+          key={detail}
+          id={detail}
           onClose={() => setDetail(null)}
           remove={remove}
           removing={removing}

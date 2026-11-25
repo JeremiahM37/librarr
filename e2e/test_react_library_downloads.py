@@ -54,7 +54,8 @@ def test_library_categories_grouping_filter_pagination_links_and_cover_fallback(
     page.locator('[data-library-tab="manga"]').click()
     page.wait_for_selector('a[href="https://kavita.example/series/1"]')
     assert "382 pages" in page.locator("#library-results").inner_text()
-    expect(page.locator('[data-action="deleteLibraryItem"]')).to_have_count(0)
+    # Rows shelved in Kavita are still Librarr's records, removable here.
+    expect(page.locator('[data-action="deleteLibraryItem"]')).to_have_count(1)
 
 
 def test_download_cards_progress_retry_cancel_clear_refresh_and_poll(app, page):

@@ -121,10 +121,9 @@ export interface LibraryItem {
   num_files?: number;
   pages?: number;
   library?: string;
+  // Where the item is shelved in Audiobookshelf or Kavita, when it is.
   abs_url?: string;
   kavita_url?: string;
-  // On Audiobookshelf/Kavita rows: the matching record in Librarr's library.
-  local_id?: number;
   media_type?: MediaType;
   source?: string;
   added_at?: string;
