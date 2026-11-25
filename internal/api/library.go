@@ -159,18 +159,6 @@ func (s *Server) handleSources(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.searchMgr.SourceMeta())
 }
 
-func queryInt(r *http.Request, key string, fallback int) int {
-	v := r.URL.Query().Get(key)
-	if v == "" {
-		return fallback
-	}
-	n, err := strconv.Atoi(v)
-	if err != nil {
-		return fallback
-	}
-	return n
-}
-
 // queryBoundedInt parses an int query param and clamps it to [min, max].
 // Returns fallback when the param is missing, unparseable, or out of bounds.
 // Use this for pagination limits to avoid `limit=-1` returning unbounded rows
