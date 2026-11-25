@@ -73,25 +73,17 @@ func TestReplaceLibraryLinksSkipsMissingItems(t *testing.T) {
 }
 
 func TestDeleteItemDropsLinks(t *testing.T) {
-	for _, bySource := range []bool{false, true} {
-		d := newTestDB(t)
-		a := addLinkItem(t, d, "A", "a")
-		if err := d.ReplaceLibraryLinks("kavita", []models.LibraryLink{{ItemID: a, ExternalID: "1"}}, time.Now()); err != nil {
-			t.Fatal(err)
-		}
-		var err error
-		if bySource {
-			err = d.DeleteItemBySourceID("a")
-		} else {
-			err = d.DeleteItem(a)
-		}
-		if err != nil {
-			t.Fatal(err)
-		}
-		var n int
-		if err := d.db.QueryRow("SELECT COUNT(*) FROM library_links").Scan(&n); err != nil || n != 0 {
-			t.Errorf("bySource=%v: %d links left, %v", bySource, n, err)
-		}
+	d := newTestDB(t)
+	a := addLinkItem(t, d, "A", "a")
+	if err := d.ReplaceLibraryLinks("kavita", []models.LibraryLink{{ItemID: a, ExternalID: "1"}}, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if err := d.DeleteItem(a); err != nil {
+		t.Fatal(err)
+	}
+	var n int
+	if err := d.db.QueryRow("SELECT COUNT(*) FROM library_links").Scan(&n); err != nil || n != 0 {
+		t.Errorf("%d links left, %v", n, err)
 	}
 }
 

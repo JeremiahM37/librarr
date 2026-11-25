@@ -165,7 +165,7 @@ func NewServer(cfg *config.Config, database *db.DB, searchMgr *search.Manager, d
 		authorMonitor:  authorMon,
 		coverResolver:  coverResolver,
 		coverStore:     coverStore,
-		coverJob:       covers.NewJob(database, coverStore, coverJobResolver, func() []string { return coverMediaTypes(cfg) }),
+		coverJob:       covers.NewJob(database, coverStore, coverJobResolver, func() []string { return coverMediaTypes }),
 		linkSync:       links.NewSyncer(cfg, database),
 	}
 	if targets != nil {
@@ -198,20 +198,9 @@ const (
 	defaultCoverBaseURL   = "https://covers.openlibrary.org"
 )
 
-// coverMediaTypes lists the media types served from the local library, which
-// are the ones the cover job fills. It mirrors the routing in handleLibrary
-// and handleLibraryAudiobooks; manga is not looked up.
-func coverMediaTypes(cfg *config.Config) []string {
-	types := []string{}
-	absEbooks := cfg.HasAudiobookshelf() && cfg.ABSEbookLibraryID != ""
-	if !absEbooks {
-		types = append(types, "ebook")
-	}
-	if !cfg.HasAudiobookshelf() {
-		types = append(types, "audiobook")
-	}
-	return types
-}
+// coverMediaTypes lists the media types the cover job fills; manga is not
+// looked up.
+var coverMediaTypes = []string{"ebook", "audiobook"}
 
 // StartScheduler starts the background scheduler loop.
 func (s *Server) StartScheduler(ctx context.Context) {

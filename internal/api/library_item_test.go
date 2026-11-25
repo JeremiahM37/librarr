@@ -164,42 +164,6 @@ func TestLibraryFileDownload(t *testing.T) {
 	}
 }
 
-// Rows listed from Audiobookshelf carry ABS ids; the ones Librarr also has a
-// record of are linked to it so the UI can open the local detail view.
-func TestABSListingLinksLocalRecords(t *testing.T) {
-	abs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"results":[
-			{"id":"li_known","media":{"metadata":{"title":"An Audiobook","authorName":"A. Reader"}}},
-			{"id":"li_other","media":{"metadata":{"title":"Only on the shelf","authorName":"Someone"}}}
-		],"total":2,"numPages":1}`))
-	}))
-	t.Cleanup(abs.Close)
-	_, h := libraryItemRouter(t, &config.Config{ABSURL: abs.URL, ABSToken: "tok", ABSLibraryID: "lib"})
-
-	rr := serve(h, "/api/library/audiobooks")
-	if rr.Code != http.StatusOK {
-		t.Fatalf("HTTP %d: %s", rr.Code, rr.Body.String())
-	}
-	var body struct {
-		Items []struct {
-			ID      string `json:"id"`
-			LocalID int64  `json:"local_id"`
-		} `json:"items"`
-	}
-	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {
-		t.Fatalf("decode: %v", err)
-	}
-	got := map[string]int64{}
-	for _, it := range body.Items {
-		got[it.ID] = it.LocalID
-	}
-	// Item 2 is the local audiobook in libraryMediaTypeTestSetup.
-	if got["li_known"] != 2 || got["li_other"] != 0 || len(got) != 2 {
-		t.Errorf("local ids = %v, want li_known=2, li_other unset", got)
-	}
-}
-
 func TestKavitaSeriesLinkLocalRecordsByName(t *testing.T) {
 	s := libraryMediaTypeTestSetup(t)
 	items := s.kavitaSeriesToItems([]kavitaSeries{{ID: 7, Name: "Some Manga"}, {ID: 8, Name: "Another"}}, "http://kavita")
@@ -211,15 +175,22 @@ func TestKavitaSeriesLinkLocalRecordsByName(t *testing.T) {
 	}
 }
 
-// Library rows carry the Kavita links the sync stored, built on Kavita's
-// public URL, and borrow Kavita's cover when they have none.
+// Library rows carry the links the sync stored, built on each service's
+// public URL, and borrow the linked service's cover when they have none.
 func TestLibraryListingsCarryStoredLinks(t *testing.T) {
 	s, h := libraryItemRouter(t, &config.Config{
 		KavitaURL: "http://kavita:5000", KavitaAPIKey: "key", KavitaPublicURL: "https://read.example",
+		ABSURL: "http://abs:13378", ABSToken: "tok",
 	})
+	now := time.Now()
 	if err := s.db.ReplaceLibraryLinks(links.ServiceKavita, []models.LibraryLink{
 		{ItemID: 1, ExternalID: "5", URLPath: "/library/1/series/5", CoverPath: "/api/image/series-cover?seriesId=5"},
-	}, time.Now()); err != nil {
+	}, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.db.ReplaceLibraryLinks(links.ServiceABS, []models.LibraryLink{
+		{ItemID: 2, ExternalID: "li_1", URLPath: "/item/li_1", CoverPath: "/api/items/li_1/cover"},
+	}, now); err != nil {
 		t.Fatal(err)
 	}
 
@@ -232,6 +203,10 @@ func TestLibraryListingsCarryStoredLinks(t *testing.T) {
 			"cover_url":  "https://read.example/api/image/series-cover?seriesId=5",
 		}},
 		{"/api/library/1", map[string]string{"kavita_url": "https://read.example/library/1/series/5"}},
+		{"/api/library/audiobooks", map[string]string{
+			"abs_url":   "http://abs:13378/item/li_1",
+			"cover_url": "http://abs:13378/api/items/li_1/cover",
+		}},
 	} {
 		rr := serve(h, tc.path)
 		if rr.Code != http.StatusOK {
@@ -257,8 +232,8 @@ func TestLibraryListingsCarryStoredLinks(t *testing.T) {
 	}
 
 	// A link to a service that is no longer configured is not shown.
-	s.cfg.KavitaURL = ""
-	if rr := serve(h, "/api/library/1"); strings.Contains(rr.Body.String(), "kavita_url") {
-		t.Errorf("link to unconfigured Kavita shown: %s", rr.Body.String())
+	s.cfg.ABSURL = ""
+	if rr := serve(h, "/api/library/2"); strings.Contains(rr.Body.String(), "abs_url") {
+		t.Errorf("link to unconfigured Audiobookshelf shown: %s", rr.Body.String())
 	}
 }

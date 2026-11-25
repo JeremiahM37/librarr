@@ -1,12 +1,13 @@
 // Package links keeps track of where Librarr's library items are shelved in
-// the user-facing libraries, so the Library can link out to them. Kavita is
-// the one supported so far.
+// the user-facing libraries, Kavita and Audiobookshelf, so the Library can
+// link out to them.
 //
 // Items are matched by path. Librarr files each media type under its own
-// directory (EBOOK_DIR, AUDIOBOOK_DIR, MANGA_DIR), and Kavita reports its
-// library folders. A Kavita series is linked to the Librarr item at the same
-// path relative to those roots, so the two containers may mount the library
-// at different paths. An item also matches a series at a folder above its own, nearest
+// directory (EBOOK_DIR, AUDIOBOOK_DIR, MANGA_DIR), and Kavita and
+// Audiobookshelf each report their library folders. A Kavita series or
+// Audiobookshelf item is linked to the Librarr item at the same path relative
+// to those roots, so the two containers may mount the library at different
+// paths. An item also matches a series at a folder above its own, nearest
 // first: Kavita shelves a series whose books sit in several folders by the
 // folder they share. A Kavita library folder pointed at a parent or child of
 // Librarr's directory is not matched.
@@ -29,6 +30,7 @@ import (
 // Services links can point to.
 const (
 	ServiceKavita = "kavita"
+	ServiceABS    = "abs"
 )
 
 const (
@@ -47,8 +49,8 @@ type entry struct {
 	link      models.LibraryLink
 }
 
-// Syncer matches library items to Kavita series and stores the links it
-// finds.
+// Syncer matches library items to Kavita series and Audiobookshelf items and
+// stores the links it finds.
 type Syncer struct {
 	cfg    *config.Config
 	db     *db.DB
@@ -114,6 +116,7 @@ func (s *Syncer) RunOnce(ctx context.Context) {
 		fetch      func(context.Context) ([]entry, error)
 	}{
 		{ServiceKavita, s.cfg.HasKavita(), s.kavitaEntries},
+		{ServiceABS, s.cfg.HasAudiobookshelf(), s.absEntries},
 	} {
 		if ctx.Err() != nil {
 			return
